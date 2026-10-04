@@ -4,3 +4,4 @@ openai>=2.0
 python-dotenv>=1.0
 httpx>=0.28
 websockets>=15.0
+django-cors-headers>=4.0,<5
