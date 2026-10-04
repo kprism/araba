@@ -1,0 +1,361 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+
+import 'araba_api.dart';
+
+typedef LiveStatusCallback = void Function(String status);
+typedef LiveTranscriptCallback = void Function({
+  required bool isUser,
+  required String delta,
+});
+typedef LiveMissionCallback = void Function(Map<String, dynamic> mission);
+
+class LiveVoiceService {
+  final ArabaApi api;
+  final String apiKey;
+  final LiveStatusCallback onStatus;
+  final LiveTranscriptCallback onTranscript;
+  final LiveMissionCallback onMission;
+  final void Function(String message) onError;
+
+  RTCPeerConnection? _peerConnection;
+  MediaStream? _localStream;
+  RTCDataChannel? _events;
+
+  String _userTranscript = '';
+  String? _pendingRequestContext;
+  bool _started = false;
+  bool _closing = false;
+
+  LiveVoiceService({
+    required this.api,
+    required this.apiKey,
+    required this.onStatus,
+    required this.onTranscript,
+    required this.onMission,
+    required this.onError,
+  });
+
+  bool get isStarted => _started;
+
+  Future<void> start() async {
+    if (_started) return;
+
+    onStatus('연결 중');
+
+    try {
+      final peerConnection = await createPeerConnection(
+        <String, dynamic>{},
+      );
+      _peerConnection = peerConnection;
+
+      final stream = await navigator.mediaDevices.getUserMedia(
+        <String, dynamic>{
+          'audio': true,
+          'video': false,
+        },
+      );
+      _localStream = stream;
+
+      for (final track in stream.getAudioTracks()) {
+        await peerConnection.addTrack(track, stream);
+      }
+
+      await Helper.setSpeakerphoneOnButPreferBluetooth();
+
+      final events = await peerConnection.createDataChannel(
+        'oai-events',
+        RTCDataChannelInit(),
+      );
+      _events = events;
+
+      events.onMessage = _handleMessage;
+      events.onDataChannelState = (state) {
+        if (state == RTCDataChannelState.RTCDataChannelOpen) {
+          onStatus('대화 준비 중');
+        }
+      };
+
+      final iceGathered = Completer<void>();
+
+      peerConnection.onIceGatheringState = (state) {
+        if (
+            state == RTCIceGatheringState.RTCIceGatheringStateComplete &&
+            !iceGathered.isCompleted) {
+          iceGathered.complete();
+        }
+      };
+
+      peerConnection.onConnectionState = (state) {
+        if (
+            state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          if (!_closing) {
+            onError('실시간 음성 연결이 끊겼어요.');
+          }
+        }
+      };
+
+      final offer = await peerConnection.createOffer(
+        <String, dynamic>{
+          'offerToReceiveAudio': true,
+        },
+      );
+      await peerConnection.setLocalDescription(offer);
+
+      if (
+          peerConnection.iceGatheringState !=
+          RTCIceGatheringState.RTCIceGatheringStateComplete) {
+        await iceGathered.future.timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {},
+        );
+      }
+
+      final localDescription =
+          await peerConnection.getLocalDescription();
+      final offerSdp = localDescription?.sdp?.trim() ?? '';
+
+      if (offerSdp.isEmpty) {
+        throw const ArabaApiException(
+          '실시간 음성 연결 정보를 만들지 못했어요.',
+        );
+      }
+
+      final session = await api.createLiveSession(
+        offerSdp,
+        apiKey: apiKey,
+      );
+      final answerSdp = session['sdp']?.toString().trim() ?? '';
+
+      if (answerSdp.isEmpty) {
+        throw const ArabaApiException(
+          'GPT-Live 연결 응답이 올바르지 않아요.',
+        );
+      }
+
+      await peerConnection.setRemoteDescription(
+        RTCSessionDescription(
+          answerSdp,
+          'answer',
+        ),
+      );
+    } catch (error) {
+      await stop(force: true);
+      if (error is ArabaApiException) {
+        onError(error.message);
+      } else {
+        onError('실시간 음성 대화를 시작하지 못했어요.');
+      }
+      rethrow;
+    }
+  }
+
+  void _handleMessage(RTCDataChannelMessage message) {
+    if (message.isBinary) return;
+
+    Map<String, dynamic> event;
+
+    try {
+      event = jsonDecode(message.text) as Map<String, dynamic>;
+    } catch (_) {
+      return;
+    }
+
+    final type = event['type']?.toString() ?? '';
+
+    switch (type) {
+      case 'session.started':
+        _started = true;
+        onStatus('듣고 있어요');
+        break;
+      case 'session.input_transcript.delta':
+        final delta = event['delta']?.toString() ?? '';
+        if (delta.isNotEmpty) {
+          _userTranscript += delta;
+          onTranscript(isUser: true, delta: delta);
+        }
+        break;
+      case 'session.output_transcript.delta':
+        final delta = event['delta']?.toString() ?? '';
+        if (delta.isNotEmpty) {
+          onTranscript(isUser: false, delta: delta);
+        }
+        break;
+      case 'session.delegation.created':
+        final delegation = event['delegation'];
+        if (delegation is Map) {
+          final delegationId =
+              delegation['id']?.toString().trim() ?? '';
+          if (delegationId.isNotEmpty) {
+            unawaited(_handleDelegation(delegationId));
+          }
+        }
+        break;
+      case 'session.closed':
+        _started = false;
+        onStatus('종료됨');
+        unawaited(_cleanup());
+        break;
+      case 'error':
+        final error = event['error'];
+        final detail = error is Map
+            ? error['message']?.toString()
+            : null;
+        onError(detail ?? 'GPT-Live에서 오류가 발생했어요.');
+        break;
+    }
+  }
+
+  Future<void> _handleDelegation(String delegationId) async {
+    final latestUserText = _userTranscript.trim();
+    _userTranscript = '';
+
+    if (latestUserText.isEmpty) {
+      _sendEvent({
+        'type': 'session.commentary.append',
+        'delegation_id': delegationId,
+        'content': '사용자 요청을 정확히 듣지 못했습니다. 짧게 다시 물어봐 주세요.',
+      });
+      return;
+    }
+
+    try {
+      final requestText = _pendingRequestContext == null
+          ? latestUserText
+          : [
+              _pendingRequestContext!,
+              '',
+              '사용자 추가 답변:',
+              latestUserText,
+            ].join('\n');
+
+      _sendEvent({
+        'type': 'session.thinking.append',
+        'delegation_id': delegationId,
+        'content': 'ARABA 조사 엔진이 요청을 구조화하고 있습니다.',
+      });
+
+      final result = await api.createMission(
+        requestText,
+        apiKey: apiKey,
+      );
+
+      final mission = result['mission'];
+      if (mission is! Map<String, dynamic>) {
+        throw const ArabaApiException(
+          '조사 엔진 응답 형식이 올바르지 않아요.',
+        );
+      }
+
+      onMission(mission);
+
+      final summary = mission['summary']?.toString().trim() ?? '';
+      final ready = mission['ready_to_research'] == true;
+      final questions = mission['clarification_questions'];
+
+      if (!ready && questions is List && questions.isNotEmpty) {
+        final first = questions.first;
+        if (first is Map) {
+          final question = first['question']?.toString().trim() ?? '';
+          final options = first['options'];
+          final optionText = options is List
+              ? options.map((item) => item.toString()).join(', ')
+              : '';
+
+          _pendingRequestContext = requestText;
+
+          _sendEvent({
+            'type': 'session.commentary.append',
+            'delegation_id': delegationId,
+            'content': [
+              if (summary.isNotEmpty) summary,
+              if (question.isNotEmpty) question,
+              if (optionText.isNotEmpty) '선택 가능: $optionText',
+            ].join(' '),
+          });
+          return;
+        }
+      }
+
+      _pendingRequestContext = null;
+
+      _sendEvent({
+        'type': 'session.commentary.append',
+        'delegation_id': delegationId,
+        'content': summary.isEmpty
+            ? '요청을 이해했습니다. ARABA 조사 작업으로 넘길 수 있습니다.'
+            : '$summary. 요청을 이해했고 ARABA 조사 작업으로 넘길 수 있습니다.',
+      });
+    } catch (error) {
+      final message = error is ArabaApiException
+          ? error.message
+          : 'ARABA 조사 엔진 처리 중 오류가 발생했습니다.';
+
+      _sendEvent({
+        'type': 'session.commentary.append',
+        'delegation_id': delegationId,
+        'content': '조사 엔진을 호출했지만 오류가 발생했습니다. $message',
+      });
+    }
+  }
+
+  void _sendEvent(Map<String, dynamic> event) {
+    final events = _events;
+    if (events == null) return;
+
+    events.send(
+      RTCDataChannelMessage(
+        jsonEncode(event),
+      ),
+    );
+  }
+
+  Future<void> stop({bool force = false}) async {
+    if (_closing) return;
+    _closing = true;
+
+    try {
+      if (!force && _events != null && _started) {
+        _sendEvent({
+          'type': 'session.close',
+        });
+        await Future<void>.delayed(
+          const Duration(milliseconds: 350),
+        );
+      }
+    } finally {
+      await _cleanup();
+      _closing = false;
+    }
+  }
+
+  Future<void> _cleanup() async {
+    _started = false;
+
+    try {
+      await _events?.close();
+    } catch (_) {}
+    _events = null;
+
+    try {
+      for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+        await track.stop();
+      }
+      await _localStream?.dispose();
+    } catch (_) {}
+    _localStream = null;
+
+    try {
+      await _peerConnection?.close();
+      await _peerConnection?.dispose();
+    } catch (_) {}
+    _peerConnection = null;
+
+    try {
+      await Helper.clearAndroidCommunicationDevice();
+    } catch (_) {}
+  }
+}
