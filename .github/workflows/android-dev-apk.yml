@@ -47,7 +47,12 @@ jobs:
         run: flutter test
 
       - name: Build debug APK
-        run: flutter build apk --debug
+        run: |
+          flutter build apk --debug \
+            --dart-define=ARABA_FIREBASE_API_KEY=AIzaSyCXt3d_t8Ed_6EdigbcoBNJnr4-2qODAp8 \
+            --dart-define=ARABA_FIREBASE_APP_ID=1:908580697493:android:24a7c27df3d23423a4329c \
+            --dart-define=ARABA_FIREBASE_MESSAGING_SENDER_ID=908580697493 \
+            --dart-define=ARABA_FIREBASE_PROJECT_ID=araba-dev
 
       - name: Prepare stable APK name
         run: cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/araba-dev.apk
