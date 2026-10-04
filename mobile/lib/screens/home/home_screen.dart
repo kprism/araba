@@ -30,12 +30,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _listening = false;
   bool _sending = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _initSpeech();
-  }
-
   Future<void> _initSpeech() async {
     try {
       final available = await _speech.initialize(
@@ -50,30 +44,43 @@ class _HomeScreenState extends State<HomeScreen> {
           if (!mounted) return;
           setState(() => _listening = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('음성 인식 오류: ${error.errorMsg}')),
+            SnackBar(
+              content: Text('음성 인식을 시작하지 못했어요. ${error.errorMsg}'),
+            ),
           );
         },
       );
-      if (mounted) setState(() => _speechReady = available);
+
+      if (mounted) {
+        setState(() => _speechReady = available);
+      }
     } catch (_) {
-      if (mounted) setState(() => _speechReady = false);
+      if (mounted) {
+        setState(() => _speechReady = false);
+      }
     }
   }
 
   Future<void> _toggleListening() async {
     if (_listening) {
       await _speech.stop();
-      if (mounted) setState(() => _listening = false);
+      if (mounted) {
+        setState(() => _listening = false);
+      }
       return;
     }
 
-    if (!_speechReady) await _initSpeech();
+    if (!_speechReady) {
+      await _initSpeech();
+    }
 
     if (!_speechReady) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('마이크 및 음성 인식 권한을 확인해주세요.'),
+          content: Text(
+            '음성 인식을 사용할 수 없어요. 마이크 권한과 Google 음성 서비스를 확인해주세요.',
+          ),
         ),
       );
       return;
@@ -90,13 +97,14 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       },
       listenOptions: stt.SpeechListenOptions(
-        localeId: 'ko_KR',
         listenMode: stt.ListenMode.dictation,
         partialResults: true,
       ),
     );
 
-    if (mounted) setState(() => _listening = true);
+    if (mounted) {
+      setState(() => _listening = true);
+    }
   }
 
   void _toBottom() {
@@ -110,27 +118,34 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  List<String> _strings(dynamic value) {
+  List<Map<String, dynamic>> _clarifications(
+    Map<String, dynamic> mission,
+  ) {
+    final value = mission['clarification_questions'];
     if (value is! List) return const [];
+
     return value
-        .map((item) => item.toString().trim())
-        .where((item) => item.isNotEmpty)
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where((item) {
+          final question = item['question']?.toString().trim() ?? '';
+          final options = item['options'];
+          return question.isNotEmpty && options is List && options.isNotEmpty;
+        })
         .toList();
   }
 
   String _reply(Map<String, dynamic> mission) {
     final summary = mission['summary']?.toString().trim() ?? '';
-    final missing = _strings(mission['missing_information']);
+    final clarifications = _clarifications(mission);
 
-    if (mission['ready_to_research'] != true && missing.isNotEmpty) {
+    if (clarifications.isNotEmpty) {
       return summary.isEmpty
-          ? '조사를 시작하려면 정보가 조금 더 필요해요.'
-          : '$summary\n\n조사를 시작하려면 정보가 조금 더 필요해요.';
+          ? '알아보기 전에 한 가지만 더 알려주세요.'
+          : '$summary\n\n알아보기 전에 한 가지만 더 알려주세요.';
     }
 
-    return summary.isEmpty
-        ? '요청을 정리했어요. 이대로 진행할까요?'
-        : '$summary\n\n이대로 진행할까요?';
+    return summary.isEmpty ? '요청을 이해했어요.' : summary;
   }
 
   Future<void> _send() async {
@@ -143,9 +158,44 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    _controller.clear();
+    await _requestMission(
+      displayText: text,
+      requestText: text,
+    );
+  }
+
+  Future<void> _answerClarification({
+    required String question,
+    required String option,
+    required String requestContext,
+  }) async {
+    final combinedRequest = [
+      requestContext,
+      '',
+      '사용자 추가 답변:',
+      '$question: $option',
+    ].join('\n');
+
+    await _requestMission(
+      displayText: option,
+      requestText: combinedRequest,
+    );
+  }
+
+  Future<void> _requestMission({
+    required String displayText,
+    required String requestText,
+  }) async {
+    if (_sending) return;
+
     setState(() {
-      _messages.add(_Message(isUser: true, text: text));
-      _controller.clear();
+      _messages.add(
+        _Message(
+          isUser: true,
+          text: displayText,
+        ),
+      );
       _sending = true;
     });
     _toBottom();
@@ -159,13 +209,18 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
 
-      final result = await _api.createMission(text, apiKey: apiKey);
+      final result = await _api.createMission(
+        requestText,
+        apiKey: apiKey,
+      );
 
       if (!mounted) return;
 
       final mission = result['mission'];
       if (mission is! Map<String, dynamic>) {
-        throw const ArabaApiException('Mission 응답 형식이 올바르지 않습니다.');
+        throw const ArabaApiException(
+          '서버 응답 형식이 올바르지 않아요.',
+        );
       }
 
       setState(() {
@@ -174,17 +229,22 @@ class _HomeScreenState extends State<HomeScreen> {
             isUser: false,
             text: _reply(mission),
             mission: mission,
-            originalRequest: text,
+            requestContext: requestText,
           ),
         );
       });
     } catch (error) {
       if (!mounted) return;
+
+      final message = error is ArabaApiException
+          ? error.message
+          : '요청 처리 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.';
+
       setState(() {
         _messages.add(
           _Message(
             isUser: false,
-            text: '요청을 처리하지 못했어요. ${error.toString()}',
+            text: message,
             isError: true,
           ),
         );
@@ -195,20 +255,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _toBottom();
       }
     }
-  }
-
-  void _edit(String text) {
-    setState(() {
-      _controller.text = text;
-      _controller.selection = TextSelection.collapsed(offset: text.length);
-    });
-    _focus.requestFocus();
-  }
-
-  void _notYet(String label) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$label 기능은 조사 실행 엔진 단계에서 연결됩니다.')),
-    );
   }
 
   @override
@@ -248,7 +294,10 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           Container(
             margin: const EdgeInsets.only(right: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 11,
+              vertical: 6,
+            ),
             decoration: BoxDecoration(
               color: const Color(0xFFEEF4FF),
               borderRadius: BorderRadius.circular(30),
@@ -273,23 +322,37 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: ListView.builder(
                     controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
+                    padding: const EdgeInsets.fromLTRB(
+                      16,
+                      22,
+                      16,
+                      18,
+                    ),
                     itemCount: _messages.length + (_sending ? 1 : 0),
                     itemBuilder: (context, index) {
                       if (index == _messages.length) {
                         return const _ThinkingBubble();
                       }
+
                       final message = _messages[index];
+
                       if (message.isUser) {
                         return _UserBubble(text: message.text);
                       }
+
                       return _AssistantBubble(
                         message: message,
-                        onEdit: message.originalRequest == null
-                            ? null
-                            : () => _edit(message.originalRequest!),
-                        onWeb: () => _notYet('웹 조사'),
-                        onPhone: () => _notYet('전화 조사'),
+                        onClarification: ({
+                          required question,
+                          required option,
+                          required requestContext,
+                        }) {
+                          _answerClarification(
+                            question: question,
+                            option: option,
+                            requestContext: requestContext,
+                          );
+                        },
                       );
                     },
                   ),
@@ -315,21 +378,24 @@ class _Message {
   final bool isUser;
   final String text;
   final Map<String, dynamic>? mission;
-  final String? originalRequest;
+  final String? requestContext;
   final bool isError;
 
   const _Message({
     required this.isUser,
     required this.text,
     this.mission,
-    this.originalRequest,
+    this.requestContext,
     this.isError = false,
   });
 }
 
 class _UserBubble extends StatelessWidget {
   final String text;
-  const _UserBubble({required this.text});
+
+  const _UserBubble({
+    required this.text,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -338,7 +404,10 @@ class _UserBubble extends StatelessWidget {
       child: Container(
         constraints: const BoxConstraints(maxWidth: 560),
         margin: const EdgeInsets.only(left: 54, bottom: 14),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
         decoration: const BoxDecoration(
           color: Color(0xFF3157D5),
           borderRadius: BorderRadius.only(
@@ -363,32 +432,35 @@ class _UserBubble extends StatelessWidget {
 
 class _AssistantBubble extends StatelessWidget {
   final _Message message;
-  final VoidCallback? onEdit;
-  final VoidCallback onWeb;
-  final VoidCallback onPhone;
+  final void Function({
+    required String question,
+    required String option,
+    required String requestContext,
+  }) onClarification;
 
   const _AssistantBubble({
     required this.message,
-    required this.onEdit,
-    required this.onWeb,
-    required this.onPhone,
+    required this.onClarification,
   });
 
-  List<String> _strings(String key) {
-    final value = message.mission?[key];
+  List<Map<String, dynamic>> _clarifications() {
+    final value = message.mission?['clarification_questions'];
     if (value is! List) return const [];
+
     return value
-        .map((item) => item.toString().trim())
-        .where((item) => item.isNotEmpty)
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where((item) {
+          final question = item['question']?.toString().trim() ?? '';
+          final options = item['options'];
+          return question.isNotEmpty && options is List && options.isNotEmpty;
+        })
         .toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final mission = message.mission;
-    final ready = mission?['ready_to_research'] == true;
-    final phone = mission?['may_need_phone_call'] == true;
-    final missing = _strings('missing_information');
+    final clarifications = _clarifications();
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -449,41 +521,26 @@ class _AssistantBubble extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (mission != null) ...[
-                    const SizedBox(height: 9),
-                    if (!ready && missing.isNotEmpty)
-                      _ChoiceCard(
-                        icon: Icons.edit_note_rounded,
-                        title: '추가 정보 입력',
-                        description: missing.join(' · '),
-                        onTap: onEdit,
-                      )
-                    else ...[
-                      _ChoiceCard(
-                        icon: Icons.search_rounded,
-                        title: '웹에서 먼저 찾아봐',
-                        description: '검색 가능한 최신 정보를 먼저 확인합니다.',
-                        onTap: onWeb,
+                  if (message.requestContext != null &&
+                      clarifications.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    for (final clarification in clarifications)
+                      _ClarificationCard(
+                        question:
+                            clarification['question']?.toString() ?? '',
+                        options: (clarification['options'] as List)
+                            .map((item) => item.toString())
+                            .where((item) => item.trim().isNotEmpty)
+                            .toList(),
+                        onSelected: (option) {
+                          onClarification(
+                            question:
+                                clarification['question']?.toString() ?? '',
+                            option: option,
+                            requestContext: message.requestContext!,
+                          );
+                        },
                       ),
-                      if (phone) ...[
-                        const SizedBox(height: 8),
-                        _ChoiceCard(
-                          icon: Icons.call_outlined,
-                          title: '필요하면 전화까지 해',
-                          description: '웹으로 부족하면 업체에 직접 확인합니다.',
-                          onTap: onPhone,
-                        ),
-                      ],
-                    ],
-                    if (onEdit != null) ...[
-                      const SizedBox(height: 8),
-                      _ChoiceCard(
-                        icon: Icons.tune_rounded,
-                        title: '조건을 수정할게',
-                        description: '방금 요청을 다시 입력합니다.',
-                        onTap: onEdit,
-                      ),
-                    ],
                   ],
                 ],
               ),
@@ -495,64 +552,64 @@ class _AssistantBubble extends StatelessWidget {
   }
 }
 
-class _ChoiceCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String description;
-  final VoidCallback? onTap;
+class _ClarificationCard extends StatelessWidget {
+  final String question;
+  final List<String> options;
+  final ValueChanged<String> onSelected;
 
-  const _ChoiceCard({
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.onTap,
+  const _ClarificationCard({
+    required this.question,
+    required this.options,
+    required this.onSelected,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFFEEF4FF),
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEF4FF),
         borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          child: Row(
+        border: Border.all(
+          color: const Color(0xFFD6E4FF),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            question,
+            style: const TextStyle(
+              color: Color(0xFF1939A6),
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              Icon(icon, size: 21, color: const Color(0xFF3157D5)),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Color(0xFF1939A6),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
+              for (final option in options)
+                OutlinedButton(
+                  onPressed: () => onSelected(option),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF3157D5),
+                    side: const BorderSide(
+                      color: Color(0xFF9DB7FF),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      description,
-                      style: const TextStyle(
-                        color: Color(0xFF475467),
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                  ],
+                  ),
+                  child: Text(option),
                 ),
-              ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: Color(0xFF3157D5),
-              ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
@@ -566,26 +623,39 @@ class _ThinkingBubble extends StatelessWidget {
     return const Align(
       alignment: Alignment.centerLeft,
       child: Padding(
-        padding: EdgeInsets.only(left: 43, right: 34, bottom: 14),
+        padding: EdgeInsets.only(
+          left: 43,
+          right: 34,
+          bottom: 14,
+        ),
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.all(Radius.circular(18)),
+            borderRadius: BorderRadius.all(
+              Radius.circular(18),
+            ),
           ),
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                  ),
                 ),
                 SizedBox(width: 9),
                 Text(
                   '요청을 정리하고 있어요…',
-                  style: TextStyle(color: Color(0xFF667085)),
+                  style: TextStyle(
+                    color: Color(0xFF667085),
+                  ),
                 ),
               ],
             ),
@@ -619,16 +689,24 @@ class _Composer extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFEAECF0))),
+        border: Border(
+          top: BorderSide(
+            color: Color(0xFFEAECF0),
+          ),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           IconButton(
-            tooltip: listening ? '음성 입력 중지' : '음성으로 말하기',
-            onPressed: onMic,
+            tooltip: listening
+                ? '음성 입력 중지'
+                : '음성으로 말하기',
+            onPressed: sending ? null : onMic,
             icon: Icon(
-              listening ? Icons.mic_rounded : Icons.mic_none_rounded,
+              listening
+                  ? Icons.mic_rounded
+                  : Icons.mic_none_rounded,
               color: listening
                   ? const Color(0xFFD92D20)
                   : const Color(0xFF475467),
@@ -636,7 +714,9 @@ class _Composer extends StatelessWidget {
           ),
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+              ),
               decoration: BoxDecoration(
                 color: const Color(0xFFF2F4F7),
                 borderRadius: BorderRadius.circular(22),
@@ -644,11 +724,14 @@ class _Composer extends StatelessWidget {
               child: TextField(
                 controller: controller,
                 focusNode: focusNode,
+                enabled: !sending,
                 minLines: 1,
                 maxLines: 5,
                 decoration: const InputDecoration(
                   hintText: '알아볼 내용을 입력하세요',
-                  hintStyle: TextStyle(color: Color(0xFF98A2B3)),
+                  hintStyle: TextStyle(
+                    color: Color(0xFF98A2B3),
+                  ),
                   border: InputBorder.none,
                 ),
               ),
@@ -659,7 +742,9 @@ class _Composer extends StatelessWidget {
             onPressed: sending ? null : onSend,
             style: FilledButton.styleFrom(
               minimumSize: const Size(54, 44),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+              ),
             ),
             child: sending
                 ? const SizedBox(

@@ -37,7 +37,13 @@ ARABA는 사용자가 현실에서 알고 싶은 정보를
   "needs_fresh_data": true,
   "may_need_phone_call": true,
   "missing_information": [
-    "조사를 위해 추가로 필요한 정보"
+    "사용자만 답할 수 있고 조사에 꼭 필요한 부족 정보"
+  ],
+  "clarification_questions": [
+    {
+      "question": "사용자에게 묻는 짧은 질문",
+      "options": ["선택지1", "선택지2", "선택지3"]
+    }
   ],
   "ready_to_research": true
 }
@@ -48,10 +54,13 @@ ARABA는 사용자가 현실에서 알고 싶은 정보를
 3. 전화가 필요할 가능성이 있으면 may_need_phone_call=true.
 4. 웹 정보만으로 오래되었을 가능성이 있는 가격, 재고,
    예약 가능시간, 당일 작업 가능 여부 등은 needs_fresh_data=true.
-5. 정보가 부족해 조사를 시작할 수 없으면
-   ready_to_research=false로 한다.
-6. missing_information에는 정말 필요한 정보만 넣는다.
-7. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
+5. 검색, 지도, 웹사이트, 업체 전화 등으로 알아낼 수 있는 정보는 사용자에게 묻지 않는다.
+6. 사용자의 선호, 수량, 개인 상황처럼 사용자만 답할 수 있고 조사 결과를 크게 바꾸는 정보가 부족할 때만 역질문한다.
+7. 역질문이 필요하면 clarification_questions에 질문 1개만 넣고, 짧고 클릭 가능한 options를 2~5개 제시한다.
+8. 예: "타이어 몇 개를 교체할까요?" → ["1개", "2개", "4개", "잘 모르겠어요"].
+9. 역질문이 있으면 ready_to_research=false, 없으면 clarification_questions=[] 및 ready_to_research=true로 한다.
+10. missing_information은 clarification_questions의 질문과 같은 취지의 정말 필요한 정보만 넣는다.
+11. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
 """.strip()
 
 
@@ -68,7 +77,7 @@ def create_mission(user_request, api_key=None):
             "OpenAI API Key가 설정되지 않았습니다."
         )
 
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(\n        api_key=api_key,\n        timeout=45.0,\n        max_retries=1,\n    )
 
     response = client.responses.create(
         model="gpt-5-mini",
@@ -102,6 +111,7 @@ def create_mission(user_request, api_key=None):
         "needs_fresh_data",
         "may_need_phone_call",
         "missing_information",
+        "clarification_questions",
         "ready_to_research",
     }
 

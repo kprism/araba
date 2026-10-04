@@ -79,6 +79,7 @@ class MissionApiTests(TestCase):
             "needs_fresh_data": True,
             "may_need_phone_call": True,
             "missing_information": [],
+            "clarification_questions": [],
             "ready_to_research": True,
         }
 
