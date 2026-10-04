@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
+import '../../services/live_voice_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,7 +17,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final _focus = FocusNode();
   final _api = ArabaApi();
   final _keyStore = ApiKeyStore();
-  final _speech = stt.SpeechToText();
+
+  LiveVoiceService? _liveVoice;
 
   final List<_Message> _messages = [
     const _Message(
@@ -26,84 +27,130 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   ];
 
-  bool _speechReady = false;
-  bool _listening = false;
+  bool _liveConnecting = false;
+  bool _liveActive = false;
   bool _sending = false;
+  String _liveStatus = '';
+  String _liveUserTranscript = '';
+  String _liveAssistantTranscript = '';
 
-  Future<void> _initSpeech() async {
+  Future<void> _toggleLiveVoice() async {
+    final current = _liveVoice;
+
+    if (current != null) {
+      setState(() {
+        _liveConnecting = false;
+        _liveActive = false;
+        _liveStatus = '종료 중';
+      });
+
+      await current.stop();
+      _liveVoice = null;
+
+      if (mounted) {
+        setState(() => _liveStatus = '종료됨');
+      }
+      return;
+    }
+
     try {
-      final available = await _speech.initialize(
-        onStatus: (status) {
-          if (!mounted) return;
-          final listening = status == 'listening';
-          if (_listening != listening) {
-            setState(() => _listening = listening);
-          }
-        },
-        onError: (error) {
-          if (!mounted) return;
-          setState(() => _listening = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('음성 인식을 시작하지 못했어요. ${error.errorMsg}'),
-            ),
-          );
-        },
-      );
+      final apiKey = await _keyStore.read();
 
-      if (mounted) {
-        setState(() => _speechReady = available);
+      if (apiKey == null) {
+        throw const ArabaApiException(
+          'MY에서 OpenAI API Key를 먼저 저장해주세요.',
+        );
       }
-    } catch (_) {
-      if (mounted) {
-        setState(() => _speechReady = false);
-      }
-    }
-  }
 
-  Future<void> _toggleListening() async {
-    if (_listening) {
-      await _speech.stop();
-      if (mounted) {
-        setState(() => _listening = false);
-      }
-      return;
-    }
-
-    if (!_speechReady) {
-      await _initSpeech();
-    }
-
-    if (!_speechReady) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            '음성 인식을 사용할 수 없어요. 마이크 권한과 Google 음성 서비스를 확인해주세요.',
-          ),
-        ),
-      );
-      return;
-    }
 
-    await _speech.listen(
-      onResult: (result) {
-        if (!mounted) return;
-        setState(() {
-          _controller.text = result.recognizedWords;
-          _controller.selection = TextSelection.collapsed(
-            offset: _controller.text.length,
+      setState(() {
+        _liveConnecting = true;
+        _liveActive = false;
+        _liveStatus = 'GPT-Live 연결 중';
+        _liveUserTranscript = '';
+        _liveAssistantTranscript = '';
+      });
+
+      late final LiveVoiceService liveVoice;
+      liveVoice = LiveVoiceService(
+        api: _api,
+        apiKey: apiKey,
+        onStatus: (status) {
+          if (!mounted || _liveVoice != liveVoice) return;
+
+          setState(() {
+            _liveStatus = status;
+            _liveActive = liveVoice.isStarted;
+            if (_liveActive) {
+              _liveConnecting = false;
+            }
+          });
+        },
+        onTranscript: ({
+          required isUser,
+          required delta,
+        }) {
+          if (!mounted || _liveVoice != liveVoice) return;
+
+          setState(() {
+            if (isUser) {
+              _liveUserTranscript += delta;
+            } else {
+              _liveAssistantTranscript += delta;
+            }
+          });
+          _toBottom();
+        },
+        onMission: (mission) {
+          if (!mounted || _liveVoice != liveVoice) return;
+
+          setState(() {
+            _messages.add(
+              _Message(
+                isUser: false,
+                text: _reply(mission),
+                mission: mission,
+              ),
+            );
+          });
+          _toBottom();
+        },
+        onError: (message) {
+          if (!mounted || _liveVoice != liveVoice) return;
+
+          setState(() {
+            _liveConnecting = false;
+            _liveActive = false;
+            _liveStatus = '연결 오류';
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message)),
           );
-        });
-      },
-      listenOptions: stt.SpeechListenOptions(
-        listenMode: stt.ListenMode.dictation,
-        partialResults: true,
-      ),
-    );
+        },
+      );
 
-    if (mounted) {
-      setState(() => _listening = true);
+      _liveVoice = liveVoice;
+      await liveVoice.start();
+    } catch (caught) {
+      _liveVoice = null;
+
+      if (!mounted) return;
+
+      final message = caught is ArabaApiException
+          ? caught.message
+          : 'GPT-Live 음성 대화를 시작하지 못했어요.';
+
+      setState(() {
+        _liveConnecting = false;
+        _liveActive = false;
+        _liveStatus = '연결 실패';
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     }
   }
 
@@ -259,7 +306,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _speech.stop();
+    _liveVoice?.stop(force: true);
     _controller.dispose();
     _scroll.dispose();
     _focus.dispose();
@@ -357,12 +404,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
                 ),
+                if (_liveConnecting ||
+                    _liveActive ||
+                    _liveUserTranscript.isNotEmpty ||
+                    _liveAssistantTranscript.isNotEmpty)
+                  _LivePanel(
+                    status: _liveStatus,
+                    active: _liveActive,
+                    userTranscript: _liveUserTranscript,
+                    assistantTranscript: _liveAssistantTranscript,
+                  ),
                 _Composer(
                   controller: _controller,
                   focusNode: _focus,
-                  listening: _listening,
-                  sending: _sending,
-                  onMic: _toggleListening,
+                  listening: _liveActive,
+                  sending: _sending || _liveConnecting,
+                  onMic: _toggleLiveVoice,
                   onSend: _send,
                 ),
               ],
@@ -661,6 +718,80 @@ class _ThinkingBubble extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _LivePanel extends StatelessWidget {
+  final String status;
+  final bool active;
+  final String userTranscript;
+  final String assistantTranscript;
+
+  const _LivePanel({
+    required this.status,
+    required this.active,
+    required this.userTranscript,
+    required this.assistantTranscript,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF101828),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                active
+                    ? Icons.graphic_eq_rounded
+                    : Icons.sync_rounded,
+                size: 18,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                'GPT-Live · $status',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          if (userTranscript.trim().isNotEmpty) ...[
+            const SizedBox(height: 9),
+            Text(
+              '나  $userTranscript',
+              style: const TextStyle(
+                color: Color(0xFFD0D5DD),
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+          ],
+          if (assistantTranscript.trim().isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              'ARABA  $assistantTranscript',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
