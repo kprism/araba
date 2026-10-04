@@ -175,6 +175,24 @@ def _should_end_call(speech):
     )
 
 
+def normalize_twilio_from_number(value):
+    raw = str(value or "").strip()
+    compact = re.sub(r"[\s\-().]", "", raw)
+
+    if compact.startswith("00"):
+        compact = "+" + compact[2:]
+
+    if not compact.startswith("+"):
+        raise ValueError(
+            "Twilio 발신번호는 +국가번호 형식으로 입력해주세요."
+        )
+
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", compact):
+        raise ValueError("Twilio 발신번호 형식이 올바르지 않습니다.")
+
+    return compact
+
+
 def _find_twilio_from_number(client):
     configured = (
         _env("TWILIO_PHONE_NUMBER")
@@ -210,7 +228,8 @@ def _find_twilio_from_number(client):
 
     raise VoiceConfigurationError(
         "Twilio 발신번호가 없습니다. "
-        "Twilio Console에서 Voice 가능한 전화번호를 먼저 받아주세요."
+        "Trial 계정이면 Twilio Console의 Voice > Try out Voice에서 "
+        "표시되는 Trial 발신번호를 MY에 저장해주세요."
     )
 
 
@@ -219,6 +238,7 @@ def start_test_call(
     *,
     account_sid,
     auth_token,
+    from_number=None,
     api_key,
 ):
     account_sid = str(account_sid).strip()
@@ -247,13 +267,23 @@ def start_test_call(
         account_sid,
         auth_token,
     )
-    from_number = _find_twilio_from_number(
-        client
-    )
+
+    explicit_from_number = str(
+        from_number or ""
+    ).strip()
+
+    if explicit_from_number:
+        caller_number = normalize_twilio_from_number(
+            explicit_from_number
+        )
+    else:
+        caller_number = _find_twilio_from_number(
+            client
+        )
 
     call = client.calls.create(
         to=to_number,
-        from_=from_number,
+        from_=caller_number,
         url=_voice_url(
             "/api/voice/answer/",
             session=session,
