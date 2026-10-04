@@ -45,17 +45,24 @@ def _server_openai_key():
     )
 
 
+def _twilio_from_number():
+    return (
+        _env("TWILIO_PHONE_NUMBER")
+        or _env("TWILIO_FROM_NUMBER")
+    )
+
+
 def voice_configuration_status():
     return {
         "twilio_account_sid": bool(_env("TWILIO_ACCOUNT_SID")),
         "twilio_auth_token": bool(_env("TWILIO_AUTH_TOKEN")),
-        "twilio_from_number": bool(_env("TWILIO_FROM_NUMBER")),
+        "twilio_from_number": bool(_twilio_from_number()),
         "voice_openai_key": bool(_server_openai_key()),
         "ready": all(
             [
                 _env("TWILIO_ACCOUNT_SID"),
                 _env("TWILIO_AUTH_TOKEN"),
-                _env("TWILIO_FROM_NUMBER"),
+                _twilio_from_number(),
                 _server_openai_key(),
             ]
         ),
@@ -75,7 +82,7 @@ def _require_voice_configuration():
     if not status["twilio_auth_token"]:
         missing.append("TWILIO_AUTH_TOKEN")
     if not status["twilio_from_number"]:
-        missing.append("TWILIO_FROM_NUMBER")
+        missing.append("TWILIO_PHONE_NUMBER")
     if not status["voice_openai_key"]:
         missing.append("VOICE_OPENAI_API_KEY")
 
@@ -175,7 +182,7 @@ def start_test_call(phone_number):
 
     call = client.calls.create(
         to=to_number,
-        from_=_env("TWILIO_FROM_NUMBER"),
+        from_=_twilio_from_number(),
         url=_voice_url(
             "/api/voice/answer/",
             session=session,
