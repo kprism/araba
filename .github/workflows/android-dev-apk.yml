@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feat/cloud-mobile-key
+      - feat/gpt-live-hybrid
     paths:
       - "mobile/**"
       - ".github/workflows/android-dev-apk.yml"

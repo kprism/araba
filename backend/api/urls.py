@@ -40,6 +40,11 @@ urlpatterns = [
         name="notification-register",
     ),
     path(
+        "live/session/",
+        views.live_session_create,
+        name="live-session-create",
+    ),
+    path(
         "voice/status/",
         views.voice_status,
         name="voice-status",

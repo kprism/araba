@@ -177,6 +177,58 @@ def notify_update(request):
 
 
 @api_view(["POST"])
+def live_session_create(request):
+    from .services.live_service import (
+        LiveConfigurationError,
+        create_live_session,
+    )
+
+    api_key = _request_api_key(request)
+
+    if not api_key:
+        return Response(
+            {
+                "ok": False,
+                "message": "OpenAI API Key가 필요합니다.",
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    offer_sdp = str(
+        request.data.get("sdp", "")
+    ).strip()
+
+    try:
+        result = create_live_session(
+            offer_sdp,
+            api_key,
+        )
+
+        return Response(
+            {
+                "ok": True,
+                **result,
+            }
+        )
+    except LiveConfigurationError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception:
+        return Response(
+            {
+                "ok": False,
+                "message": "GPT-Live 연결 중 서버 오류가 발생했습니다.",
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+@api_view(["POST"])
 def notification_register(request):
     from .services.update_notification_service import (
         subscribe_device_to_updates,
