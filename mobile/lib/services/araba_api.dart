@@ -28,6 +28,7 @@ class ArabaApi {
     String? apiKey,
     String? twilioAccountSid,
     String? twilioAuthToken,
+    String? twilioFromNumber,
   }) {
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -48,6 +49,12 @@ class ArabaApi {
 
     if (token != null && token.isNotEmpty) {
       headers['X-Twilio-Auth-Token'] = token;
+    }
+
+    final fromNumber = twilioFromNumber?.trim();
+
+    if (fromNumber != null && fromNumber.isNotEmpty) {
+      headers['X-Twilio-From-Number'] = fromNumber;
     }
 
     return headers;
@@ -126,6 +133,7 @@ class ArabaApi {
     required String apiKey,
     required String twilioAccountSid,
     required String twilioAuthToken,
+    String? twilioFromNumber,
   }) async {
     final response = await _request(
       () => http.post(
@@ -134,6 +142,7 @@ class ArabaApi {
           apiKey: apiKey,
           twilioAccountSid: twilioAccountSid,
           twilioAuthToken: twilioAuthToken,
+          twilioFromNumber: twilioFromNumber,
         ),
         body: jsonEncode({
           'phone_number': phoneNumber,
