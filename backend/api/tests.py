@@ -201,3 +201,130 @@ class NotificationRegistrationApiTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.data["ok"])
+
+
+
+class VoiceCallApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @patch(
+        "api.services.voice_call_service."
+        "voice_configuration_status",
+        return_value={
+            "twilio_account_sid": True,
+            "twilio_auth_token": True,
+            "twilio_from_number": True,
+            "voice_openai_key": True,
+            "ready": True,
+        },
+    )
+    def test_voice_status(self, mocked_status):
+        response = self.client.get(
+            "/api/voice/status/",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ready"])
+        mocked_status.assert_called_once_with()
+
+    def test_voice_test_call_requires_openai_key(self):
+        response = self.client.post(
+            "/api/voice/test-call/",
+            {"phone_number": "010-1234-5678"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(response.data["ok"])
+
+    @patch(
+        "api.services.voice_call_service.start_test_call",
+        return_value={
+            "call_sid": "CATEST",
+            "to": "+821012345678",
+            "status": "queued",
+        },
+    )
+    def test_voice_test_call_starts_outbound_call(
+        self,
+        mocked_call,
+    ):
+        response = self.client.post(
+            "/api/voice/test-call/",
+            {"phone_number": "010-1234-5678"},
+            format="json",
+            HTTP_X_OPENAI_API_KEY="sk-test",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(
+            response.data["call_sid"],
+            "CATEST",
+        )
+        mocked_call.assert_called_once_with(
+            "010-1234-5678"
+        )
+
+    @patch(
+        "api.services.voice_call_service.build_answer_twiml",
+        return_value="<Response><Say>테스트</Say></Response>",
+    )
+    def test_voice_answer_returns_twiml(
+        self,
+        mocked_twiml,
+    ):
+        response = self.client.post(
+            "/api/voice/answer/?session=signed-session",
+            {},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "text/xml",
+            response["Content-Type"],
+        )
+        mocked_twiml.assert_called_once_with(
+            "signed-session"
+        )
+
+    @patch(
+        "api.services.voice_call_service.build_response_twiml",
+        return_value="<Response><Say>네</Say></Response>",
+    )
+    def test_voice_respond_passes_speech(
+        self,
+        mocked_twiml,
+    ):
+        response = self.client.post(
+            (
+                "/api/voice/respond/"
+                "?session=signed-session"
+                "&previous_response_id=resp_123"
+            ),
+            {"SpeechResult": "안녕하세요"},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_twiml.assert_called_once_with(
+            "signed-session",
+            "안녕하세요",
+            previous_response_id="resp_123",
+        )
+
+
+class VoiceCallServiceTests(TestCase):
+    def test_normalize_korean_mobile_number(self):
+        from api.services.voice_call_service import (
+            normalize_phone_number,
+        )
+
+        self.assertEqual(
+            normalize_phone_number(
+                "010-1234-5678"
+            ),
+            "+821012345678",
+        )

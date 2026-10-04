@@ -39,4 +39,24 @@ urlpatterns = [
         views.notification_register,
         name="notification-register",
     ),
+    path(
+        "voice/status/",
+        views.voice_status,
+        name="voice-status",
+    ),
+    path(
+        "voice/test-call/",
+        views.voice_test_call,
+        name="voice-test-call",
+    ),
+    path(
+        "voice/answer/",
+        views.voice_answer,
+        name="voice-answer",
+    ),
+    path(
+        "voice/respond/",
+        views.voice_respond,
+        name="voice-respond",
+    ),
 ]

@@ -96,6 +96,36 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> voiceStatus() async {
+    final response = await _request(
+      () => http.get(
+        _uri('/api/voice/status/'),
+        headers: _headers(),
+      ),
+      timeout: const Duration(seconds: 20),
+    );
+
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> startVoiceTestCall(
+    String phoneNumber, {
+    required String apiKey,
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/voice/test-call/'),
+        headers: _headers(apiKey: apiKey),
+        body: jsonEncode({
+          'phone_number': phoneNumber,
+        }),
+      ),
+      timeout: const Duration(seconds: 30),
+    );
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> testOpenAi(
     String apiKey,
   ) async {
