@@ -224,7 +224,18 @@ class _MyScreenState extends State<MyScreen> {
     });
 
     try {
-      final result = await _api.startVoiceTestCall(phone);
+      final apiKey = await _apiKeyStore.read();
+
+      if (apiKey == null) {
+        throw const ArabaApiException(
+          'OpenAI API Key를 먼저 저장해주세요.',
+        );
+      }
+
+      final result = await _api.startVoiceTestCall(
+        phone,
+        apiKey: apiKey,
+      );
 
       if (!mounted) {
         return;
