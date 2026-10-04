@@ -116,6 +116,22 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> createLiveSession(
+    String offerSdp, {
+    required String apiKey,
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/live/session/'),
+        headers: _headers(apiKey: apiKey),
+        body: jsonEncode({'sdp': offerSdp}),
+      ),
+      timeout: const Duration(seconds: 45),
+    );
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> voiceStatus() async {
     final response = await _request(
       () => http.get(
