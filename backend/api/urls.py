@@ -34,4 +34,9 @@ urlpatterns = [
         views.notify_update,
         name="notify-update",
     ),
+    path(
+        "notifications/register/",
+        views.notification_register,
+        name="notification-register",
+    ),
 ]
