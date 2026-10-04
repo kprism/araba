@@ -77,7 +77,7 @@ def create_mission(user_request, api_key=None):
             "OpenAI API Key가 설정되지 않았습니다."
         )
 
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(\n        api_key=api_key,\n        timeout=45.0,\n        max_retries=1,\n    )
 
     response = client.responses.create(
         model="gpt-5-mini",
