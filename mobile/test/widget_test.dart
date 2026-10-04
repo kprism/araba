@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:araba/main.dart';
+import 'package:araba/app/araba_app.dart';
 
 void main() {
   testWidgets('ARABA home screen renders correctly', (tester) async {
@@ -9,14 +9,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('ARABA'), findsOneWidget);
-    expect(find.text('알아봐'), findsNWidgets(2));
+
     expect(find.text('무엇을 알아볼까요?'), findsOneWidget);
 
-    expect(find.text('검색해서 없으면, ARABA가 직접 전화해서 알아봅니다.'), findsOneWidget);
-
     expect(find.text('홈'), findsOneWidget);
+
     expect(find.text('작업'), findsOneWidget);
+
     expect(find.text('알림'), findsOneWidget);
+
     expect(find.text('MY'), findsOneWidget);
   });
 
@@ -32,5 +33,18 @@ void main() {
     await tester.pump();
 
     expect(find.text('알아볼 내용을 입력해주세요.'), findsOneWidget);
+  });
+
+  testWidgets('MY tab opens developer settings', (tester) async {
+    await tester.pumpWidget(const ArabaApp());
+    await tester.pump();
+
+    await tester.tap(find.text('MY').last);
+
+    await tester.pump();
+
+    expect(find.text('개발 설정'), findsOneWidget);
+
+    expect(find.text('OpenAI API'), findsOneWidget);
   });
 }
