@@ -109,12 +109,13 @@ class ArabaApi {
   }
 
   Future<Map<String, dynamic>> startVoiceTestCall(
-    String phoneNumber,
-  ) async {
+    String phoneNumber, {
+    required String apiKey,
+  }) async {
     final response = await _request(
       () => http.post(
         _uri('/api/voice/test-call/'),
-        headers: _headers(),
+        headers: _headers(apiKey: apiKey),
         body: jsonEncode({
           'phone_number': phoneNumber,
         }),
