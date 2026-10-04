@@ -37,6 +37,27 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Restore ARABA debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: araba-android-debug-keystore-v1
+
+      - name: Ensure stable debug signing key
+        run: |
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=ARABA Dev,O=ARABA,C=KR" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000
+          fi
+
       - name: Install dependencies
         run: flutter pub get
 
