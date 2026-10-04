@@ -27,18 +27,28 @@ load_dotenv(ROOT_DIR / ".env")
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "araba-local-development-only")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Cloud Run sets DJANGO_DEBUG=false. Local development keeps the current
+# developer-friendly default unless explicitly overridden.
+DEBUG = os.getenv("DJANGO_DEBUG", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
+    if host.strip()
+]
 
 
 # Application definition
 
 INSTALLED_APPS = [
     "corsheaders",
-    'rest_framework',
-    'api',
+    "rest_framework",
+    "api",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
