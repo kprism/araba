@@ -60,7 +60,7 @@ jobs:
               -dname "CN=ARABA Dev,O=ARABA,C=KR"
           fi
 
-      - name: Verify Android signing configuration
+      - name: Verify Android signing key
         run: |
           echo "=== DEBUG KEYSTORE ==="
           keytool -list -v \
@@ -68,9 +68,6 @@ jobs:
             -storepass android \
             -alias androiddebugkey \
             | grep -E "Alias name:|Owner:|SHA256:"
-
-          echo "=== GRADLE SIGNING REPORT ==="
-          ./android/gradlew -p android app:signingReport
 
       - name: Install dependencies
         run: flutter pub get
@@ -83,6 +80,29 @@ jobs:
 
       - name: Build debug APK
         run: flutter build apk --debug
+
+      - name: Verify built APK certificate
+        shell: bash
+        run: |
+          EXPECTED="$(keytool -list -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            | awk '/SHA256:/ {print $2; exit}' \
+            | tr -d ':' \
+            | tr '[:upper:]' '[:lower:]')"
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+
+          ACTUAL="$("$APKSIGNER" verify --print-certs \
+            build/app/outputs/flutter-apk/app-debug.apk \
+            | awk -F': ' '/certificate SHA-256 digest/ {print tolower($2); exit}')"
+
+          echo "EXPECTED_SHA256=$EXPECTED"
+          echo "ACTUAL_SHA256=$ACTUAL"
+
+          test "$EXPECTED" = "$ACTUAL"
 
       - name: Prepare stable APK name
         run: cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/araba-dev.apk
