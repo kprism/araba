@@ -10,6 +10,9 @@ on:
       - ".github/workflows/android-dev-apk.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -46,9 +49,19 @@ jobs:
       - name: Build debug APK
         run: flutter build apk --debug
 
-      - name: Upload APK
+      - name: Prepare stable APK name
+        run: cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/araba-dev.apk
+
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: araba-dev-apk
-          path: mobile/build/app/outputs/flutter-apk/app-debug.apk
+          path: mobile/build/app/outputs/flutter-apk/araba-dev.apk
           if-no-files-found: error
+
+      - name: Publish latest dev APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete dev-latest --yes --cleanup-tag || true
+          gh release create dev-latest             build/app/outputs/flutter-apk/araba-dev.apk             --target "$GITHUB_SHA"             --title "ARABA Dev Latest"             --notes "자동 빌드된 최신 ARABA 개발용 APK입니다."             --prerelease
