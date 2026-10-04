@@ -245,12 +245,29 @@ def voice_test_call(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
+    account_sid = str(
+        request.headers.get(
+            "X-Twilio-Account-SID",
+            "",
+        )
+    ).strip()
+    auth_token = str(
+        request.headers.get(
+            "X-Twilio-Auth-Token",
+            "",
+        )
+    ).strip()
     phone_number = str(
         request.data.get("phone_number", "")
     ).strip()
 
     try:
-        result = start_test_call(phone_number)
+        result = start_test_call(
+            phone_number,
+            account_sid=account_sid,
+            auth_token=auth_token,
+            api_key=_request_api_key(request),
+        )
 
         return Response(
             {
