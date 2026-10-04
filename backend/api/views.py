@@ -117,3 +117,58 @@ def mission_create(request):
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+@api_view(["POST"])
+def notify_update(request):
+    from .services.update_notification_service import (
+        send_update_notification,
+        verify_github_actions_token,
+    )
+
+    authorization = str(
+        request.headers.get("Authorization", "")
+    ).strip()
+
+    if not authorization.startswith("Bearer "):
+        return Response(
+            {
+                "ok": False,
+                "message": "GitHub OIDC 인증이 필요합니다.",
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    token = authorization.removeprefix("Bearer ").strip()
+
+    try:
+        claims = verify_github_actions_token(token)
+        message_id = send_update_notification()
+
+        return Response(
+            {
+                "ok": True,
+                "message_id": message_id,
+                "repository": claims.get("repository"),
+                "ref": claims.get("ref"),
+            }
+        )
+    except ValueError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    except Exception as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "업데이트 알림 전송 중 오류가 발생했습니다: "
+                    f"{exc}"
+                ),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
