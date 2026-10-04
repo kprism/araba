@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -211,3 +212,129 @@ def notification_register(request):
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+
+@api_view(["GET"])
+def voice_status(request):
+    from .services.voice_call_service import (
+        voice_configuration_status,
+    )
+
+    return Response(
+        {
+            "ok": True,
+            **voice_configuration_status(),
+        }
+    )
+
+
+@api_view(["POST"])
+def voice_test_call(request):
+    from .services.voice_call_service import (
+        VoiceConfigurationError,
+        start_test_call,
+    )
+
+    phone_number = str(
+        request.data.get("phone_number", "")
+    ).strip()
+
+    try:
+        result = start_test_call(phone_number)
+
+        return Response(
+            {
+                "ok": True,
+                **result,
+                "message": "AI 테스트 전화를 시작했습니다.",
+            }
+        )
+    except (ValueError, VoiceConfigurationError) as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "AI 테스트 전화 발신에 실패했습니다: "
+                    f"{exc}"
+                ),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+@api_view(["POST"])
+def voice_answer(request):
+    from .services.voice_call_service import (
+        build_answer_twiml,
+    )
+
+    session = str(
+        request.query_params.get("session", "")
+    ).strip()
+
+    try:
+        twiml = build_answer_twiml(session)
+    except Exception:
+        twiml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Response>'
+            '<Say language="ko-KR">'
+            '음성통화 세션을 시작할 수 없습니다.'
+            '</Say><Hangup/>'
+            '</Response>'
+        )
+
+    return HttpResponse(
+        twiml,
+        content_type="text/xml; charset=utf-8",
+    )
+
+
+@api_view(["POST"])
+def voice_respond(request):
+    from .services.voice_call_service import (
+        build_response_twiml,
+    )
+
+    session = str(
+        request.query_params.get("session", "")
+    ).strip()
+    previous_response_id = str(
+        request.query_params.get(
+            "previous_response_id",
+            "",
+        )
+    ).strip() or None
+    speech = str(
+        request.data.get("SpeechResult", "")
+    ).strip()
+
+    try:
+        twiml = build_response_twiml(
+            session,
+            speech,
+            previous_response_id=previous_response_id,
+        )
+    except Exception:
+        twiml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Response>'
+            '<Say language="ko-KR">'
+            'AI 응답 처리 중 문제가 생겨 테스트 통화를 종료합니다.'
+            '</Say><Hangup/>'
+            '</Response>'
+        )
+
+    return HttpResponse(
+        twiml,
+        content_type="text/xml; charset=utf-8",
+    )
