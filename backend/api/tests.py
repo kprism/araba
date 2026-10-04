@@ -347,3 +347,54 @@ class VoiceCallServiceTests(TestCase):
             ),
             "+821012345678",
         )
+
+
+
+class LiveSessionApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_live_session_requires_openai_key(self):
+        response = self.client.post(
+            "/api/live/session/",
+            {"sdp": "v=0"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(response.data["ok"])
+
+    @patch(
+        "api.services.live_service.create_live_session",
+        return_value={
+            "session_id": "live_test",
+            "sdp": "v=0\r\na=answer",
+            "model": "gpt-live-1",
+            "delegation": "client",
+        },
+    )
+    def test_live_session_returns_webrtc_answer(
+        self,
+        mocked_create,
+    ):
+        response = self.client.post(
+            "/api/live/session/",
+            {"sdp": "v=0\r\na=offer"},
+            format="json",
+            HTTP_X_OPENAI_API_KEY="sk-test",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(
+            response.data["session_id"],
+            "live_test",
+        )
+        self.assertEqual(
+            response.data["model"],
+            "gpt-live-1",
+        )
+        mocked_create.assert_called_once_with(
+            "v=0\r\na=offer",
+            "sk-test",
+        )
