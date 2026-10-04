@@ -257,6 +257,7 @@ class VoiceCallApiTests(TestCase):
             HTTP_X_OPENAI_API_KEY="sk-test",
             HTTP_X_TWILIO_ACCOUNT_SID="ACtest",
             HTTP_X_TWILIO_AUTH_TOKEN="twilio-test-token",
+            HTTP_X_TWILIO_FROM_NUMBER="+12025550123",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -269,6 +270,7 @@ class VoiceCallApiTests(TestCase):
             "010-1234-5678",
             account_sid="ACtest",
             auth_token="twilio-test-token",
+            from_number="+12025550123",
             api_key="sk-test",
         )
 
@@ -322,6 +324,18 @@ class VoiceCallApiTests(TestCase):
 
 
 class VoiceCallServiceTests(TestCase):
+    def test_normalize_twilio_from_number(self):
+        from api.services.voice_call_service import (
+            normalize_twilio_from_number,
+        )
+
+        self.assertEqual(
+            normalize_twilio_from_number(
+                "+1 (202) 555-0123"
+            ),
+            "+12025550123",
+        )
+
     def test_normalize_korean_mobile_number(self):
         from api.services.voice_call_service import (
             normalize_phone_number,
