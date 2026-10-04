@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
 
 class MyScreen extends StatefulWidget {
@@ -11,6 +12,7 @@ class MyScreen extends StatefulWidget {
 
 class _MyScreenState extends State<MyScreen> {
   final ArabaApi _api = ArabaApi();
+  final ApiKeyStore _apiKeyStore = ApiKeyStore();
   final TextEditingController _apiKeyController = TextEditingController();
 
   bool _loading = true;
@@ -36,16 +38,41 @@ class _MyScreenState extends State<MyScreen> {
     super.dispose();
   }
 
+  String? _maskKey(String? key) {
+    final value = key?.trim();
+
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+
+    if (value.length <= 12) {
+      return '********';
+    }
+
+    return '${value.substring(0, 7)}'
+        '••••••••••••'
+        '${value.substring(value.length - 4)}';
+  }
+
   Future<void> _loadStatus() async {
     setState(() {
       _loading = true;
       _message = null;
     });
 
-    try {
-      await _api.health();
+    String? savedKey;
 
-      final status = await _api.openAiStatus();
+    try {
+      savedKey = await _apiKeyStore.read();
+
+      if (mounted) {
+        setState(() {
+          _openAiConfigured = savedKey != null;
+          _maskedKey = _maskKey(savedKey);
+        });
+      }
+
+      await _api.health();
 
       if (!mounted) {
         return;
@@ -53,8 +80,6 @@ class _MyScreenState extends State<MyScreen> {
 
       setState(() {
         _serverConnected = true;
-        _openAiConfigured = status['configured'] == true;
-        _maskedKey = status['masked']?.toString();
       });
     } catch (error) {
       if (!mounted) {
@@ -88,7 +113,7 @@ class _MyScreenState extends State<MyScreen> {
     });
 
     try {
-      final result = await _api.saveOpenAiKey(key);
+      await _apiKeyStore.write(key);
 
       if (!mounted) {
         return;
@@ -97,11 +122,10 @@ class _MyScreenState extends State<MyScreen> {
       _apiKeyController.clear();
 
       setState(() {
-        _serverConnected = true;
         _openAiConfigured = true;
         _openAiConnected = false;
-        _maskedKey = result['masked']?.toString();
-        _message = result['message']?.toString();
+        _maskedKey = _maskKey(key);
+        _message = 'OpenAI API Key가 이 기기에 안전하게 저장되었습니다.';
       });
     } catch (error) {
       if (!mounted) {
@@ -127,7 +151,15 @@ class _MyScreenState extends State<MyScreen> {
     });
 
     try {
-      final result = await _api.testOpenAi();
+      final key = await _apiKeyStore.read();
+
+      if (key == null) {
+        throw const ArabaApiException(
+          'OpenAI API Key를 먼저 저장해주세요.',
+        );
+      }
+
+      final result = await _api.testOpenAi(key);
 
       if (!mounted) {
         return;
@@ -137,7 +169,7 @@ class _MyScreenState extends State<MyScreen> {
         _serverConnected = true;
         _openAiConfigured = true;
         _openAiConnected = result['connected'] == true;
-        _maskedKey = result['masked']?.toString() ?? _maskedKey;
+        _maskedKey = _maskKey(key);
         _message = result['message']?.toString();
       });
     } catch (error) {

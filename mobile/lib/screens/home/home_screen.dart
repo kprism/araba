@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -13,6 +14,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _missionController = TextEditingController();
   final ArabaApi _api = ArabaApi();
+  final ApiKeyStore _apiKeyStore = ApiKeyStore();
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _speechReady = false;
   bool _listening = false;
@@ -156,7 +158,18 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final result = await _api.createMission(text);
+      final apiKey = await _apiKeyStore.read();
+
+      if (apiKey == null) {
+        throw const ArabaApiException(
+          'MY에서 OpenAI API Key를 먼저 저장해주세요.',
+        );
+      }
+
+      final result = await _api.createMission(
+        text,
+        apiKey: apiKey,
+      );
 
       if (!mounted) {
         return;

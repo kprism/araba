@@ -1,0 +1,51 @@
+substitutions:
+  _REGION: asia-northeast3
+  _SERVICE: araba-api-dev
+  _REPOSITORY: araba
+
+steps:
+  - id: build-backend
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:${SHORT_SHA}
+      - .
+
+  - id: push-backend
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:${SHORT_SHA}
+
+  - id: deploy-cloud-run
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --project=${PROJECT_ID}
+      - --region=${_REGION}
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:${SHORT_SHA}
+      - --platform=managed
+      - --quiet
+
+  - id: health-check
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        SERVICE_URL="$(gcloud run services describe "${_SERVICE}" \
+          --project="${PROJECT_ID}" \
+          --region="${_REGION}" \
+          --format='value(status.url)')"
+        curl -fsS "$$SERVICE_URL/api/health/"
+        echo
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/backend:${SHORT_SHA}
+
+options:
+  logging: CLOUD_LOGGING_ONLY

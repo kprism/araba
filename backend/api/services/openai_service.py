@@ -13,7 +13,12 @@ def reload_environment():
     load_dotenv(ENV_FILE, override=True)
 
 
-def get_api_key():
+def get_api_key(api_key=None):
+    provided_key = str(api_key or "").strip()
+
+    if provided_key:
+        return provided_key
+
     reload_environment()
     return os.getenv("OPENAI_API_KEY", "").strip()
 
@@ -28,8 +33,8 @@ def mask_api_key(key):
     return f"{key[:7]}••••••••••••{key[-4:]}"
 
 
-def get_openai_status():
-    key = get_api_key()
+def get_openai_status(api_key=None):
+    key = get_api_key(api_key)
 
     return {
         "configured": bool(key),
@@ -37,47 +42,8 @@ def get_openai_status():
     }
 
 
-def save_api_key(api_key):
-    api_key = api_key.strip()
-
-    if not api_key:
-        raise ValueError("OpenAI API Key를 입력하세요.")
-
-    existing_lines = []
-
-    if ENV_FILE.exists():
-        existing_lines = ENV_FILE.read_text(
-            encoding="utf-8"
-        ).splitlines()
-
-    output = []
-    replaced = False
-
-    for line in existing_lines:
-        if line.startswith("OPENAI_API_KEY="):
-            output.append(f"OPENAI_API_KEY={api_key}")
-            replaced = True
-        else:
-            output.append(line)
-
-    if not replaced:
-        if output and output[-1] != "":
-            output.append("")
-
-        output.append(f"OPENAI_API_KEY={api_key}")
-
-    ENV_FILE.write_text(
-        "\n".join(output).rstrip() + "\n",
-        encoding="utf-8",
-    )
-
-    os.environ["OPENAI_API_KEY"] = api_key
-
-    return mask_api_key(api_key)
-
-
-def test_openai_connection():
-    key = get_api_key()
+def test_openai_connection(api_key=None):
+    key = get_api_key(api_key)
 
     if not key:
         raise ValueError(

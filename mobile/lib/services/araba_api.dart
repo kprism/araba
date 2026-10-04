@@ -23,6 +23,22 @@ class ArabaApi {
     return Uri.parse('$baseUrl$path');
   }
 
+  Map<String, String> _headers({
+    String? apiKey,
+  }) {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+
+    final key = apiKey?.trim();
+
+    if (key != null && key.isNotEmpty) {
+      headers['X-OpenAI-API-Key'] = key;
+    }
+
+    return headers;
+  }
+
   Future<Map<String, dynamic>> health() async {
     final response = await http
         .get(_uri('/api/health/'))
@@ -31,31 +47,27 @@ class ArabaApi {
     return _decode(response);
   }
 
-  Future<Map<String, dynamic>> openAiStatus() async {
+  Future<Map<String, dynamic>> openAiStatus(
+    String apiKey,
+  ) async {
     final response = await http
-        .get(_uri('/api/settings/openai/'))
+        .get(
+          _uri('/api/settings/openai/'),
+          headers: _headers(apiKey: apiKey),
+        )
         .timeout(const Duration(seconds: 15));
 
     return _decode(response);
   }
 
-  Future<Map<String, dynamic>> saveOpenAiKey(String apiKey) async {
-    final response = await http
-        .post(
-          _uri('/api/settings/openai/save/'),
-          headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode({'api_key': apiKey}),
-        )
-        .timeout(const Duration(seconds: 20));
-
-    return _decode(response);
-  }
-
-  Future<Map<String, dynamic>> createMission(String request) async {
+  Future<Map<String, dynamic>> createMission(
+    String request, {
+    required String apiKey,
+  }) async {
     final response = await http
         .post(
           _uri('/api/missions/create/'),
-          headers: const {'Content-Type': 'application/json'},
+          headers: _headers(apiKey: apiKey),
           body: jsonEncode({'request': request}),
         )
         .timeout(const Duration(seconds: 60));
@@ -63,11 +75,13 @@ class ArabaApi {
     return _decode(response);
   }
 
-  Future<Map<String, dynamic>> testOpenAi() async {
+  Future<Map<String, dynamic>> testOpenAi(
+    String apiKey,
+  ) async {
     final response = await http
         .post(
           _uri('/api/settings/openai/test/'),
-          headers: const {'Content-Type': 'application/json'},
+          headers: _headers(apiKey: apiKey),
         )
         .timeout(const Duration(seconds: 30));
 

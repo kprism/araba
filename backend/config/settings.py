@@ -28,9 +28,18 @@ load_dotenv(ROOT_DIR / ".env")
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "araba-local-development-only")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
+    if host.strip()
+]
 
 
 # Application definition

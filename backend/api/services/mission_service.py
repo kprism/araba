@@ -55,13 +55,13 @@ ARABA는 사용자가 현실에서 알고 싶은 정보를
 """.strip()
 
 
-def create_mission(user_request):
+def create_mission(user_request, api_key=None):
     request_text = str(user_request).strip()
 
     if not request_text:
         raise ValueError("알아볼 내용을 입력해주세요.")
 
-    api_key = get_api_key()
+    api_key = get_api_key(api_key)
 
     if not api_key:
         raise ValueError(
