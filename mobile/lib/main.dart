@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'app/araba_app.dart';
+import 'services/push_notification_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await PushNotificationService.initialize();
+
   runApp(const ArabaApp());
 }
