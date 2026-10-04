@@ -14,10 +14,13 @@ class _MyScreenState extends State<MyScreen> {
   final ArabaApi _api = ArabaApi();
   final ApiKeyStore _apiKeyStore = ApiKeyStore();
   final TextEditingController _apiKeyController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
   bool _testing = false;
+  bool _voiceTesting = false;
+  bool _voiceReady = false;
 
   bool _serverConnected = false;
   bool _openAiConfigured = false;
@@ -35,6 +38,7 @@ class _MyScreenState extends State<MyScreen> {
   @override
   void dispose() {
     _apiKeyController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -81,6 +85,22 @@ class _MyScreenState extends State<MyScreen> {
       setState(() {
         _serverConnected = true;
       });
+
+      try {
+        final voice = await _api.voiceStatus();
+
+        if (mounted) {
+          setState(() {
+            _voiceReady = voice['ready'] == true;
+          });
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            _voiceReady = false;
+          });
+        }
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -190,6 +210,47 @@ class _MyScreenState extends State<MyScreen> {
     }
   }
 
+  Future<void> _startVoiceTestCall() async {
+    final phone = _phoneController.text.trim();
+
+    if (phone.isEmpty) {
+      _showMessage('전화를 받을 휴대폰 번호를 입력해주세요.');
+      return;
+    }
+
+    setState(() {
+      _voiceTesting = true;
+      _message = null;
+    });
+
+    try {
+      final result = await _api.startVoiceTestCall(phone);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _message = result['message']?.toString() ??
+            'AI 테스트 전화를 시작했습니다.';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _message = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _voiceTesting = false;
+        });
+      }
+    }
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
@@ -227,6 +288,7 @@ class _MyScreenState extends State<MyScreen> {
                   serverConnected: _serverConnected,
                   openAiConfigured: _openAiConfigured,
                   openAiConnected: _openAiConnected,
+                  voiceReady: _voiceReady,
                 ),
                 const SizedBox(height: 18),
                 Container(
@@ -306,6 +368,78 @@ class _MyScreenState extends State<MyScreen> {
                     ],
                   ),
                 ),
+
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFEAECF0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.phone_in_talk_rounded),
+                          SizedBox(width: 8),
+                          Text(
+                            'AI 음성통화 테스트',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _voiceReady
+                            ? '준비 완료. ARABA가 아래 번호로 직접 전화를 겁니다.'
+                            : 'Twilio 전화 설정이 완료되면 여기서 실제 AI 통화를 테스트할 수 있습니다.',
+                        style: const TextStyle(
+                          color: Color(0xFF667085),
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: '테스트 휴대폰 번호',
+                          hintText: '010-1234-5678',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _voiceTesting
+                              ? null
+                              : _startVoiceTestCall,
+                          icon: _voiceTesting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.call_rounded),
+                          label: Text(
+                            _voiceTesting
+                                ? '전화 거는 중...'
+                                : '내 휴대폰으로 AI 테스트 전화 걸기',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 if (_message != null) ...[
                   const SizedBox(height: 16),
                   Container(
@@ -342,12 +476,14 @@ class _StatusCard extends StatelessWidget {
   final bool serverConnected;
   final bool openAiConfigured;
   final bool openAiConnected;
+  final bool voiceReady;
 
   const _StatusCard({
     required this.loading,
     required this.serverConnected,
     required this.openAiConfigured,
     required this.openAiConnected,
+    required this.voiceReady,
   });
 
   @override
@@ -380,6 +516,12 @@ class _StatusCard extends StatelessWidget {
             name: 'OpenAI',
             value: openAiConnected ? 'CONNECTED' : 'NOT TESTED',
             active: openAiConnected,
+          ),
+          const SizedBox(height: 10),
+          _StatusRow(
+            name: 'AI Voice',
+            value: voiceReady ? 'READY' : 'NOT SET',
+            active: voiceReady,
           ),
         ],
       ),
