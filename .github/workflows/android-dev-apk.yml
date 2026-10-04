@@ -60,6 +60,18 @@ jobs:
               -dname "CN=ARABA Dev,O=ARABA,C=KR"
           fi
 
+      - name: Verify Android signing configuration
+        run: |
+          echo "=== DEBUG KEYSTORE ==="
+          keytool -list -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            | grep -E "Alias name:|Owner:|SHA256:"
+
+          echo "=== GRADLE SIGNING REPORT ==="
+          ./android/gradlew -p android app:signingReport
+
       - name: Install dependencies
         run: flutter pub get
 

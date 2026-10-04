@@ -5,6 +5,15 @@ plugins {
 }
 
 android {
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     namespace = "kr.araba.araba"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
