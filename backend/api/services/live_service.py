@@ -47,7 +47,7 @@ def create_live_session(offer_sdp, api_key=None):
             "instructions": LIVE_SYSTEM_PROMPT,
             "audio": {
                 "output": {
-                    "voice": "noeul",
+                    "voice": "marin",
                 },
             },
             "delegation": {
