@@ -6,6 +6,7 @@ on:
       - main
       - feat/cloud-mobile-key
       - feat/gpt-live-hybrid
+      - feat/home-gpt-live
     paths:
       - "mobile/**"
       - ".github/workflows/android-dev-apk.yml"
