@@ -40,6 +40,28 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Cache Android debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: araba-android-debug-keystore-v1
+
+      - name: Ensure stable Android debug keystore
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=ARABA Dev,O=ARABA,C=KR"
+          fi
+
       - name: Install dependencies
         run: flutter pub get
 
