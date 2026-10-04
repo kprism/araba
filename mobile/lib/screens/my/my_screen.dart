@@ -436,17 +436,6 @@ class _MyScreenState extends State<MyScreen> {
                           border: OutlineInputBorder(),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _twilioFromController,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                          labelText: 'Twilio 발신번호',
-                          hintText: '+1... / Trial에서는 Try out Voice 번호',
-                          helperText: 'Trial 계정에서는 발신번호 입력이 필요할 수 있습니다.',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
                       const SizedBox(height: 14),
                       SizedBox(
                         width: double.infinity,
@@ -541,6 +530,17 @@ class _MyScreenState extends State<MyScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Auth Token',
                           hintText: 'Twilio Console의 Auth Token',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _twilioFromController,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Twilio 발신번호',
+                          hintText: '+1... / Trial에서는 Try out Voice 번호',
+                          helperText: 'Trial 계정에서는 발신번호 입력이 필요할 수 있습니다.',
                           border: OutlineInputBorder(),
                         ),
                       ),
