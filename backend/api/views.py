@@ -81,3 +81,43 @@ def openai_test(request):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+
+@api_view(["POST"])
+def mission_create(request):
+    from .services.mission_service import create_mission
+
+    try:
+        user_request = str(
+            request.data.get("request", "")
+        ).strip()
+
+        mission = create_mission(user_request)
+
+        return Response(
+            {
+                "ok": True,
+                "mission": mission,
+            }
+        )
+
+    except ValueError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    except Exception as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "Mission 생성 중 오류가 발생했습니다: "
+                    f"{exc}"
+                ),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )

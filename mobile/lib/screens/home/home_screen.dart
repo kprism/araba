@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+
+import '../../services/araba_api.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -9,11 +12,179 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _missionController = TextEditingController();
+  final ArabaApi _api = ArabaApi();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _speechReady = false;
+  bool _listening = false;
+  bool _creatingMission = false;
+  Map<String, dynamic>? _mission;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeSpeech();
+  }
+
+  Future<void> _initializeSpeech() async {
+    try {
+      final available = await _speech.initialize(
+        onStatus: (status) {
+          if (!mounted) {
+            return;
+          }
+
+          final listening = status == 'listening';
+
+          if (_listening != listening) {
+            setState(() {
+              _listening = listening;
+            });
+          }
+        },
+        onError: (error) {
+          if (!mounted) {
+            return;
+          }
+
+          setState(() {
+            _listening = false;
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('음성 인식 오류: ${error.errorMsg}')),
+          );
+        },
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _speechReady = available;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _speechReady = false;
+      });
+    }
+  }
+
+  Future<void> _toggleListening() async {
+    if (_listening) {
+      await _speech.stop();
+
+      if (mounted) {
+        setState(() {
+          _listening = false;
+        });
+      }
+      return;
+    }
+
+    if (!_speechReady) {
+      await _initializeSpeech();
+    }
+
+    if (!_speechReady) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '이 기기에서 음성 인식을 사용할 수 없습니다. '
+            '마이크 및 음성 인식 권한을 확인해주세요.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    await _speech.listen(
+      onResult: (result) {
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _missionController.text = result.recognizedWords;
+
+          _missionController.selection = TextSelection.collapsed(
+            offset: _missionController.text.length,
+          );
+        });
+      },
+      listenOptions: stt.SpeechListenOptions(
+        localeId: 'ko_KR',
+        listenMode: stt.ListenMode.dictation,
+        partialResults: true,
+      ),
+    );
+
+    if (mounted) {
+      setState(() {
+        _listening = true;
+      });
+    }
+  }
 
   @override
   void dispose() {
+    _speech.stop();
     _missionController.dispose();
     super.dispose();
+  }
+
+  Future<void> _createMission() async {
+    final text = _missionController.text.trim();
+
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('알아볼 내용을 입력해주세요.')));
+      return;
+    }
+
+    setState(() {
+      _creatingMission = true;
+      _mission = null;
+    });
+
+    try {
+      final result = await _api.createMission(text);
+
+      if (!mounted) {
+        return;
+      }
+
+      final mission = result['mission'];
+
+      if (mission is! Map<String, dynamic>) {
+        throw const ArabaApiException('Mission 응답 형식이 올바르지 않습니다.');
+      }
+
+      setState(() {
+        _mission = mission;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _creatingMission = false;
+        });
+      }
+    }
   }
 
   @override
@@ -122,39 +293,41 @@ class _HomeScreenState extends State<HomeScreen> {
                       Row(
                         children: [
                           IconButton(
-                            tooltip: '음성으로 말하기',
-                            onPressed: () {},
-                            icon: const Icon(Icons.mic_none_rounded),
+                            tooltip: _listening ? '음성 입력 중지' : '음성으로 말하기',
+                            onPressed: _toggleListening,
+                            icon: Icon(
+                              _listening
+                                  ? Icons.mic_rounded
+                                  : Icons.mic_none_rounded,
+                              color: _listening ? Colors.red : null,
+                            ),
                           ),
                           const Spacer(),
                           FilledButton.icon(
-                            onPressed: () {
-                              final text = _missionController.text.trim();
-
-                              if (text.isEmpty) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('알아볼 내용을 입력해주세요.'),
+                            onPressed: _creatingMission ? null : _createMission,
+                            icon: _creatingMission
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.arrow_upward_rounded,
+                                    size: 18,
                                   ),
-                                );
-                                return;
-                              }
-
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('POC 준비 중 · "$text"')),
-                              );
-                            },
-                            icon: const Icon(
-                              Icons.arrow_upward_rounded,
-                              size: 18,
-                            ),
-                            label: const Text('알아봐'),
+                            label: Text(_creatingMission ? '분석 중' : '알아봐'),
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
+                if (_mission != null) ...[
+                  const SizedBox(height: 24),
+                  _MissionPreview(mission: _mission!),
+                ],
                 const SizedBox(height: 36),
                 const Text(
                   'ARABA가 하는 일',
@@ -318,6 +491,167 @@ class _StatusLine extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MissionPreview extends StatelessWidget {
+  final Map<String, dynamic> mission;
+
+  const _MissionPreview({required this.mission});
+
+  List<String> _strings(String key) {
+    final value = mission[key];
+
+    if (value is! List) {
+      return const [];
+    }
+
+    return value
+        .map((item) => item.toString())
+        .where((item) => item.isNotEmpty)
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final requiredFacts = _strings('required_facts');
+
+    final constraints = _strings('constraints');
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEF4FF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFD1E0FF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded, color: Color(0xFF3157D5)),
+              SizedBox(width: 8),
+              Text(
+                'Mission 생성 완료',
+                style: TextStyle(
+                  color: Color(0xFF3157D5),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            mission['title']?.toString() ?? 'ARABA Mission',
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            mission['summary']?.toString() ?? '',
+            style: const TextStyle(color: Color(0xFF475467), height: 1.5),
+          ),
+          const SizedBox(height: 16),
+          _MissionValue(
+            label: '지역',
+            value: mission['location']?.toString() ?? '미지정',
+          ),
+          _MissionValue(
+            label: '대상',
+            value: mission['subject']?.toString() ?? '미지정',
+          ),
+          _MissionValue(
+            label: '비교 기준',
+            value: mission['comparison']?.toString() ?? '없음',
+          ),
+          if (constraints.isNotEmpty)
+            _MissionValue(label: '조건', value: constraints.join(' · ')),
+          if (requiredFacts.isNotEmpty)
+            _MissionValue(label: '확인할 정보', value: requiredFacts.join(' · ')),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _MissionBadge(
+                text: mission['needs_fresh_data'] == true
+                    ? '최신정보 필요'
+                    : '기존정보 가능',
+              ),
+              const SizedBox(width: 8),
+              _MissionBadge(
+                text: mission['may_need_phone_call'] == true
+                    ? '전화 가능성 있음'
+                    : '전화 불필요',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MissionValue extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _MissionValue({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF667085),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: Color(0xFF101828),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MissionBadge extends StatelessWidget {
+  final String text;
+
+  const _MissionBadge({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Flexible(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(
+            color: Color(0xFF344054),
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
     );
   }

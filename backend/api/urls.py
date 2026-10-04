@@ -24,4 +24,9 @@ urlpatterns = [
         views.openai_test,
         name="openai-test",
     ),
+    path(
+        "missions/create/",
+        views.mission_create,
+        name="mission-create",
+    ),
 ]

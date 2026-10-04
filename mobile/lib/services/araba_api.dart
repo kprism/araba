@@ -51,6 +51,18 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> createMission(String request) async {
+    final response = await http
+        .post(
+          _uri('/api/missions/create/'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'request': request}),
+        )
+        .timeout(const Duration(seconds: 60));
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> testOpenAi() async {
     final response = await http
         .post(

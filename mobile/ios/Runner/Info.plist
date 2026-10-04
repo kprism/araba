@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ARABA가 사용자의 음성 요청을 듣기 위해 마이크를 사용합니다.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>ARABA가 사용자의 음성을 텍스트로 변환하기 위해 음성 인식을 사용합니다.</string>
 </dict>
 </plist>
