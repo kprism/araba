@@ -14,7 +14,7 @@ class ArabaApiException implements Exception {
 class ArabaApi {
   static const String _configuredBaseUrl = String.fromEnvironment(
     'ARABA_API_BASE_URL',
-    defaultValue: 'http://127.0.0.1:8000',
+    defaultValue: 'https://araba-api-dev-908580697493.asia-northeast3.run.app',
   );
 
   String get baseUrl => _configuredBaseUrl.replaceAll(RegExp(r'/$'), '');
