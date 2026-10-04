@@ -29,4 +29,9 @@ urlpatterns = [
         views.mission_create,
         name="mission-create",
     ),
+    path(
+        "internal/notify-update/",
+        views.notify_update,
+        name="notify-update",
+    ),
 ]

@@ -108,3 +108,51 @@ class MissionApiTests(TestCase):
             "오늘 창원에서 BMW X6 타이어 교체 가능한 가장 저렴한 곳 알아봐",
             "sk-test-1234",
         )
+
+
+
+class UpdateNotificationApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_notify_update_requires_bearer_token(self):
+        response = self.client.post(
+            "/api/internal/notify-update/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(response.data["ok"])
+
+    @patch(
+        "api.services.update_notification_service."
+        "send_update_notification",
+        return_value="projects/araba-dev/messages/test",
+    )
+    @patch(
+        "api.services.update_notification_service."
+        "verify_github_actions_token",
+        return_value={
+            "repository": "kprism/araba",
+            "ref": "refs/heads/main",
+        },
+    )
+    def test_notify_update_sends_fcm_after_oidc_verification(
+        self,
+        mocked_verify,
+        mocked_send,
+    ):
+        response = self.client.post(
+            "/api/internal/notify-update/",
+            {},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer github-oidc-token",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        mocked_verify.assert_called_once_with(
+            "github-oidc-token"
+        )
+        mocked_send.assert_called_once_with()

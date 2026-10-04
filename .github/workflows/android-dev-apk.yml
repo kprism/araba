@@ -12,9 +12,7 @@ on:
 
 permissions:
   contents: write
-
-env:
-  FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+  id-token: write
 
 jobs:
   build:
@@ -96,41 +94,39 @@ jobs:
             --notes "자동 빌드된 최신 ARABA 개발용 APK입니다." \
             --prerelease
 
-      - name: Authenticate to Google Cloud for FCM
-        if: env.FIREBASE_CREDENTIALS != ''
-        uses: google-github-actions/auth@v3
-        with:
-          credentials_json: ${{ env.FIREBASE_CREDENTIALS }}
-
-      - name: Set up Google Cloud SDK
-        if: env.FIREBASE_CREDENTIALS != ''
-        uses: google-github-actions/setup-gcloud@v3
-
       - name: Notify ARABA devices
-        if: env.FIREBASE_CREDENTIALS != ''
         working-directory: .
         shell: bash
         run: |
-          ACCESS_TOKEN="$(gcloud auth print-access-token)"
-          curl -fsS \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-            -H "Content-Type: application/json; UTF-8" \
-            -X POST \
-            "https://fcm.googleapis.com/v1/projects/araba-dev/messages:send" \
-            -d @- <<'JSON'
-          {
-            "message": {
-              "topic": "araba-dev-updates",
-              "notification": {
-                "title": "ARABA 새 버전 준비됨",
-                "body": "알림을 눌러 최신 개발 버전을 설치하세요."
-              },
-              "data": {
-                "url": "https://github.com/kprism/araba/releases/download/dev-latest/araba-dev.apk"
-              },
-              "android": {
-                "priority": "high"
-              }
-            }
-          }
-          JSON
+          RESPONSE="$(curl -fsSL \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=araba-update-notifier")"
+
+          OIDC_TOKEN="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$RESPONSE")"
+
+          for attempt in $(seq 1 18); do
+            STATUS="$(curl -sS \
+              -o /tmp/araba-notify-response.json \
+              -w "%{http_code}" \
+              -H "Authorization: Bearer ${OIDC_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -X POST \
+              "https://araba-api-dev-908580697493.asia-northeast3.run.app/api/internal/notify-update/" \
+              -d '{}')"
+
+            if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 300 ]; then
+              cat /tmp/araba-notify-response.json
+              echo
+              exit 0
+            fi
+
+            echo "Notify attempt $attempt failed with HTTP $STATUS"
+            cat /tmp/araba-notify-response.json || true
+            echo
+
+            if [ "$attempt" -lt 18 ]; then
+              sleep 10
+            fi
+          done
+
+          exit 1
