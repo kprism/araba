@@ -4,29 +4,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:araba/app/araba_app.dart';
 
 void main() {
-  testWidgets('ARABA home screen renders correctly', (tester) async {
+  testWidgets('ARABA conversational home renders correctly', (tester) async {
     await tester.pumpWidget(const ArabaApp());
     await tester.pumpAndSettle();
 
     expect(find.text('ARABA'), findsOneWidget);
-
-    expect(find.text('무엇을 알아볼까요?'), findsOneWidget);
-
+    expect(find.textContaining('무엇을 알아볼까요?'), findsOneWidget);
+    expect(find.text('알아볼 내용을 입력하세요'), findsOneWidget);
+    expect(find.text('보내기'), findsOneWidget);
     expect(find.text('홈'), findsOneWidget);
-
     expect(find.text('작업'), findsOneWidget);
-
     expect(find.text('알림'), findsOneWidget);
-
     expect(find.text('MY'), findsOneWidget);
   });
 
-  testWidgets('Empty mission shows validation message', (tester) async {
+  testWidgets('Empty chat message shows validation message', (tester) async {
     await tester.pumpWidget(const ArabaApp());
     await tester.pumpAndSettle();
 
-    final button = find.widgetWithText(FilledButton, '알아봐');
-
+    final button = find.widgetWithText(FilledButton, '보내기');
     expect(button, findsOneWidget);
 
     await tester.tap(button);
@@ -40,11 +36,9 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.text('MY').last);
-
     await tester.pump();
 
     expect(find.text('개발 설정'), findsOneWidget);
-
     expect(find.text('OpenAI API'), findsOneWidget);
   });
 }
