@@ -18,6 +18,7 @@ class _MyScreenState extends State<MyScreen> {
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _twilioSidController = TextEditingController();
   final TextEditingController _twilioTokenController = TextEditingController();
+  final TextEditingController _twilioFromController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
 
   bool _loading = true;
@@ -34,6 +35,7 @@ class _MyScreenState extends State<MyScreen> {
 
   String? _maskedKey;
   String? _maskedTwilioSid;
+  String? _twilioFromNumber;
   String? _message;
 
   @override
@@ -47,6 +49,7 @@ class _MyScreenState extends State<MyScreen> {
     _apiKeyController.dispose();
     _twilioSidController.dispose();
     _twilioTokenController.dispose();
+    _twilioFromController.dispose();
     _phoneController.dispose();
     super.dispose();
   }
@@ -87,6 +90,7 @@ class _MyScreenState extends State<MyScreen> {
           _maskedTwilioSid = _maskKey(
             twilioCredentials?.accountSid,
           );
+          _twilioFromNumber = twilioCredentials?.fromNumber;
         });
       }
 
@@ -228,8 +232,20 @@ class _MyScreenState extends State<MyScreen> {
   }
 
   Future<void> _saveTwilioCredentials() async {
-    final sid = _twilioSidController.text.trim();
-    final token = _twilioTokenController.text.trim();
+    final existing = await _twilioStore.read();
+    final enteredSid = _twilioSidController.text.trim();
+    final enteredToken = _twilioTokenController.text.trim();
+    final enteredFrom = _twilioFromController.text.trim();
+
+    final sid = enteredSid.isNotEmpty
+        ? enteredSid
+        : existing?.accountSid ?? '';
+    final token = enteredToken.isNotEmpty
+        ? enteredToken
+        : existing?.authToken ?? '';
+    final fromNumber = enteredFrom.isNotEmpty
+        ? enteredFrom
+        : existing?.fromNumber;
 
     if (sid.isEmpty || token.isEmpty) {
       _showMessage('Twilio Account SID와 Auth Token을 모두 입력해주세요.');
@@ -245,6 +261,7 @@ class _MyScreenState extends State<MyScreen> {
       await _twilioStore.write(
         accountSid: sid,
         authToken: token,
+        fromNumber: fromNumber,
       );
 
       if (!mounted) {
@@ -253,10 +270,12 @@ class _MyScreenState extends State<MyScreen> {
 
       _twilioSidController.clear();
       _twilioTokenController.clear();
+      _twilioFromController.clear();
 
       setState(() {
         _twilioConfigured = true;
         _maskedTwilioSid = _maskKey(sid);
+        _twilioFromNumber = fromNumber;
         _voiceReady = _openAiConfigured;
         _message = 'Twilio 계정 정보가 이 기기에 안전하게 저장되었습니다.';
       });
@@ -312,6 +331,7 @@ class _MyScreenState extends State<MyScreen> {
         apiKey: apiKey,
         twilioAccountSid: twilio.accountSid,
         twilioAuthToken: twilio.authToken,
+        twilioFromNumber: twilio.fromNumber,
       );
 
       if (!mounted) {
@@ -416,6 +436,17 @@ class _MyScreenState extends State<MyScreen> {
                           border: OutlineInputBorder(),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _twilioFromController,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Twilio 발신번호',
+                          hintText: '+1... / Trial에서는 Try out Voice 번호',
+                          helperText: 'Trial 계정에서는 발신번호 입력이 필요할 수 있습니다.',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
                       const SizedBox(height: 14),
                       SizedBox(
                         width: double.infinity,
@@ -480,9 +511,14 @@ class _MyScreenState extends State<MyScreen> {
                       Text(
                         _maskedTwilioSid == null
                             ? '등록된 Twilio 계정 정보가 없습니다.'
-                            : '등록된 SID: $_maskedTwilioSid',
+                            : [
+                                '등록된 SID: $_maskedTwilioSid',
+                                if (_twilioFromNumber != null)
+                                  '발신번호: $_twilioFromNumber',
+                              ].join('\n'),
                         style: const TextStyle(
                           color: Color(0xFF667085),
+                          height: 1.4,
                         ),
                       ),
                       const SizedBox(height: 16),
