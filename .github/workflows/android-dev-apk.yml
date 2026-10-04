@@ -97,7 +97,8 @@ jobs:
 
           ACTUAL="$("$APKSIGNER" verify --print-certs \
             build/app/outputs/flutter-apk/app-debug.apk \
-            | awk -F': ' '/certificate SHA-256 digest/ {print tolower($2); exit}')"
+            | tee /tmp/apk-certs.txt \
+            | awk '/certificate SHA-256 digest/ {print tolower($NF); exit}')"
 
           echo "EXPECTED_SHA256=$EXPECTED"
           echo "ACTUAL_SHA256=$ACTUAL"
