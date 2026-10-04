@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -40,9 +41,10 @@ class ArabaApi {
   }
 
   Future<Map<String, dynamic>> health() async {
-    final response = await http
-        .get(_uri('/api/health/'))
-        .timeout(const Duration(seconds: 15));
+    final response = await _request(
+      () => http.get(_uri('/api/health/')),
+      timeout: const Duration(seconds: 15),
+    );
 
     return _decode(response);
   }
@@ -50,12 +52,13 @@ class ArabaApi {
   Future<Map<String, dynamic>> openAiStatus(
     String apiKey,
   ) async {
-    final response = await http
-        .get(
-          _uri('/api/settings/openai/'),
-          headers: _headers(apiKey: apiKey),
-        )
-        .timeout(const Duration(seconds: 15));
+    final response = await _request(
+      () => http.get(
+        _uri('/api/settings/openai/'),
+        headers: _headers(apiKey: apiKey),
+      ),
+      timeout: const Duration(seconds: 20),
+    );
 
     return _decode(response);
   }
@@ -64,13 +67,15 @@ class ArabaApi {
     String request, {
     required String apiKey,
   }) async {
-    final response = await http
-        .post(
-          _uri('/api/missions/create/'),
-          headers: _headers(apiKey: apiKey),
-          body: jsonEncode({'request': request}),
-        )
-        .timeout(const Duration(seconds: 60));
+    final response = await _request(
+      () => http.post(
+        _uri('/api/missions/create/'),
+        headers: _headers(apiKey: apiKey),
+        body: jsonEncode({'request': request}),
+      ),
+      timeout: const Duration(seconds: 90),
+      retries: 1,
+    );
 
     return _decode(response);
   }
@@ -78,14 +83,46 @@ class ArabaApi {
   Future<Map<String, dynamic>> testOpenAi(
     String apiKey,
   ) async {
-    final response = await http
-        .post(
-          _uri('/api/settings/openai/test/'),
-          headers: _headers(apiKey: apiKey),
-        )
-        .timeout(const Duration(seconds: 30));
+    final response = await _request(
+      () => http.post(
+        _uri('/api/settings/openai/test/'),
+        headers: _headers(apiKey: apiKey),
+      ),
+      timeout: const Duration(seconds: 45),
+      retries: 1,
+    );
 
     return _decode(response);
+  }
+
+  Future<http.Response> _request(
+    Future<http.Response> Function() action, {
+    required Duration timeout,
+    int retries = 0,
+  }) async {
+    for (var attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await action().timeout(timeout);
+      } on TimeoutException {
+        if (attempt < retries) {
+          await Future<void>.delayed(const Duration(milliseconds: 700));
+          continue;
+        }
+        throw const ArabaApiException(
+          '서버 응답이 늦어지고 있어요. 잠시 후 다시 시도해주세요.',
+        );
+      } on http.ClientException {
+        if (attempt < retries) {
+          await Future<void>.delayed(const Duration(milliseconds: 700));
+          continue;
+        }
+        throw const ArabaApiException(
+          '서버 연결이 잠시 끊겼어요. 네트워크를 확인한 뒤 다시 시도해주세요.',
+        );
+      }
+    }
+
+    throw const ArabaApiException('서버 요청에 실패했습니다.');
   }
 
   Map<String, dynamic> _decode(http.Response response) {
