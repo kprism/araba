@@ -1,7 +1,11 @@
+import base64
+import hashlib
 import os
 import re
 from urllib.parse import urlencode
 
+from cryptography.fernet import Fernet
+from django.conf import settings
 from django.core import signing
 from openai import OpenAI
 from twilio.rest import Client
@@ -45,51 +49,36 @@ def _server_openai_key():
     )
 
 
-def _twilio_from_number():
-    return (
-        _env("TWILIO_PHONE_NUMBER")
-        or _env("TWILIO_FROM_NUMBER")
+def _fernet():
+    digest = hashlib.sha256(
+        settings.SECRET_KEY.encode("utf-8")
+    ).digest()
+
+    return Fernet(
+        base64.urlsafe_b64encode(digest)
     )
+
+
+def _encrypt_secret(value):
+    return _fernet().encrypt(
+        str(value).encode("utf-8")
+    ).decode("ascii")
+
+
+def _decrypt_secret(value):
+    return _fernet().decrypt(
+        str(value).encode("ascii")
+    ).decode("utf-8")
 
 
 def voice_configuration_status():
     return {
-        "twilio_account_sid": bool(_env("TWILIO_ACCOUNT_SID")),
-        "twilio_auth_token": bool(_env("TWILIO_AUTH_TOKEN")),
-        "twilio_from_number": bool(_twilio_from_number()),
-        "voice_openai_key": bool(_server_openai_key()),
-        "ready": all(
-            [
-                _env("TWILIO_ACCOUNT_SID"),
-                _env("TWILIO_AUTH_TOKEN"),
-                _twilio_from_number(),
-                _server_openai_key(),
-            ]
+        "ready": True,
+        "credential_mode": "device",
+        "server_openai_fallback": bool(
+            _server_openai_key()
         ),
     }
-
-
-def _require_voice_configuration():
-    status = voice_configuration_status()
-
-    if status["ready"]:
-        return
-
-    missing = []
-
-    if not status["twilio_account_sid"]:
-        missing.append("TWILIO_ACCOUNT_SID")
-    if not status["twilio_auth_token"]:
-        missing.append("TWILIO_AUTH_TOKEN")
-    if not status["twilio_from_number"]:
-        missing.append("TWILIO_PHONE_NUMBER")
-    if not status["voice_openai_key"]:
-        missing.append("VOICE_OPENAI_API_KEY")
-
-    raise VoiceConfigurationError(
-        "AI 전화 설정이 아직 완료되지 않았습니다: "
-        + ", ".join(missing)
-    )
 
 
 def normalize_phone_number(value):
@@ -127,9 +116,12 @@ def _voice_url(path, **query):
     return url
 
 
-def _create_session_token(phone_number):
+def _create_session_token(phone_number, api_key):
     return signing.dumps(
-        {"phone": phone_number},
+        {
+            "phone": phone_number,
+            "openai_key": _encrypt_secret(api_key),
+        },
         salt=VOICE_SESSION_SALT,
         compress=True,
     )
@@ -137,13 +129,27 @@ def _create_session_token(phone_number):
 
 def _validate_session_token(token):
     try:
-        return signing.loads(
+        data = signing.loads(
             token,
             salt=VOICE_SESSION_SALT,
             max_age=60 * 60,
         )
     except signing.BadSignature as exc:
         raise ValueError("유효하지 않은 음성통화 세션입니다.") from exc
+
+    encrypted_key = str(
+        data.get("openai_key", "")
+    ).strip()
+
+    if not encrypted_key:
+        raise ValueError(
+            "음성통화용 OpenAI 키가 없습니다."
+        )
+
+    data["openai_key"] = _decrypt_secret(
+        encrypted_key
+    )
+    return data
 
 
 def _say(response_or_gather, text):
@@ -169,20 +175,85 @@ def _should_end_call(speech):
     )
 
 
-def start_test_call(phone_number):
-    _require_voice_configuration()
+def _find_twilio_from_number(client):
+    configured = (
+        _env("TWILIO_PHONE_NUMBER")
+        or _env("TWILIO_FROM_NUMBER")
+    )
 
-    to_number = normalize_phone_number(phone_number)
-    session = _create_session_token(to_number)
+    if configured:
+        return configured
+
+    numbers = client.incoming_phone_numbers.list(
+        limit=20
+    )
+
+    for number in numbers:
+        phone = str(
+            getattr(number, "phone_number", "")
+        ).strip()
+
+        capabilities = (
+            getattr(number, "capabilities", {})
+            or {}
+        )
+
+        if (
+            phone
+            and (
+                capabilities.get("voice") is True
+                or capabilities.get("Voice") is True
+                or not capabilities
+            )
+        ):
+            return phone
+
+    raise VoiceConfigurationError(
+        "Twilio 발신번호가 없습니다. "
+        "Twilio Console에서 Voice 가능한 전화번호를 먼저 받아주세요."
+    )
+
+
+def start_test_call(
+    phone_number,
+    *,
+    account_sid,
+    auth_token,
+    api_key,
+):
+    account_sid = str(account_sid).strip()
+    auth_token = str(auth_token).strip()
+    api_key = str(api_key).strip()
+
+    if not account_sid or not auth_token:
+        raise VoiceConfigurationError(
+            "Twilio Account SID와 Auth Token이 필요합니다."
+        )
+
+    if not api_key:
+        raise VoiceConfigurationError(
+            "OpenAI API Key가 필요합니다."
+        )
+
+    to_number = normalize_phone_number(
+        phone_number
+    )
+    session = _create_session_token(
+        to_number,
+        api_key,
+    )
 
     client = Client(
-        _env("TWILIO_ACCOUNT_SID"),
-        _env("TWILIO_AUTH_TOKEN"),
+        account_sid,
+        auth_token,
+    )
+    from_number = _find_twilio_from_number(
+        client
     )
 
     call = client.calls.create(
         to=to_number,
-        from_=_twilio_from_number(),
+        from_=from_number,
         url=_voice_url(
             "/api/voice/answer/",
             session=session,
@@ -235,12 +306,20 @@ def build_answer_twiml(session_token):
     return str(response)
 
 
-def _generate_voice_reply(speech, previous_response_id=None):
-    api_key = _server_openai_key()
+def _generate_voice_reply(
+    speech,
+    *,
+    api_key,
+    previous_response_id=None,
+):
+    api_key = str(api_key or "").strip()
+
+    if not api_key:
+        api_key = _server_openai_key()
 
     if not api_key:
         raise VoiceConfigurationError(
-            "VOICE_OPENAI_API_KEY가 설정되지 않았습니다."
+            "음성통화용 OpenAI API Key가 없습니다."
         )
 
     client = OpenAI(
@@ -276,7 +355,9 @@ def build_response_twiml(
     speech,
     previous_response_id=None,
 ):
-    _validate_session_token(session_token)
+    session = _validate_session_token(
+        session_token
+    )
 
     speech = str(speech or "").strip()
     response = VoiceResponse()
@@ -299,6 +380,7 @@ def build_response_twiml(
 
     ai = _generate_voice_reply(
         speech,
+        api_key=session["openai_key"],
         previous_response_id=previous_response_id,
     )
 

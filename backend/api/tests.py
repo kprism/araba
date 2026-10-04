@@ -255,6 +255,8 @@ class VoiceCallApiTests(TestCase):
             {"phone_number": "010-1234-5678"},
             format="json",
             HTTP_X_OPENAI_API_KEY="sk-test",
+            HTTP_X_TWILIO_ACCOUNT_SID="ACtest",
+            HTTP_X_TWILIO_AUTH_TOKEN="twilio-test-token",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -264,7 +266,10 @@ class VoiceCallApiTests(TestCase):
             "CATEST",
         )
         mocked_call.assert_called_once_with(
-            "010-1234-5678"
+            "010-1234-5678",
+            account_sid="ACtest",
+            auth_token="twilio-test-token",
+            api_key="sk-test",
         )
 
     @patch(

@@ -26,6 +26,8 @@ class ArabaApi {
 
   Map<String, String> _headers({
     String? apiKey,
+    String? twilioAccountSid,
+    String? twilioAuthToken,
   }) {
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -35,6 +37,17 @@ class ArabaApi {
 
     if (key != null && key.isNotEmpty) {
       headers['X-OpenAI-API-Key'] = key;
+    }
+
+    final sid = twilioAccountSid?.trim();
+    final token = twilioAuthToken?.trim();
+
+    if (sid != null && sid.isNotEmpty) {
+      headers['X-Twilio-Account-SID'] = sid;
+    }
+
+    if (token != null && token.isNotEmpty) {
+      headers['X-Twilio-Auth-Token'] = token;
     }
 
     return headers;
@@ -111,11 +124,17 @@ class ArabaApi {
   Future<Map<String, dynamic>> startVoiceTestCall(
     String phoneNumber, {
     required String apiKey,
+    required String twilioAccountSid,
+    required String twilioAuthToken,
   }) async {
     final response = await _request(
       () => http.post(
         _uri('/api/voice/test-call/'),
-        headers: _headers(apiKey: apiKey),
+        headers: _headers(
+          apiKey: apiKey,
+          twilioAccountSid: twilioAccountSid,
+          twilioAuthToken: twilioAuthToken,
+        ),
         body: jsonEncode({
           'phone_number': phoneNumber,
         }),

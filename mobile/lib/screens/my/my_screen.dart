@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
+import '../../services/twilio_credential_store.dart';
 
 class MyScreen extends StatefulWidget {
   const MyScreen({super.key});
@@ -13,20 +14,26 @@ class MyScreen extends StatefulWidget {
 class _MyScreenState extends State<MyScreen> {
   final ArabaApi _api = ArabaApi();
   final ApiKeyStore _apiKeyStore = ApiKeyStore();
+  final TwilioCredentialStore _twilioStore = TwilioCredentialStore();
   final TextEditingController _apiKeyController = TextEditingController();
+  final TextEditingController _twilioSidController = TextEditingController();
+  final TextEditingController _twilioTokenController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
   bool _testing = false;
   bool _voiceTesting = false;
+  bool _twilioSaving = false;
   bool _voiceReady = false;
+  bool _twilioConfigured = false;
 
   bool _serverConnected = false;
   bool _openAiConfigured = false;
   bool _openAiConnected = false;
 
   String? _maskedKey;
+  String? _maskedTwilioSid;
   String? _message;
 
   @override
@@ -38,6 +45,8 @@ class _MyScreenState extends State<MyScreen> {
   @override
   void dispose() {
     _apiKeyController.dispose();
+    _twilioSidController.dispose();
+    _twilioTokenController.dispose();
     _phoneController.dispose();
     super.dispose();
   }
@@ -68,11 +77,16 @@ class _MyScreenState extends State<MyScreen> {
 
     try {
       savedKey = await _apiKeyStore.read();
+      final twilioCredentials = await _twilioStore.read();
 
       if (mounted) {
         setState(() {
           _openAiConfigured = savedKey != null;
           _maskedKey = _maskKey(savedKey);
+          _twilioConfigured = twilioCredentials != null;
+          _maskedTwilioSid = _maskKey(
+            twilioCredentials?.accountSid,
+          );
         });
       }
 
@@ -91,7 +105,9 @@ class _MyScreenState extends State<MyScreen> {
 
         if (mounted) {
           setState(() {
-            _voiceReady = voice['ready'] == true;
+            _voiceReady = voice['ready'] == true &&
+                _openAiConfigured &&
+                _twilioConfigured;
           });
         }
       } catch (_) {
@@ -145,6 +161,7 @@ class _MyScreenState extends State<MyScreen> {
         _openAiConfigured = true;
         _openAiConnected = false;
         _maskedKey = _maskKey(key);
+        _voiceReady = _twilioConfigured;
         _message = 'OpenAI API Key가 이 기기에 안전하게 저장되었습니다.';
       });
     } catch (error) {
@@ -210,6 +227,56 @@ class _MyScreenState extends State<MyScreen> {
     }
   }
 
+  Future<void> _saveTwilioCredentials() async {
+    final sid = _twilioSidController.text.trim();
+    final token = _twilioTokenController.text.trim();
+
+    if (sid.isEmpty || token.isEmpty) {
+      _showMessage('Twilio Account SID와 Auth Token을 모두 입력해주세요.');
+      return;
+    }
+
+    setState(() {
+      _twilioSaving = true;
+      _message = null;
+    });
+
+    try {
+      await _twilioStore.write(
+        accountSid: sid,
+        authToken: token,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      _twilioSidController.clear();
+      _twilioTokenController.clear();
+
+      setState(() {
+        _twilioConfigured = true;
+        _maskedTwilioSid = _maskKey(sid);
+        _voiceReady = _openAiConfigured;
+        _message = 'Twilio 계정 정보가 이 기기에 안전하게 저장되었습니다.';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _message = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _twilioSaving = false;
+        });
+      }
+    }
+  }
+
   Future<void> _startVoiceTestCall() async {
     final phone = _phoneController.text.trim();
 
@@ -232,9 +299,19 @@ class _MyScreenState extends State<MyScreen> {
         );
       }
 
+      final twilio = await _twilioStore.read();
+
+      if (twilio == null) {
+        throw const ArabaApiException(
+          'Twilio Account SID와 Auth Token을 먼저 저장해주세요.',
+        );
+      }
+
       final result = await _api.startVoiceTestCall(
         phone,
         apiKey: apiKey,
+        twilioAccountSid: twilio.accountSid,
+        twilioAuthToken: twilio.authToken,
       );
 
       if (!mounted) {
@@ -299,6 +376,7 @@ class _MyScreenState extends State<MyScreen> {
                   serverConnected: _serverConnected,
                   openAiConfigured: _openAiConfigured,
                   openAiConnected: _openAiConnected,
+                  twilioConfigured: _twilioConfigured,
                   voiceReady: _voiceReady,
                 ),
                 const SizedBox(height: 18),
@@ -374,6 +452,84 @@ class _MyScreenState extends State<MyScreen> {
                                 )
                               : const Icon(Icons.bolt_rounded),
                           label: const Text('OpenAI 연결 테스트'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFEAECF0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Twilio Voice',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _maskedTwilioSid == null
+                            ? '등록된 Twilio 계정 정보가 없습니다.'
+                            : '등록된 SID: $_maskedTwilioSid',
+                        style: const TextStyle(
+                          color: Color(0xFF667085),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _twilioSidController,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Account SID',
+                          hintText: 'AC...',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _twilioTokenController,
+                        obscureText: true,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Auth Token',
+                          hintText: 'Twilio Console의 Auth Token',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _twilioSaving
+                              ? null
+                              : _saveTwilioCredentials,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 13,
+                            ),
+                            child: _twilioSaving
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text('Twilio 정보 저장'),
+                          ),
                         ),
                       ),
                     ],
@@ -487,6 +643,7 @@ class _StatusCard extends StatelessWidget {
   final bool serverConnected;
   final bool openAiConfigured;
   final bool openAiConnected;
+  final bool twilioConfigured;
   final bool voiceReady;
 
   const _StatusCard({
@@ -494,6 +651,7 @@ class _StatusCard extends StatelessWidget {
     required this.serverConnected,
     required this.openAiConfigured,
     required this.openAiConnected,
+    required this.twilioConfigured,
     required this.voiceReady,
   });
 
@@ -527,6 +685,12 @@ class _StatusCard extends StatelessWidget {
             name: 'OpenAI',
             value: openAiConnected ? 'CONNECTED' : 'NOT TESTED',
             active: openAiConnected,
+          ),
+          const SizedBox(height: 10),
+          _StatusRow(
+            name: 'Twilio',
+            value: twilioConfigured ? 'CONFIGURED' : 'NOT SET',
+            active: twilioConfigured,
           ),
           const SizedBox(height: 10),
           _StatusRow(
