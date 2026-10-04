@@ -80,6 +80,22 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> registerNotificationToken(
+    String token,
+  ) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/notifications/register/'),
+        headers: _headers(),
+        body: jsonEncode({'token': token}),
+      ),
+      timeout: const Duration(seconds: 20),
+      retries: 2,
+    );
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> testOpenAi(
     String apiKey,
   ) async {

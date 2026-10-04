@@ -60,13 +60,40 @@ def verify_github_actions_token(token):
     return claims
 
 
-def send_update_notification():
+def ensure_firebase_app():
     try:
-        app = get_app()
+        return get_app()
     except ValueError:
-        app = initialize_app(
+        return initialize_app(
             options={"projectId": "araba-dev"}
         )
+
+
+def subscribe_device_to_updates(token):
+    token = str(token).strip()
+
+    if len(token) < 40:
+        raise ValueError("유효한 FCM 토큰이 필요합니다.")
+
+    app = ensure_firebase_app()
+    response = messaging.subscribe_to_topic(
+        [token],
+        UPDATE_TOPIC,
+        app=app,
+    )
+
+    if response.failure_count:
+        raise ValueError("FCM 업데이트 토픽 등록에 실패했습니다.")
+
+    return {
+        "success_count": response.success_count,
+        "failure_count": response.failure_count,
+        "topic": UPDATE_TOPIC,
+    }
+
+
+def send_update_notification():
+    app = ensure_firebase_app()
 
     message = messaging.Message(
         topic=UPDATE_TOPIC,
