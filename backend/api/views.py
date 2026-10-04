@@ -236,6 +236,15 @@ def voice_test_call(request):
         start_test_call,
     )
 
+    if not _request_api_key(request):
+        return Response(
+            {
+                "ok": False,
+                "message": "OpenAI API Key가 필요합니다.",
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
     phone_number = str(
         request.data.get("phone_number", "")
     ).strip()
