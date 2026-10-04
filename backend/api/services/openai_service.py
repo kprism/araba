@@ -9,6 +9,20 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 ENV_FILE = ROOT_DIR / ".env"
 
 
+def _env_flag(name, default=False):
+    raw = os.getenv(name)
+
+    if raw is None:
+        return default
+
+    return raw.strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def reload_environment():
     load_dotenv(ENV_FILE, override=True)
 
@@ -38,6 +52,15 @@ def get_openai_status():
 
 
 def save_api_key(api_key):
+    if not _env_flag(
+        "ARABA_ALLOW_REMOTE_KEY_SAVE",
+        default=True,
+    ):
+        raise ValueError(
+            "배포 서버에서는 API Key 저장 기능이 "
+            "비활성화되어 있습니다."
+        )
+
     api_key = api_key.strip()
 
     if not api_key:
