@@ -10,3 +10,5 @@ firebase-admin>=6.6,<7
 PyJWT[crypto]>=2.9,<3
 
 twilio>=9.0,<10
+
+cryptography>=43,<47
