@@ -156,3 +156,48 @@ class UpdateNotificationApiTests(TestCase):
             "github-oidc-token"
         )
         mocked_send.assert_called_once_with()
+
+
+
+class NotificationRegistrationApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @patch(
+        "api.services.update_notification_service."
+        "subscribe_device_to_updates",
+        return_value={
+            "success_count": 1,
+            "failure_count": 0,
+            "topic": "araba-dev-updates",
+        },
+    )
+    def test_register_notification_token(
+        self,
+        mocked_subscribe,
+    ):
+        token = "f" * 80
+
+        response = self.client.post(
+            "/api/notifications/register/",
+            {"token": token},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(
+            response.data["topic"],
+            "araba-dev-updates",
+        )
+        mocked_subscribe.assert_called_once_with(token)
+
+    def test_register_notification_token_requires_token(self):
+        response = self.client.post(
+            "/api/notifications/register/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.data["ok"])
