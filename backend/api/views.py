@@ -172,3 +172,42 @@ def notify_update(request):
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+
+@api_view(["POST"])
+def notification_register(request):
+    from .services.update_notification_service import (
+        subscribe_device_to_updates,
+    )
+
+    token = str(request.data.get("token", "")).strip()
+
+    try:
+        result = subscribe_device_to_updates(token)
+
+        return Response(
+            {
+                "ok": True,
+                **result,
+            }
+        )
+    except ValueError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "푸시 알림 등록 중 오류가 발생했습니다: "
+                    f"{exc}"
+                ),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
