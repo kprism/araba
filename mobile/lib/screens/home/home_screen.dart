@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
@@ -122,7 +123,7 @@ class _HomeScreenState extends State<HomeScreen> {
             return;
           }
 
-          unawaited(_runResearchSimulation(mission));
+          unawaited(_runRealResearch(mission));
         },
         onError: (message) {
           if (!mounted || _liveVoice != liveVoice) return;
@@ -229,43 +230,54 @@ class _HomeScreenState extends State<HomeScreen> {
         .toList();
   }
 
-  Future<void> _runResearchSimulation(
+  Future<void> _runRealResearch(
     Map<String, dynamic> mission,
   ) async {
     if (_researching) return;
 
     setState(() => _researching = true);
 
-    const startText = '조건 정리가 끝났어요. 업체를 찾고 있어요. 현재 0곳 찾았어요.';
+    const startText =
+        '조건 정리가 끝났어요. 실제 업체를 찾고 있어요. 현재 0곳 찾았어요.';
     _addAssistantMessage(
       text: startText,
-      badge: '조사 중',
+      badge: '실제 검색 중',
     );
-    _speakProgress('조건 정리가 끝났어요. 바로 업체를 찾아볼게요.');
+    _speakProgress('조건 정리가 끝났어요. 실제 업체를 바로 찾아볼게요.');
 
     try {
-      final result = await _api.simulateResearch(mission);
+      final result = await _api.searchBusinesses(mission);
       final businesses = _businessesFrom(result);
+      final searchQuery =
+          result['search_query']?.toString().trim() ?? '';
+
+      if (businesses.isEmpty) {
+        const noResult =
+            '실제 장소검색 결과에서 조건에 맞는 업체를 찾지 못했어요. '
+            '검색 조건을 조금 넓혀 다시 시도해 주세요.';
+        _addAssistantMessage(
+          text: noResult,
+          badge: '검색 결과 없음',
+        );
+        _speakProgress(noResult);
+        return;
+      }
 
       await Future<void>.delayed(
-        const Duration(milliseconds: 650),
+        const Duration(milliseconds: 450),
       );
-
-      final discoveryBusinesses = businesses
-          .map((business) {
-            final item = Map<String, dynamic>.from(business);
-            item.remove('mock_call_result');
-            return item;
-          })
-          .toList();
 
       _addAssistantMessage(
-        text: '${businesses.length}곳 찾았어요. 비교할 후보를 카드로 보여드릴게요.',
-        badge: '가상 테스트',
-        businesses: discoveryBusinesses,
+        text: searchQuery.isEmpty
+            ? '${businesses.length}곳의 실제 업체를 찾았어요.'
+            : '카카오맵에서 “$searchQuery”로 실제 업체 '
+                '${businesses.length}곳을 찾았어요.',
+        badge: '실제 업체',
+        businesses: businesses,
       );
       _speakProgress(
-        '${businesses.length}곳을 찾았어요. 조건을 비교하고 있습니다.',
+        '${businesses.length}곳의 실제 업체를 찾았어요. '
+        '카드에서 상호명과 주소, 전화번호를 확인할 수 있어요.',
       );
 
       final lifeInfo = result['life_info'];
@@ -275,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (tip.isEmpty) continue;
 
           await Future<void>.delayed(
-            const Duration(milliseconds: 750),
+            const Duration(milliseconds: 650),
           );
           _addAssistantMessage(
             text: tip,
@@ -285,12 +297,13 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       await Future<void>.delayed(
-        const Duration(milliseconds: 700),
+        const Duration(milliseconds: 650),
       );
 
       const callText =
-          '이 업체들에 전화해서 가격, 가능 여부 같은 최신 정보를 확인할게요. '
-          '지금은 실제 전화 대신 가상 통화로 테스트합니다.';
+          '이 실제 업체들에 전화해서 가격, 재고, 가능 시간 같은 최신 정보를 '
+          '확인해야 해요. 지금은 전화망이 연결되지 않아 통화 구간만 '
+          '가상으로 진행할게요.';
       _addAssistantMessage(
         text: callText,
         badge: '전화 확인',
@@ -298,26 +311,40 @@ class _HomeScreenState extends State<HomeScreen> {
       _speakProgress(callText);
 
       await Future<void>.delayed(
-        const Duration(milliseconds: 1200),
+        const Duration(milliseconds: 1100),
       );
+
+      final calledBusinesses = businesses
+          .map((business) {
+            final item = Map<String, dynamic>.from(business);
+            final phone = item['phone']?.toString().trim() ?? '';
+            item['mock_call_result'] = phone.isEmpty
+                ? '가상 통화 테스트: 공개 전화번호가 없어 실제 통화 전 번호 확인이 필요합니다.'
+                : '가상 통화 테스트: 이 실제 전화번호로 가격·재고·가능 시간을 확인한다고 가정했습니다.';
+            return item;
+          })
+          .toList();
 
       _addAssistantMessage(
-        text: '가상 전화 확인을 마쳤어요. 각 업체 카드에 통화 확인 결과를 표시했어요.',
-        badge: '통화 결과',
-        businesses: businesses,
+        text: '실제 업체 목록을 대상으로 가상 전화 확인 구간을 마쳤어요. '
+            '통화 내용 자체는 아직 실제 결과가 아닙니다.',
+        badge: '가상 통화 결과',
+        businesses: calledBusinesses,
       );
-      _speakProgress('가상 전화 확인을 마쳤어요. 이제 가장 적합한 곳을 추천할게요.');
+      _speakProgress(
+        '업체 목록은 실제 정보이고, 전화 확인 부분만 가상으로 테스트했어요.',
+      );
 
-      final recommendation = result['recommendation'];
-      final recommendationMap = recommendation is Map
-          ? Map<String, dynamic>.from(recommendation)
-          : <String, dynamic>{};
+      final firstBusiness = calledBusinesses.first;
+      final firstName =
+          firstBusiness['name']?.toString().trim() ?? '첫 번째 업체';
       final summary =
-          recommendationMap['summary']?.toString().trim() ??
-          '비교가 끝났어요.';
+          '가상 통화 흐름 테스트에서는 $firstName을 임시 1순위로 보여드릴게요. '
+          '다만 가격, 재고, 예약 가능 여부는 실제 통화를 하지 않았기 때문에 '
+          '아직 확정된 추천은 아니에요.';
       final finalQuestion =
           result['final_question']?.toString().trim() ??
-          '이 업체로 진행할까요?';
+          '실제 통화 기능이 연결되면 이 업체에 예약을 진행할까요?';
       final rawActions = result['actions'];
       final actions = rawActions is List
           ? rawActions
@@ -327,13 +354,13 @@ class _HomeScreenState extends State<HomeScreen> {
           : <String>[];
 
       await Future<void>.delayed(
-        const Duration(milliseconds: 650),
+        const Duration(milliseconds: 550),
       );
 
       _addAssistantMessage(
         text: summary,
-        badge: '추천',
-        businesses: businesses,
+        badge: '임시 추천',
+        businesses: calledBusinesses,
         actionQuestion: finalQuestion,
         actions: actions,
       );
@@ -341,11 +368,11 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (error) {
       final message = error is ArabaApiException
           ? error.message
-          : '조사 시뮬레이션 중 문제가 생겼어요.';
+          : '실제 업체 검색 중 문제가 생겼어요.';
 
       _addAssistantMessage(
         text: message,
-        badge: '오류',
+        badge: '검색 오류',
       );
     } finally {
       if (mounted) {
@@ -558,7 +585,7 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         });
       } else if (mission['ready_to_research'] == true) {
-        unawaited(_runResearchSimulation(mission));
+        unawaited(_runRealResearch(mission));
       } else {
         setState(() {
           _messages.add(
