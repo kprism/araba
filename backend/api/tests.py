@@ -442,6 +442,100 @@ class VoiceCallServiceTests(TestCase):
 
 
 
+class LiveTelephonyApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @patch(
+        "api.services.live_service.live_telephony_status",
+        return_value={
+            "ready": True,
+            "transport": "sip",
+            "model": "gpt-live-1",
+            "missing": [],
+            "provider_url_valid": True,
+            "caller_number_configured": True,
+        },
+    )
+    def test_live_telephony_status(
+        self,
+        mocked_status,
+    ):
+        response = self.client.get(
+            "/api/live/telephony/status/",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ready"])
+        self.assertEqual(
+            response.data["transport"],
+            "sip",
+        )
+        mocked_status.assert_called_once_with()
+
+    def test_live_outbound_call_requires_openai_key(self):
+        response = self.client.post(
+            "/api/live/outbound-call/",
+            {
+                "phone_number": "010-1234-5678",
+                "purpose": "내일 오후 3시 타이어 교체 예약",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(response.data["ok"])
+
+    @patch(
+        "api.services.live_service.create_outbound_live_call",
+        return_value={
+            "session_id": "live_phone_1",
+            "destination": "+821012345678",
+            "caller_number": "+82105556666",
+            "transport": "sip",
+            "model": "gpt-live-1",
+            "status": "initializing",
+        },
+    )
+    def test_live_outbound_call_starts_session(
+        self,
+        mocked_call,
+    ):
+        response = self.client.post(
+            "/api/live/outbound-call/",
+            {
+                "phone_number": "010-1234-5678",
+                "purpose": "내일 오후 3시 타이어 교체 예약",
+                "business_name": "테스트타이어",
+                "requested_time": "내일 오후 3시",
+                "reservation_name": "홍길동",
+                "notes": "BMW X6",
+                "voice_gender": "female",
+                "voice_speed": "medium",
+            },
+            format="json",
+            HTTP_X_OPENAI_API_KEY="sk-test",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(
+            response.data["session_id"],
+            "live_phone_1",
+        )
+        mocked_call.assert_called_once_with(
+            "010-1234-5678",
+            api_key="sk-test",
+            purpose="내일 오후 3시 타이어 교체 예약",
+            business_name="테스트타이어",
+            requested_time="내일 오후 3시",
+            reservation_name="홍길동",
+            notes="BMW X6",
+            voice_gender="female",
+            voice_speed="medium",
+        )
+
+
 class LiveSessionApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -491,6 +585,147 @@ class LiveSessionApiTests(TestCase):
             "sk-test",
         )
 
+
+
+class LiveTelephonyServiceTests(TestCase):
+    @patch.dict(
+        "os.environ",
+        {
+            "ARABA_SIP_PROVIDER_URL": "sips:sip.example.com:5061",
+            "ARABA_SIP_USERNAME": "sip-user",
+            "ARABA_SIP_PASSWORD": "sip-pass",
+            "ARABA_SIP_CALLER_NUMBER": "02-1234-5678",
+        },
+        clear=False,
+    )
+    @patch(
+        "api.services.live_service.httpx.post"
+    )
+    def test_create_outbound_live_call_uses_sip_transport(
+        self,
+        mocked_post,
+    ):
+        from api.services.live_service import (
+            create_outbound_live_call,
+        )
+
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            "session": {
+                "id": "live_sip_123",
+            },
+            "transport": {
+                "type": "sip",
+            },
+        }
+        mocked_post.return_value = response
+
+        result = create_outbound_live_call(
+            "055-123-4567",
+            api_key="sk-test",
+            purpose="내일 영업 여부 확인 후 예약",
+            business_name="테스트타이어",
+            requested_time="내일 오후",
+            reservation_name="홍길동",
+            notes="BMW X6 타이어 교체",
+        )
+
+        self.assertEqual(
+            result["session_id"],
+            "live_sip_123",
+        )
+        self.assertEqual(
+            result["destination"],
+            "+82551234567",
+        )
+        self.assertEqual(
+            result["caller_number"],
+            "+82212345678",
+        )
+
+        request_kwargs = mocked_post.call_args.kwargs
+        payload = request_kwargs["json"]
+        self.assertEqual(
+            payload["transport"]["type"],
+            "sip",
+        )
+        self.assertEqual(
+            payload["transport"]["destination"],
+            "+82551234567",
+        )
+        self.assertEqual(
+            payload["transport"]["trunk"]["provider_url"],
+            "sips:sip.example.com:5061",
+        )
+        self.assertEqual(
+            payload["transport"]["trunk"]["auth"],
+            {
+                "type": "digest",
+                "username": "sip-user",
+                "password": "sip-pass",
+            },
+        )
+        self.assertEqual(
+            payload["transport"]["trunk"]["caller_number"],
+            "+82212345678",
+        )
+        self.assertEqual(
+            payload["session"]["model"],
+            "gpt-live-1",
+        )
+        self.assertEqual(
+            payload["session"]["delegation"]["type"],
+            "responses",
+        )
+        self.assertIn(
+            "내일 영업 여부 확인 후 예약",
+            payload["session"]["instructions"],
+        )
+
+    @patch.dict(
+        "os.environ",
+        {},
+        clear=True,
+    )
+    def test_live_telephony_status_reports_missing_sip_config(
+        self,
+    ):
+        from api.services.live_service import (
+            live_telephony_status,
+        )
+
+        result = live_telephony_status()
+
+        self.assertFalse(result["ready"])
+        self.assertIn(
+            "ARABA_SIP_PROVIDER_URL",
+            result["missing"],
+        )
+        self.assertIn(
+            "ARABA_SIP_USERNAME",
+            result["missing"],
+        )
+        self.assertIn(
+            "ARABA_SIP_PASSWORD",
+            result["missing"],
+        )
+        self.assertIn(
+            "ARABA_SIP_CALLER_NUMBER",
+            result["missing"],
+        )
+
+    def test_normalize_live_phone_number_supports_landline(self):
+        from api.services.live_service import (
+            normalize_live_phone_number,
+        )
+
+        self.assertEqual(
+            normalize_live_phone_number(
+                "055-123-4567"
+            ),
+            "+82551234567",
+        )
 
 
 class LiveServiceTests(TestCase):
