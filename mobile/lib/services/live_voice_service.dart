@@ -304,6 +304,10 @@ class LiveVoiceService {
     }
   }
 
+  void resetPendingMissionContext() {
+    _pendingRequestContext = null;
+  }
+
   void speakCommentary(String content) {
     final text = content.trim();
     if (!_started || text.isEmpty) return;
