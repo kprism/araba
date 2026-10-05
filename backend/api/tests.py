@@ -324,6 +324,55 @@ class VoiceCallApiTests(TestCase):
 
 
 class VoiceCallServiceTests(TestCase):
+    @patch(
+        "api.services.voice_call_service.httpx.post"
+    )
+    def test_trial_fallback_omits_from_parameter(
+        self,
+        mocked_post,
+    ):
+        from api.services.voice_call_service import (
+            TRIAL_SPEECH_RECOGNITION_URL,
+            _create_trial_template_call,
+        )
+
+        response = Mock()
+        response.status_code = 201
+        response.json.return_value = {
+            "sid": "CATRIAL",
+            "status": "queued",
+        }
+        response.text = ""
+        mocked_post.return_value = response
+
+        result = _create_trial_template_call(
+            account_sid="ACtest",
+            auth_token="token",
+            to_number="+821012345678",
+        )
+
+        self.assertEqual(
+            result["call_sid"],
+            "CATRIAL",
+        )
+        self.assertTrue(result["trial_fallback"])
+        request_kwargs = mocked_post.call_args.kwargs
+        self.assertEqual(
+            request_kwargs["data"],
+            {
+                "To": "+821012345678",
+                "Url": TRIAL_SPEECH_RECOGNITION_URL,
+            },
+        )
+        self.assertNotIn(
+            "From",
+            request_kwargs["data"],
+        )
+        self.assertEqual(
+            request_kwargs["auth"],
+            ("ACtest", "token"),
+        )
+
     def test_normalize_twilio_from_number(self):
         from api.services.voice_call_service import (
             normalize_twilio_from_number,
