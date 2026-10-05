@@ -62,7 +62,6 @@ class TwilioCredentialStore {
 
     if (from == null || from.isEmpty) {
       await _storage.delete(key: _fromNumberKey);
-    await _storage.delete(key: _callerIdNumberKey);
     } else {
       await _storage.write(
         key: _fromNumberKey,
@@ -84,5 +83,6 @@ class TwilioCredentialStore {
     await _storage.delete(key: _sidKey);
     await _storage.delete(key: _tokenKey);
     await _storage.delete(key: _fromNumberKey);
+    await _storage.delete(key: _callerIdNumberKey);
   }
 }
