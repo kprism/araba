@@ -1141,6 +1141,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   listening: _liveActive,
                   sending:
                       _sending || _liveConnecting || _researching,
+                  onImage: _showImageSourcePicker,
                   onMic: _toggleLiveVoice,
                   onSend: _send,
                 ),
@@ -2127,6 +2128,7 @@ class _Composer extends StatelessWidget {
   final FocusNode focusNode;
   final bool listening;
   final bool sending;
+  final VoidCallback onImage;
   final VoidCallback onMic;
   final VoidCallback onSend;
 
@@ -2135,6 +2137,7 @@ class _Composer extends StatelessWidget {
     required this.focusNode,
     required this.listening,
     required this.sending,
+    required this.onImage,
     required this.onMic,
     required this.onSend,
   });
@@ -2154,6 +2157,14 @@ class _Composer extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          IconButton(
+            tooltip: '사진으로 정보 보내기',
+            onPressed: sending ? null : onImage,
+            icon: const Icon(
+              Icons.add_a_photo_outlined,
+              color: Color(0xFF475467),
+            ),
+          ),
           IconButton(
             tooltip: listening
                 ? '음성 입력 중지'
