@@ -32,8 +32,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _sending = false;
   bool _researching = false;
   String _liveStatus = '';
-  String _liveUserTranscript = '';
-  String _liveAssistantTranscript = '';
   String? _liveTranscriptSpeaker;
   int? _liveTranscriptMessageIndex;
 
@@ -71,8 +69,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _liveConnecting = true;
         _liveActive = false;
         _liveStatus = 'GPT-Live 연결 중';
-        _liveUserTranscript = '';
-        _liveAssistantTranscript = '';
       });
 
       late final LiveVoiceService liveVoice;
@@ -97,11 +93,6 @@ class _HomeScreenState extends State<HomeScreen> {
           if (!mounted || _liveVoice != liveVoice) return;
 
           setState(() {
-            if (isUser) {
-              _liveUserTranscript += delta;
-            } else {
-              _liveAssistantTranscript += delta;
-            }
             _appendLiveTranscript(
               isUser: isUser,
               delta: delta,
@@ -186,7 +177,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _Message(
           isUser: isUser,
           text: delta,
-          isLiveTranscript: true,
         ),
       );
       _liveTranscriptSpeaker = speaker;
@@ -701,15 +691,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
                 ),
-                if (_liveConnecting ||
-                    _liveActive ||
-                    _liveUserTranscript.isNotEmpty ||
-                    _liveAssistantTranscript.isNotEmpty)
+                if (_liveConnecting || _liveActive)
                   _LivePanel(
                     status: _liveStatus,
                     active: _liveActive,
-                    userTranscript: _liveUserTranscript,
-                    assistantTranscript: _liveAssistantTranscript,
                   ),
                 _Composer(
                   controller: _controller,
@@ -734,7 +719,6 @@ class _Message {
   final Map<String, dynamic>? mission;
   final String? requestContext;
   final bool isError;
-  final bool isLiveTranscript;
   final String? badge;
   final List<Map<String, dynamic>>? businesses;
   final String? actionQuestion;
@@ -746,7 +730,6 @@ class _Message {
     this.mission,
     this.requestContext,
     this.isError = false,
-    this.isLiveTranscript = false,
     this.badge,
     this.businesses,
     this.actionQuestion,
@@ -1273,14 +1256,10 @@ class _ThinkingBubble extends StatelessWidget {
 class _LivePanel extends StatelessWidget {
   final String status;
   final bool active;
-  final String userTranscript;
-  final String assistantTranscript;
 
   const _LivePanel({
     required this.status,
     required this.active,
-    required this.userTranscript,
-    required this.assistantTranscript,
   });
 
   @override
