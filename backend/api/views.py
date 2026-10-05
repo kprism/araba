@@ -21,6 +21,18 @@ def _request_kakao_rest_api_key(request):
     ).strip()
 
 
+def _request_naver_client_id(request):
+    return str(
+        request.headers.get("X-Naver-Client-Id", "")
+    ).strip()
+
+
+def _request_naver_client_secret(request):
+    return str(
+        request.headers.get("X-Naver-Client-Secret", "")
+    ).strip()
+
+
 @api_view(["GET"])
 def health(request):
     return Response(
@@ -395,6 +407,8 @@ def research_search(request):
         result = search_real_businesses(
             mission,
             api_key=_request_kakao_rest_api_key(request),
+            naver_client_id=_request_naver_client_id(request),
+            naver_client_secret=_request_naver_client_secret(request),
         )
         return Response(
             {
