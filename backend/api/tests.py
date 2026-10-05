@@ -1162,6 +1162,28 @@ class ResearchSearchApiTests(TestCase):
             _matches_mission(salon, mission)
         )
 
+    def test_search_queries_prioritize_exact_target_business(self):
+        from api.services.research_service import (
+            _search_queries,
+        )
+
+        queries = _search_queries(
+            {
+                "category": "미용실",
+                "location": "경남 창원시 의창구 중동",
+                "subject": "이루다헤어 영업시간",
+                "target_business": "이루다헤어",
+                "search_terms": ["이루다헤어", "미용실"],
+                "subcategories": ["미용실"],
+            }
+        )
+
+        self.assertTrue(queries)
+        self.assertEqual(
+            queries[0],
+            "경남 창원시 의창구 중동 이루다헤어",
+        )
+
     def test_search_queries_keep_parent_region_fallbacks(self):
         from api.services.research_service import (
             _search_queries,
