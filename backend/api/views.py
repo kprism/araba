@@ -194,9 +194,12 @@ def live_session_create(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
-    offer_sdp = str(
-        request.data.get("sdp", "")
-    ).strip()
+    offer_sdp_value = request.data.get("sdp", "")
+    offer_sdp = (
+        ""
+        if offer_sdp_value is None
+        else str(offer_sdp_value)
+    )
 
     try:
         result = create_live_session(
