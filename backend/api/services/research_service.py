@@ -199,13 +199,32 @@ def _compact_term_variants(term):
     return variants
 
 
+def _effective_target_business(mission):
+    mode = str(
+        mission.get("search_mode") or ""
+    ).strip()
+    target = str(
+        mission.get("target_business") or ""
+    ).strip()
+
+    if mode in {
+        "category_discovery",
+        "area_discovery",
+        "comparison",
+        "general",
+    }:
+        return ""
+
+    return target
+
+
 def _search_queries(mission):
     location = str(
         mission.get("location") or ""
     ).strip()
-    target_business = str(
-        mission.get("target_business") or ""
-    ).strip()
+    target_business = _effective_target_business(
+        mission
+    )
     location_explicit = (
         mission.get("location_explicit") is True
     )
@@ -445,9 +464,8 @@ def _matches_target_business(
     target = re.sub(
         r"[^0-9a-zA-Z가-힣]",
         "",
-        str(
-            mission.get("target_business")
-            or ""
+        _effective_target_business(
+            mission
         ).lower(),
     )
     if not target:
@@ -549,9 +567,9 @@ def _mission_keywords(mission):
 
 
 def _matches_mission(document, mission):
-    target_business = str(
-        mission.get("target_business") or ""
-    ).strip()
+    target_business = _effective_target_business(
+        mission
+    )
 
     # 고유 장소명 검색에서는 과거 대화에서 남아 있을 수 있는
     # 식당/미용실 등의 업종 키워드로 정확한 장소를 탈락시키지 않는다.
@@ -647,9 +665,9 @@ def search_real_businesses(
     selected_query = None
     documents = []
 
-    target_business = str(
-        mission.get("target_business") or ""
-    ).strip()
+    target_business = _effective_target_business(
+        mission
+    )
     location_explicit = (
         mission.get("location_explicit") is True
     )
