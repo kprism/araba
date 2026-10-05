@@ -469,3 +469,41 @@ class LiveServiceTests(TestCase):
             )
 
         mocked_post.assert_not_called()
+
+
+class ResearchSimulationApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_research_simulation_returns_mock_businesses(self):
+        response = self.client.post(
+            "/api/research/simulate/",
+            {
+                "mission": {
+                    "category": "자동차",
+                    "location": "창원",
+                    "subject": "BMW S6 타이어 교체",
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertTrue(response.data["mock"])
+        self.assertEqual(len(response.data["businesses"]), 3)
+        self.assertTrue(response.data["life_info"])
+        self.assertEqual(
+            response.data["actions"],
+            ["예약하기", "다른 후보 보기", "여기까지"],
+        )
+
+    def test_research_simulation_requires_mission(self):
+        response = self.client.post(
+            "/api/research/simulate/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.data["ok"])
