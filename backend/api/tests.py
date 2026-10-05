@@ -798,6 +798,97 @@ class LiveServiceTests(TestCase):
         mocked_post.assert_not_called()
 
 
+class MissionScopeTests(TestCase):
+    def test_broad_category_request_clears_stale_specific_business(self):
+        from api.services.mission_service import (
+            _normalize_search_scope,
+        )
+
+        mission = {
+            "search_mode": "follow_up_detail",
+            "target_business": "처음말한치과",
+            "ready_to_research": True,
+        }
+
+        result = _normalize_search_scope(
+            mission,
+            """
+[대화 문맥 - 참고용]
+{"target_business":"처음말한치과","category":"의료","location":"창원시 의창구 중동"}
+[현재 요청]
+창원시 의창구 중동에 치과 찾아줘
+""".strip(),
+        )
+
+        self.assertIsNone(
+            result["target_business"]
+        )
+        self.assertEqual(
+            result["search_mode"],
+            "category_discovery",
+        )
+
+    def test_follow_up_pronoun_keeps_selected_business(self):
+        from api.services.mission_service import (
+            _normalize_search_scope,
+        )
+
+        mission = {
+            "search_mode": "",
+            "target_business": "처음말한치과",
+            "ready_to_research": True,
+        }
+
+        result = _normalize_search_scope(
+            mission,
+            """
+[대화 문맥 - 참고용]
+{"target_business":"처음말한치과"}
+[현재 요청]
+그 치과 영업시간은?
+""".strip(),
+        )
+
+        self.assertEqual(
+            result["target_business"],
+            "처음말한치과",
+        )
+        self.assertEqual(
+            result["search_mode"],
+            "follow_up_detail",
+        )
+
+    def test_explicit_new_business_becomes_exact_place(self):
+        from api.services.mission_service import (
+            _normalize_search_scope,
+        )
+
+        mission = {
+            "search_mode": "general",
+            "target_business": "새봄치과",
+            "ready_to_research": True,
+        }
+
+        result = _normalize_search_scope(
+            mission,
+            """
+[대화 문맥 - 참고용]
+{"target_business":"처음말한치과"}
+[현재 요청]
+새봄치과 찾아줘
+""".strip(),
+        )
+
+        self.assertEqual(
+            result["target_business"],
+            "새봄치과",
+        )
+        self.assertEqual(
+            result["search_mode"],
+            "exact_place",
+        )
+
+
 class NaverPlaceServiceTests(TestCase):
     @patch(
         "api.services.naver_place_service.httpx.get"
