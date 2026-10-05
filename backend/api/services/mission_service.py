@@ -3,6 +3,7 @@ import json
 from openai import OpenAI
 
 from .openai_service import get_api_key
+from .training_service import active_rules_text
 
 
 MISSION_SYSTEM_PROMPT = """
@@ -87,9 +88,20 @@ def create_mission(user_request, api_key=None):
         max_retries=0,
     )
 
+    learned_rules = active_rules_text(
+        limit=30,
+    )
+    instructions = MISSION_SYSTEM_PROMPT
+
+    if learned_rules:
+        instructions += (
+            "\n\n관리자가 누적시킨 재발방지 학습규칙:\n"
+            + learned_rules
+        )
+
     response = client.responses.create(
         model="gpt-5-mini",
-        instructions=MISSION_SYSTEM_PROMPT,
+        instructions=instructions,
         input=request_text,
     )
 
