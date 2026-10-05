@@ -15,6 +15,12 @@ def _request_api_key(request):
     ).strip()
 
 
+def _request_kakao_rest_api_key(request):
+    return str(
+        request.headers.get("X-Kakao-REST-API-Key", "")
+    ).strip()
+
+
 @api_view(["GET"])
 def health(request):
     return Response(
@@ -251,7 +257,10 @@ def research_search(request):
         )
 
     try:
-        result = search_real_businesses(mission)
+        result = search_real_businesses(
+            mission,
+            api_key=_request_kakao_rest_api_key(request),
+        )
         return Response(
             {
                 "ok": True,
