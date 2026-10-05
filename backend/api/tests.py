@@ -1463,6 +1463,36 @@ class ResearchSearchApiTests(TestCase):
             _matches_mission(salon, mission)
         )
 
+    def test_category_discovery_queries_category_not_stale_business(self):
+        from api.services.research_service import (
+            _search_queries,
+        )
+
+        queries = _search_queries(
+            {
+                "search_mode": "category_discovery",
+                "category": "의료",
+                "subcategories": ["치과"],
+                "location": "경남 창원시 의창구 중동",
+                "location_explicit": True,
+                "subject": "치과",
+                "target_business": "처음말한치과",
+                "search_terms": ["치과"],
+            }
+        )
+
+        self.assertTrue(queries)
+        self.assertIn(
+            "경남 창원시 의창구 중동 치과",
+            queries,
+        )
+        self.assertFalse(
+            any(
+                "처음말한치과" in query
+                for query in queries
+            )
+        )
+
     def test_category_discovery_ignores_stale_specific_business(self):
         from api.services.research_service import (
             _effective_target_business,
