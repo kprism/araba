@@ -562,7 +562,17 @@ def image_analyze(request):
         result = analyze_image_bytes(
             image.read(),
             mime_type=(
-                getattr(image, "content_type", None)
+                str(
+                    request.data.get(
+                        "mime_type",
+                        "",
+                    )
+                ).strip()
+                or getattr(
+                    image,
+                    "content_type",
+                    None,
+                )
                 or "image/jpeg"
             ),
             context=str(
