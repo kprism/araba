@@ -271,6 +271,7 @@ class VoiceCallApiTests(TestCase):
             account_sid="ACtest",
             auth_token="twilio-test-token",
             from_number="+12025550123",
+            caller_id_number=None,
             api_key="sk-test",
         )
 
@@ -371,6 +372,48 @@ class VoiceCallServiceTests(TestCase):
         self.assertEqual(
             request_kwargs["auth"],
             ("ACtest", "token"),
+        )
+
+    @patch(
+        "api.services.voice_call_service.Client"
+    )
+    def test_verified_user_number_is_preferred_as_caller_id(
+        self,
+        mocked_client_class,
+    ):
+        from api.services.voice_call_service import (
+            start_test_call,
+        )
+
+        call = Mock()
+        call.sid = "CACALLER"
+        call.status = "queued"
+        client = Mock()
+        client.calls.create.return_value = call
+        mocked_client_class.return_value = client
+
+        result = start_test_call(
+            "010-9999-8888",
+            account_sid="ACtest",
+            auth_token="token",
+            from_number="+17372508034",
+            caller_id_number="010-1234-5678",
+            api_key="sk-test",
+        )
+
+        self.assertEqual(
+            result["caller_id"],
+            "+821012345678",
+        )
+        client.calls.create.assert_called_once()
+        request_kwargs = client.calls.create.call_args.kwargs
+        self.assertEqual(
+            request_kwargs["to"],
+            "+821099998888",
+        )
+        self.assertEqual(
+            request_kwargs["from_"],
+            "+821012345678",
         )
 
     def test_normalize_twilio_from_number(self):
