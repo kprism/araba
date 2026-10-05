@@ -208,22 +208,32 @@ def live_session_create(request):
     )
 
     try:
-        result = create_live_session(
-            offer_sdp,
-            api_key,
-            voice_gender=str(
-                request.data.get(
-                    "voice_gender",
-                    "female",
-                )
-            ),
-            voice_speed=str(
-                request.data.get(
-                    "voice_speed",
-                    "medium",
-                )
-            ),
+        voice_gender = request.data.get(
+            "voice_gender"
         )
+        voice_speed = request.data.get(
+            "voice_speed"
+        )
+
+        if (
+            voice_gender is None
+            and voice_speed is None
+        ):
+            result = create_live_session(
+                offer_sdp,
+                api_key,
+            )
+        else:
+            result = create_live_session(
+                offer_sdp,
+                api_key,
+                voice_gender=str(
+                    voice_gender or "female"
+                ),
+                voice_speed=str(
+                    voice_speed or "medium"
+                ),
+            )
 
         return Response(
             {
