@@ -30,6 +30,7 @@ class ArabaApi {
     String? twilioAccountSid,
     String? twilioAuthToken,
     String? twilioFromNumber,
+    String? twilioCallerIdNumber,
   }) {
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -62,6 +63,12 @@ class ArabaApi {
 
     if (fromNumber != null && fromNumber.isNotEmpty) {
       headers['X-Twilio-From-Number'] = fromNumber;
+    }
+
+    final callerIdNumber = twilioCallerIdNumber?.trim();
+
+    if (callerIdNumber != null && callerIdNumber.isNotEmpty) {
+      headers['X-Twilio-Caller-ID'] = callerIdNumber;
     }
 
     return headers;
@@ -334,6 +341,7 @@ class ArabaApi {
     required String twilioAccountSid,
     required String twilioAuthToken,
     String? twilioFromNumber,
+    String? twilioCallerIdNumber,
     String voiceGender = 'female',
     String voiceSpeed = 'medium',
     bool trainingMode = false,
@@ -347,6 +355,7 @@ class ArabaApi {
           twilioAccountSid: twilioAccountSid,
           twilioAuthToken: twilioAuthToken,
           twilioFromNumber: twilioFromNumber,
+          twilioCallerIdNumber: twilioCallerIdNumber,
         ),
         body: jsonEncode({
           'phone_number': phoneNumber,
