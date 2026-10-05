@@ -606,3 +606,126 @@ def image_analyze(request):
             },
             status=status.HTTP_502_BAD_GATEWAY,
         )
+
+
+@api_view(["GET"])
+def training_status_view(request):
+    from .services.training_service import (
+        training_status,
+    )
+
+    return Response(
+        {
+            "ok": True,
+            **training_status(),
+        }
+    )
+
+
+@api_view(["POST"])
+def training_generate(request):
+    from .services.training_service import (
+        generate_training_scenarios,
+    )
+
+    try:
+        scenarios = generate_training_scenarios(
+            category=request.data.get("category"),
+            limit=request.data.get("limit", 10),
+        )
+
+        return Response(
+            {
+                "ok": True,
+                "created": len(scenarios),
+                "scenario_ids": [
+                    scenario.id
+                    for scenario in scenarios
+                ],
+            }
+        )
+    except (ValueError, TypeError) as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+@api_view(["POST"])
+def training_run_auto(request):
+    from .services.training_service import (
+        run_auto_training,
+    )
+
+    try:
+        runs = run_auto_training(
+            api_key=_request_api_key(request),
+            limit=request.data.get("limit", 4),
+            category=request.data.get("category"),
+        )
+
+        return Response(
+            {
+                "ok": True,
+                "trained": len(runs),
+                "scores": [
+                    run.score
+                    for run in runs
+                ],
+            }
+        )
+    except (ValueError, TypeError) as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+@api_view(["POST"])
+def training_feedback(request):
+    from .services.training_service import (
+        save_training_rule,
+    )
+
+    try:
+        rule = save_training_rule(
+            category=request.data.get(
+                "category",
+                "",
+            ),
+            trigger=request.data.get(
+                "trigger",
+                "",
+            ),
+            instruction=request.data.get(
+                "instruction",
+                "",
+            ),
+            example=request.data.get(
+                "example",
+                "",
+            ),
+            source="admin",
+            confidence=1.0,
+        )
+
+        return Response(
+            {
+                "ok": True,
+                "rule_id": rule.id,
+            }
+        )
+    except ValueError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
