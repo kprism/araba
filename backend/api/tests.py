@@ -720,6 +720,10 @@ class MockCallComparisonApiTests(TestCase):
             response.data["recommendation"]["name"],
             response.data["businesses"][0]["name"],
         )
+        self.assertIsInstance(
+            response.data["record_id"],
+            int,
+        )
 
     def test_mock_call_compare_rejects_unrelated_category(self):
         response = self.client.post(
@@ -741,6 +745,77 @@ class MockCallComparisonApiTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.data["ok"])
+
+
+class ResearchHistoryApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_history_groups_saved_mock_research(self):
+        create_response = self.client.post(
+            "/api/research/mock-call/",
+            {
+                "mission": {
+                    "category": "자동차",
+                    "location": "창원",
+                    "subject": "BMW X6 타이어 두 개 교체",
+                    "constraints": ["오늘 가능"],
+                },
+                "businesses": [
+                    {
+                        "id": "201",
+                        "name": "창원타이어A",
+                        "latitude": "35.2200",
+                        "longitude": "128.6800",
+                        "address": "창원시 성산구",
+                    },
+                    {
+                        "id": "202",
+                        "name": "창원타이어B",
+                        "latitude": "35.2300",
+                        "longitude": "128.6900",
+                        "address": "창원시 의창구",
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            create_response.status_code,
+            200,
+        )
+
+        response = self.client.get(
+            "/api/research/history/",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(
+            response.data["total_count"],
+            1,
+        )
+        self.assertEqual(
+            response.data["categories"][0]["category"],
+            "자동차",
+        )
+        record = response.data["categories"][0]["records"][0]
+        self.assertEqual(
+            record["subject"],
+            "BMW X6 타이어 두 개 교체",
+        )
+        self.assertEqual(
+            record["location"],
+            "창원",
+        )
+        self.assertTrue(
+            record["recommendation"]["name"],
+        )
+        self.assertEqual(
+            record["business_count"],
+            2,
+        )
 
 
 class ResearchRelevanceFilterTests(TestCase):
