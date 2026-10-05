@@ -13,7 +13,8 @@ class ConversationContext {
     final text = requestText.trim();
 
     if (_known.isEmpty ||
-        text.contains('[대화 문맥]')) {
+        text.contains('[대화 문맥') ||
+        text.contains('[현재 요청]')) {
       return text;
     }
 
@@ -26,7 +27,7 @@ class ConversationContext {
       '',
       '[대화 문맥 - 참고용]',
       if (knownLocation.isNotEmpty)
-        '이전에 확인된 지역: $knownLocation',
+        '[대화 문맥] 이미 확인된 지역: $knownLocation',
       jsonEncode(_known),
       '',
       '판단 규칙:',
