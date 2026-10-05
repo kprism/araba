@@ -20,6 +20,8 @@ class LiveVoiceService {
   final ArabaApi api;
   final String apiKey;
   final ConversationContext conversationContext;
+  final String voiceGender;
+  final String voiceSpeed;
   final LiveStatusCallback onStatus;
   final LiveTranscriptCallback onTranscript;
   final LiveMissionCallback onMission;
@@ -39,6 +41,8 @@ class LiveVoiceService {
     required this.api,
     required this.apiKey,
     required this.conversationContext,
+    this.voiceGender = 'female',
+    this.voiceSpeed = 'medium',
     required this.onStatus,
     required this.onTranscript,
     required this.onMission,
@@ -130,6 +134,8 @@ class LiveVoiceService {
       final session = await api.createLiveSession(
         offerSdp,
         apiKey: apiKey,
+        voiceGender: voiceGender,
+        voiceSpeed: voiceSpeed,
       );
       final answerSdp = session['sdp']?.toString() ?? '';
 
