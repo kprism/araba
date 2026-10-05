@@ -539,3 +539,60 @@ def voice_respond(request):
         twiml,
         content_type="text/xml; charset=utf-8",
     )
+
+
+@api_view(["POST"])
+def image_analyze(request):
+    from .services.image_analysis_service import (
+        analyze_image_bytes,
+    )
+
+    image = request.FILES.get("image")
+
+    if image is None:
+        return Response(
+            {
+                "ok": False,
+                "message": "판독할 사진을 첨부해주세요.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        result = analyze_image_bytes(
+            image.read(),
+            mime_type=(
+                getattr(image, "content_type", None)
+                or "image/jpeg"
+            ),
+            context=str(
+                request.data.get("context", "")
+            ).strip(),
+            api_key=_request_api_key(request),
+        )
+
+        return Response(
+            {
+                "ok": True,
+                **result,
+            }
+        )
+    except ValueError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "사진 판독 중 오류가 발생했습니다: "
+                    f"{exc}"
+                ),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
