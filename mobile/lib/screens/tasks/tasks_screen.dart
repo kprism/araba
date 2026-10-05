@@ -24,7 +24,11 @@ class _TasksScreenState extends State<TasksScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.active) {
+      _load();
+    } else {
+      _loading = false;
+    }
   }
 
   @override
