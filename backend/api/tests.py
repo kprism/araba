@@ -1372,6 +1372,55 @@ class ResearchSearchApiTests(TestCase):
             _matches_mission(salon, mission)
         )
 
+    def test_category_discovery_ignores_stale_specific_business(self):
+        from api.services.research_service import (
+            _effective_target_business,
+            _matches_mission,
+        )
+
+        mission = {
+            "search_mode": "category_discovery",
+            "category": "의료",
+            "subcategories": ["치과"],
+            "location": "경남 창원시 의창구 중동",
+            "subject": "치과",
+            "target_business": "이전에말한특정치과",
+            "search_terms": ["치과"],
+        }
+
+        another_dentist = {
+            "place_name": "중동스마트치과",
+            "category_name": "의료,건강 > 병원 > 치과",
+            "address_name": "경남 창원시 의창구 중동",
+            "road_address_name": "경남 창원시 의창구 중동로 10",
+        }
+
+        self.assertEqual(
+            _effective_target_business(mission),
+            "",
+        )
+        self.assertTrue(
+            _matches_mission(
+                another_dentist,
+                mission,
+            )
+        )
+
+    def test_follow_up_detail_keeps_selected_business(self):
+        from api.services.research_service import (
+            _effective_target_business,
+        )
+
+        mission = {
+            "search_mode": "follow_up_detail",
+            "target_business": "중동스마트치과",
+        }
+
+        self.assertEqual(
+            _effective_target_business(mission),
+            "중동스마트치과",
+        )
+
     def test_exact_named_place_ignores_stale_category_and_neighborhood(self):
         from api.services.research_service import (
             _matches_location,
