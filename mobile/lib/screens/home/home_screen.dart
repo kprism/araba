@@ -939,6 +939,223 @@ class _AssistantBubble extends StatelessWidget {
   }
 }
 
+class _StatusBadge extends StatelessWidget {
+  final String text;
+
+  const _StatusBadge({
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F4F7),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFE4E7EC),
+        ),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFF475467),
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _BusinessCards extends StatelessWidget {
+  final List<Map<String, dynamic>> businesses;
+
+  const _BusinessCards({
+    required this.businesses,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 238,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: businesses.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final business = businesses[index];
+          final name = business['name']?.toString() ?? '업체';
+          final description =
+              business['description']?.toString() ?? '';
+          final callResult =
+              business['mock_call_result']?.toString() ?? '';
+          final score = business['score']?.toString() ?? '';
+
+          return Container(
+            width: 245,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFFE4E7EC),
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x0D101828),
+                  blurRadius: 8,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  height: 78,
+                  width: double.infinity,
+                  color: const Color(0xFFEEF4FF),
+                  child: const Icon(
+                    Icons.storefront_rounded,
+                    size: 36,
+                    color: Color(0xFF3157D5),
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF101828),
+                                ),
+                              ),
+                            ),
+                            if (score.isNotEmpty)
+                              Text(
+                                '$score점',
+                                style: const TextStyle(
+                                  color: Color(0xFF3157D5),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF667085),
+                            fontSize: 12,
+                            height: 1.35,
+                          ),
+                        ),
+                        if (callResult.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            callResult,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF344054),
+                              fontSize: 11.5,
+                              height: 1.35,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        const Spacer(),
+                        const Text(
+                          '가상 테스트',
+                          style: TextStyle(
+                            color: Color(0xFFD92D20),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  final String question;
+  final List<String> actions;
+  final ValueChanged<String> onSelected;
+
+  const _ActionCard({
+    required this.question,
+    required this.actions,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFE4E7EC),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            question,
+            style: const TextStyle(
+              color: Color(0xFF101828),
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final action in actions)
+                FilledButton.tonal(
+                  onPressed: () => onSelected(action),
+                  child: Text(action),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ClarificationCard extends StatelessWidget {
   final String question;
   final List<String> options;
@@ -1076,51 +1293,34 @@ class _LivePanel extends StatelessWidget {
         color: const Color(0xFF101828),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(
-                active
-                    ? Icons.graphic_eq_rounded
-                    : Icons.sync_rounded,
-                size: 18,
-                color: Colors.white,
-              ),
-              const SizedBox(width: 7),
-              Text(
-                'GPT-Live · $status',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
+          Icon(
+            active
+                ? Icons.graphic_eq_rounded
+                : Icons.sync_rounded,
+            size: 18,
+            color: Colors.white,
           ),
-          if (userTranscript.trim().isNotEmpty) ...[
-            const SizedBox(height: 9),
-            Text(
-              '나  $userTranscript',
-              style: const TextStyle(
-                color: Color(0xFFD0D5DD),
-                fontSize: 13,
-                height: 1.35,
-              ),
-            ),
-          ],
-          if (assistantTranscript.trim().isNotEmpty) ...[
-            const SizedBox(height: 5),
-            Text(
-              'ARABA  $assistantTranscript',
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              'GPT-Live · $status',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 13,
-                height: 1.35,
+                fontWeight: FontWeight.w800,
               ),
             ),
-          ],
+          ),
+          const Text(
+            '대화는 채팅에 기록',
+            style: TextStyle(
+              color: Color(0xFF98A2B3),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
