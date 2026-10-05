@@ -1464,6 +1464,7 @@ class ResearchSearchApiTests(TestCase):
             {
                 "category": "미용실",
                 "location": "경남 창원시 의창구 중동",
+                "location_explicit": True,
                 "subject": "이루다헤어 영업시간",
                 "target_business": "이루다헤어",
                 "search_terms": ["이루다헤어", "미용실"],
