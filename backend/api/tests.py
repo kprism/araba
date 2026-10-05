@@ -716,6 +716,13 @@ class MockCallComparisonApiTests(TestCase):
                         "address": "창원시 마산회원구",
                     },
                 ],
+                "origin": {
+                    "label": "경남 창원시",
+                    "latitude": "35.2285",
+                    "longitude": "128.6818",
+                    "source": "user_search_region",
+                    "accuracy": "region_reference",
+                },
             },
             format="json",
         )
@@ -736,8 +743,20 @@ class MockCallComparisonApiTests(TestCase):
             "effective_cost",
             response.data["businesses"][0],
         )
+        self.assertIn(
+            "time_cost_estimate",
+            response.data["businesses"][0],
+        )
+        self.assertIn(
+            "total_time_minutes",
+            response.data["businesses"][0],
+        )
         self.assertTrue(
             response.data["businesses"][0]["mock_questions"]
+        )
+        self.assertEqual(
+            response.data["reference_origin"]["source"],
+            "user_search_region",
         )
         self.assertEqual(
             response.data["recommendation"]["name"],
@@ -838,6 +857,13 @@ class ResearchHistoryApiTests(TestCase):
         self.assertEqual(
             record["business_count"],
             2,
+        )
+        self.assertEqual(
+            len(record["businesses"]),
+            2,
+        )
+        self.assertTrue(
+            record["businesses"][0]["mock_questions"],
         )
 
 
