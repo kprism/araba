@@ -550,7 +550,71 @@ class ResearchSearchApiTests(TestCase):
         )
         self.assertEqual(
             request_kwargs["params"]["query"],
-            "창원 BMW S6 타이어 교체",
+            "창원 타이어",
+        )
+        self.assertEqual(
+            request_kwargs["params"]["size"],
+            8,
+        )
+
+    @patch(
+        "api.services.research_service.httpx.get"
+    )
+    def test_research_search_broadens_district_to_city(
+        self,
+        mocked_get,
+    ):
+        empty_response = Mock()
+        empty_response.status_code = 200
+        empty_response.json.return_value = {
+            "documents": [],
+        }
+
+        city_response = Mock()
+        city_response.status_code = 200
+        city_response.json.return_value = {
+            "documents": [
+                {
+                    "id": "54321",
+                    "place_name": "창원시 타이어",
+                    "category_name": "자동차 > 자동차정비 > 타이어",
+                    "phone": "055-555-5555",
+                    "address_name": "경남 창원시 성산구",
+                    "road_address_name": "경남 창원시 성산구 중앙대로 1",
+                    "x": "128.68",
+                    "y": "35.22",
+                    "place_url": "http://place.map.kakao.com/54321",
+                }
+            ],
+        }
+
+        mocked_get.side_effect = [
+            empty_response,
+            empty_response,
+            city_response,
+        ]
+
+        response = self.client.post(
+            "/api/research/search/",
+            {
+                "mission": {
+                    "category": "자동차",
+                    "location": "창원시 의창구",
+                    "subject": "BMW X6 타이어 교체",
+                }
+            },
+            format="json",
+            HTTP_X_KAKAO_REST_API_KEY="device-kakao-key",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data["search_query"],
+            "창원시 타이어",
+        )
+        self.assertEqual(
+            response.data["businesses"][0]["name"],
+            "창원시 타이어",
         )
 
     @patch(
