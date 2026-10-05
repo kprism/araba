@@ -882,6 +882,70 @@ class NaverPlaceServiceTests(TestCase):
             "20000",
         )
 
+    @patch(
+        "api.services.naver_place_service.httpx.get"
+    )
+    def test_naver_place_photo_is_used_when_kakao_photo_missing(
+        self,
+        mocked_get,
+    ):
+        from api.services.naver_place_service import (
+            enrich_one_business,
+        )
+
+        search_response = Mock()
+        search_response.status_code = 200
+        search_response.json.return_value = {
+            "items": [
+                {
+                    "title": "<b>기와야순두부 창원중동점</b>",
+                    "link": "https://m.place.naver.com/place/123",
+                    "category": "한식>두부요리",
+                    "address": "경남 창원시 의창구 중동",
+                    "roadAddress": "경남 창원시 의창구 평산로204번길 7",
+                }
+            ]
+        }
+
+        page_response = Mock()
+        page_response.status_code = 200
+        page_response.url = (
+            "https://m.place.naver.com/place/123"
+        )
+        page_response.text = """
+        <html>
+          <head>
+            <meta property="og:image"
+                  content="https://search.pstatic.net/common/?src=test.jpg" />
+          </head>
+        </html>
+        """
+        mocked_get.side_effect = [
+            search_response,
+            page_response,
+        ]
+
+        result = enrich_one_business(
+            {
+                "name": "기와야순두부 창원중동점",
+                "category": "음식점 > 한식 > 두부요리",
+                "address": "경남 창원시 의창구 평산로204번길 7",
+                "road_address": "경남 창원시 의창구 평산로204번길 7",
+                "image_url": None,
+            },
+            client_id="naver-id",
+            client_secret="naver-secret",
+        )
+
+        self.assertEqual(
+            result["image_url"],
+            "https://search.pstatic.net/common/?src=test.jpg",
+        )
+        self.assertEqual(
+            result["image_source"],
+            "naver_place",
+        )
+
     def test_naver_enrichment_is_optional_without_credentials(
         self,
     ):
