@@ -909,9 +909,87 @@ class NaverPlaceServiceTests(TestCase):
         )
 
 
+class KakaoPlaceServiceTests(TestCase):
+    @patch(
+        "api.services.kakao_place_service.httpx.get"
+    )
+    def test_kakao_place_extracts_registered_photo(
+        self,
+        mocked_get,
+    ):
+        from api.services.kakao_place_service import (
+            inspect_kakao_place_page,
+        )
+
+        response = Mock()
+        response.status_code = 200
+        response.url = (
+            "https://place.map.kakao.com/12345"
+        )
+        response.text = """
+        <html>
+          <head>
+            <meta property="og:image"
+                  content="https://img1.kakaocdn.net/cthumb/local/C544x320.q50/?fname=test.jpg" />
+          </head>
+        </html>
+        """
+        mocked_get.return_value = response
+
+        result = inspect_kakao_place_page(
+            "https://place.map.kakao.com/12345"
+        )
+
+        self.assertTrue(result["checked"])
+        self.assertEqual(
+            result["image_url"],
+            "https://img1.kakaocdn.net/cthumb/local/C544x320.q50/?fname=test.jpg",
+        )
+
+    @patch(
+        "api.services.kakao_place_service.httpx.get"
+    )
+    def test_kakao_place_rejects_non_kakao_image(
+        self,
+        mocked_get,
+    ):
+        from api.services.kakao_place_service import (
+            inspect_kakao_place_page,
+        )
+
+        response = Mock()
+        response.status_code = 200
+        response.url = (
+            "https://place.map.kakao.com/12345"
+        )
+        response.text = """
+        <meta property="og:image"
+              content="https://example.com/not-kakao.jpg" />
+        """
+        mocked_get.return_value = response
+
+        result = inspect_kakao_place_page(
+            "https://place.map.kakao.com/12345"
+        )
+
+        self.assertTrue(result["checked"])
+        self.assertIsNone(result["image_url"])
+
+
 class ResearchSearchApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.kakao_page_enrich_patcher = patch(
+            "api.services.research_service."
+            "enrich_businesses_with_kakao_pages",
+            side_effect=lambda businesses: businesses,
+        )
+        self.mocked_kakao_page_enrich = (
+            self.kakao_page_enrich_patcher.start()
+        )
+        self.addCleanup(
+            self.kakao_page_enrich_patcher.stop
+        )
 
     @patch(
         "api.services.research_service._kakao_rest_api_key",
@@ -1102,6 +1180,74 @@ class ResearchSearchApiTests(TestCase):
         self.assertEqual(
             search_kwargs["params"]["query"],
             "경남 창원시 의창구 중동 타이어",
+        )
+
+    def test_location_filter_rejects_same_name_outside_requested_region(self):
+        from api.services.research_service import (
+            _matches_location,
+        )
+
+        requested = "경남 창원시 의창구"
+
+        changwon = {
+            "place_name": "삼거리식당",
+            "address_name": "경남 창원시 의창구 북면 테스트리 1",
+            "road_address_name": "경남 창원시 의창구 테스트로 10",
+        }
+        jeju = {
+            "place_name": "삼거리식당",
+            "address_name": "제주특별자치도 제주시 애월읍 테스트리 1",
+            "road_address_name": "제주특별자치도 제주시 테스트로 10",
+        }
+        gangwon = {
+            "place_name": "삼거리식당",
+            "address_name": "강원특별자치도 강릉시 테스트동 1",
+            "road_address_name": "강원특별자치도 강릉시 테스트로 10",
+        }
+
+        self.assertTrue(
+            _matches_location(
+                changwon,
+                requested,
+            )
+        )
+        self.assertFalse(
+            _matches_location(
+                jeju,
+                requested,
+            )
+        )
+        self.assertFalse(
+            _matches_location(
+                gangwon,
+                requested,
+            )
+        )
+
+    def test_target_business_filter_keeps_exact_named_place_only(self):
+        from api.services.research_service import (
+            _matches_target_business,
+        )
+
+        mission = {
+            "target_business": "삼거리 식당",
+        }
+
+        self.assertTrue(
+            _matches_target_business(
+                {
+                    "place_name": "삼거리식당 본점",
+                },
+                mission,
+            )
+        )
+        self.assertFalse(
+            _matches_target_business(
+                {
+                    "place_name": "삼거리횟집",
+                },
+                mission,
+            )
         )
 
     def test_relevance_filter_rejects_same_neighborhood_apartment(self):
