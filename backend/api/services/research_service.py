@@ -148,6 +148,54 @@ def _location_variants(location):
     return variants
 
 
+GENERIC_PLACE_WORDS = {
+    "가게",
+    "매장",
+    "업체",
+    "점",
+    "수리점",
+    "정비소",
+    "전문점",
+    "센터",
+    "서비스센터",
+    "곳",
+}
+
+
+def _compact_term_variants(term):
+    normalized = " ".join(
+        str(term or "").split()
+    ).strip()
+
+    if not normalized:
+        return []
+
+    tokens = re.findall(
+        r"[0-9a-zA-Z가-힣]{2,}",
+        normalized,
+    )
+    meaningful = [
+        token
+        for token in tokens
+        if token not in GENERIC_PLACE_WORDS
+    ]
+
+    variants = []
+
+    compact = " ".join(meaningful).strip()
+    if compact and compact != normalized:
+        variants.append(compact)
+
+    for token in meaningful:
+        if token not in variants:
+            variants.append(token)
+
+    if normalized not in variants:
+        variants.append(normalized)
+
+    return variants
+
+
 def _search_queries(mission):
     location = str(
         mission.get("location") or ""
@@ -188,8 +236,9 @@ def _search_queries(mission):
         *search_terms,
         *subcategories,
     ]:
-        if item and item not in primary_terms:
-            primary_terms.append(item)
+        for variant in _compact_term_variants(item):
+            if variant not in primary_terms:
+                primary_terms.append(variant)
 
     fallback_terms = []
 
@@ -197,26 +246,52 @@ def _search_queries(mission):
         subject,
         category,
     ]:
-        if (
-            item
-            and item not in primary_terms
-            and item not in fallback_terms
-        ):
-            fallback_terms.append(item)
+        for variant in _compact_term_variants(item):
+            if (
+                variant
+                and variant not in primary_terms
+                and variant not in fallback_terms
+            ):
+                fallback_terms.append(variant)
 
     if not primary_terms:
         primary_terms = fallback_terms[:1]
         fallback_terms = fallback_terms[1:]
 
-    queries = []
     location_variants = _location_variants(
         location
     )
+    queries = []
 
-    # 짧고 정확한 업종·서비스 검색어를
-    # 세부지역 → 상위지역 순으로 먼저 시도한다.
-    # 그래야 세부지역 결과가 없을 때 즉시 범위를 넓힐 수 있다.
-    for term in primary_terms:
+    # 모든 검색어를 한 지역에서 소모하지 않는다.
+    # 가장 구체적인 지역과 그 상위 지역에 대해
+    # 가장 짧고 핵심적인 검색어를 먼저 보장한다.
+    priority_terms = [
+        *primary_terms[:3],
+        *fallback_terms[:1],
+    ]
+
+    for location_variant in location_variants[:3]:
+        for term in priority_terms:
+            query = " ".join(
+                part
+                for part in (
+                    location_variant,
+                    term,
+                )
+                if part
+            ).strip()
+
+            if query and query not in queries:
+                queries.append(query)
+
+            if len(queries) >= 8:
+                return queries
+
+    for term in [
+        *primary_terms[3:],
+        *fallback_terms[1:],
+    ]:
         for location_variant in location_variants:
             query = " ".join(
                 part
@@ -230,28 +305,15 @@ def _search_queries(mission):
             if query and query not in queries:
                 queries.append(query)
 
-    # 짧은 검색어가 실패했을 때만
-    # 긴 subject나 넓은 category를 뒤에서 사용한다.
-    for term in fallback_terms:
-        for location_variant in location_variants:
-            query = " ".join(
-                part
-                for part in (
-                    location_variant,
-                    term,
-                )
-                if part
-            ).strip()
-
-            if query and query not in queries:
-                queries.append(query)
+            if len(queries) >= 8:
+                return queries
 
     if not queries:
         raise ResearchConfigurationError(
             "실제 업체 검색에 사용할 지역 또는 대상 정보가 부족합니다."
         )
 
-    return queries[:8]
+    return queries
 
 def _mission_keywords(mission):
     values = []
@@ -362,7 +424,20 @@ def search_real_businesses(mission, api_key=None):
     selected_query = None
     documents = []
 
-    for query in _search_queries(mission):
+    reference_origin = _resolve_location_origin(
+        mission.get("location"),
+        resolved_api_key,
+    )
+    search_mission = dict(mission)
+
+    if reference_origin:
+        canonical_location = str(
+            reference_origin.get("label") or ""
+        ).strip()
+        if canonical_location:
+            search_mission["location"] = canonical_location
+
+    for query in _search_queries(search_mission):
         selected_query = query
 
         try:
@@ -422,11 +497,6 @@ def search_real_businesses(mission, api_key=None):
     category = str(
         mission.get("category") or "기타"
     ).strip()
-
-    reference_origin = _resolve_location_origin(
-        mission.get("location"),
-        resolved_api_key,
-    )
 
     return {
         "source": "kakao",
