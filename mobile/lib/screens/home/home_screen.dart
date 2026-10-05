@@ -21,7 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   LiveVoiceService? _liveVoice;
 
   final List<_Message> _messages = [
-    const _Message(
+    _Message(
       isUser: false,
       text: '무엇을 알아볼까요? 말하듯이 편하게 적어주세요.',
     ),
@@ -691,6 +691,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             requestContext: requestContext,
                           );
                         },
+                        onAction: (action) {
+                          _handleResearchAction(
+                            action,
+                            message,
+                          );
+                        },
                       );
                     },
                   ),
@@ -724,17 +730,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _Message {
   final bool isUser;
-  final String text;
+  String text;
   final Map<String, dynamic>? mission;
   final String? requestContext;
   final bool isError;
+  final bool isLiveTranscript;
+  final String? badge;
+  final List<Map<String, dynamic>>? businesses;
+  final String? actionQuestion;
+  final List<String>? actions;
 
-  const _Message({
+  _Message({
     required this.isUser,
     required this.text,
     this.mission,
     this.requestContext,
     this.isError = false,
+    this.isLiveTranscript = false,
+    this.badge,
+    this.businesses,
+    this.actionQuestion,
+    this.actions,
   });
 }
 
@@ -785,10 +801,12 @@ class _AssistantBubble extends StatelessWidget {
     required String option,
     required String requestContext,
   }) onClarification;
+  final ValueChanged<String> onAction;
 
   const _AssistantBubble({
     required this.message,
     required this.onClarification,
+    required this.onAction,
   });
 
   List<Map<String, dynamic>> _clarifications() {
@@ -869,6 +887,10 @@ class _AssistantBubble extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (message.badge != null) ...[
+                    const SizedBox(height: 8),
+                    _StatusBadge(text: message.badge!),
+                  ],
                   if (message.requestContext != null &&
                       clarifications.isNotEmpty) ...[
                     const SizedBox(height: 10),
@@ -889,6 +911,23 @@ class _AssistantBubble extends StatelessWidget {
                           );
                         },
                       ),
+                  ],
+                  if (message.businesses != null &&
+                      message.businesses!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _BusinessCards(
+                      businesses: message.businesses!,
+                    ),
+                  ],
+                  if (message.actionQuestion != null &&
+                      message.actions != null &&
+                      message.actions!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _ActionCard(
+                      question: message.actionQuestion!,
+                      actions: message.actions!,
+                      onSelected: onAction,
+                    ),
                   ],
                 ],
               ),
