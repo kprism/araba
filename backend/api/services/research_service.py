@@ -315,24 +315,74 @@ def _search_queries(mission):
 
     return queries
 
+RELEVANCE_STOP_WORDS = {
+    *GENERIC_PLACE_WORDS,
+    "오늘",
+    "내일",
+    "지금",
+    "영업",
+    "영업중",
+    "가능",
+    "추천",
+    "가까운",
+    "근처",
+    "주변",
+    "예약",
+    "문의",
+    "찾아줘",
+    "찾기",
+}
+
+
 def _mission_keywords(mission):
-    values = []
+    raw_subcategories = mission.get("subcategories")
+    raw_search_terms = mission.get("search_terms")
 
-    for key in ("search_terms", "subcategories"):
-        raw = mission.get(key)
-        if isinstance(raw, list):
-            values.extend(
-                str(item).lower().strip()
-                for item in raw
-                if str(item).strip()
-            )
+    subcategories = (
+        [
+            str(item).lower().strip()
+            for item in raw_subcategories
+            if str(item).strip()
+        ]
+        if isinstance(raw_subcategories, list)
+        else []
+    )
+    search_terms = (
+        [
+            str(item).lower().strip()
+            for item in raw_search_terms
+            if str(item).strip()
+        ]
+        if isinstance(raw_search_terms, list)
+        else []
+    )
 
+    # 세부업종이 있으면 가장 강한 분류 신호로 사용한다.
+    # 없을 때만 검색어, subject 순으로 내려간다.
+    values = subcategories or search_terms
     if not values:
-        values.append(
+        values = [
             str(
                 mission.get("subject") or ""
             ).lower().strip()
+        ]
+
+    location_tokens = set(
+        re.findall(
+            r"[0-9a-zA-Z가-힣]{2,}",
+            str(
+                mission.get("location") or ""
+            ).lower(),
         )
+    )
+    category_tokens = set(
+        re.findall(
+            r"[0-9a-zA-Z가-힣]{2,}",
+            str(
+                mission.get("category") or ""
+            ).lower(),
+        )
+    )
 
     keywords = []
     for value in values:
@@ -340,8 +390,23 @@ def _mission_keywords(mission):
             r"[0-9a-zA-Z가-힣]{2,}",
             value,
         ):
-            if token not in keywords:
-                keywords.append(token)
+            if (
+                token in location_tokens
+                or token in RELEVANCE_STOP_WORDS
+                or token in keywords
+            ):
+                continue
+            keywords.append(token)
+
+    # "자동차 타이어"처럼 넓은 category 단어와
+    # 구체 서비스 단어가 같이 들어오면 구체 단어를 우선한다.
+    specific_keywords = [
+        keyword
+        for keyword in keywords
+        if keyword not in category_tokens
+    ]
+    if specific_keywords:
+        keywords = specific_keywords
 
     return keywords[:12]
 
@@ -362,6 +427,9 @@ def _matches_mission(document, mission):
         ]
     )
 
+    # 지역명만 같은 아파트·학교·공원 등이 섞이지 않도록
+    # 사용자가 요청한 실제 업종/서비스 핵심어가
+    # 상호 또는 카카오 업종분류에 반드시 포함돼야 한다.
     return any(
         keyword in haystack
         for keyword in keywords
