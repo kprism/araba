@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_key_store.dart';
@@ -22,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _scroll = ScrollController();
   final _focus = FocusNode();
   final _api = ArabaApi();
+  final _imagePicker = ImagePicker();
   final _keyStore = ApiKeyStore();
   final _kakaoStore = KakaoCredentialStore();
   final _voicePreferenceStore = VoicePreferenceStore();
