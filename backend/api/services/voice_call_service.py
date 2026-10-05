@@ -4,6 +4,8 @@ import os
 import re
 from urllib.parse import urlencode
 
+import httpx
+
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.core import signing
@@ -253,6 +255,61 @@ def normalize_twilio_from_number(value):
     return compact
 
 
+def _create_trial_template_call(
+    *,
+    account_sid,
+    auth_token,
+    to_number,
+):
+    response = httpx.post(
+        (
+            "https://api.twilio.com/2010-04-01/"
+            f"Accounts/{account_sid}/Calls.json"
+        ),
+        data={
+            "To": to_number,
+            "Url": TRIAL_SPEECH_RECOGNITION_URL,
+        },
+        auth=(
+            account_sid,
+            auth_token,
+        ),
+        timeout=20.0,
+    )
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+
+    if response.status_code < 200 or response.status_code >= 300:
+        message = str(
+            payload.get("message")
+            or payload.get("detail")
+            or response.text
+            or "Twilio Trial 전화 발신에 실패했습니다."
+        ).strip()
+        raise VoiceConfigurationError(
+            "Twilio Trial 전화 발신에 실패했습니다: "
+            + message
+        )
+
+    sid = str(payload.get("sid", "")).strip()
+
+    if not sid:
+        raise VoiceConfigurationError(
+            "Twilio Trial 전화 응답에서 Call SID를 확인할 수 없습니다."
+        )
+
+    return {
+        "call_sid": sid,
+        "to": to_number,
+        "status": payload.get("status"),
+        "voice_mode": "twilio_trial_template",
+        "trial_fallback": True,
+    }
+
+
 def _find_twilio_from_number(client):
     configured = (
         _env("TWILIO_PHONE_NUMBER")
@@ -379,22 +436,11 @@ def start_test_call(
         if not is_trial_parameter_limit:
             raise
 
-        trial_call = client.calls.create(
-            to=to_number,
-            url=TRIAL_SPEECH_RECOGNITION_URL,
+        return _create_trial_template_call(
+            account_sid=account_sid,
+            auth_token=auth_token,
+            to_number=to_number,
         )
-
-        return {
-            "call_sid": trial_call.sid,
-            "to": to_number,
-            "status": getattr(
-                trial_call,
-                "status",
-                None,
-            ),
-            "voice_mode": "twilio_trial_template",
-            "trial_fallback": True,
-        }
 
 
 def build_answer_twiml(session_token):
