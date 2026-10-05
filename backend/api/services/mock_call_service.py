@@ -162,14 +162,25 @@ def _mock_tire_call(mission, business, origin):
         else 0
     )
 
-    travel_cost = round(
+    distance_cost = round(
         round_trip_distance * 250
-        + (round_trip_minutes / 60) * 10000
+    )
+    total_time_minutes = (
+        round_trip_minutes
+        + wait_minutes
+        + work_minutes
+    )
+    time_cost = round(
+        (total_time_minutes / 60) * 10000
+    )
+    economic_overhead = (
+        distance_cost
+        + time_cost
     )
     availability_penalty = 0 if stock else 120000
     effective_cost = (
         total_price
-        + travel_cost
+        + economic_overhead
         + availability_penalty
     )
 
@@ -206,17 +217,31 @@ def _mock_tire_call(mission, business, origin):
         {
             "question": (
                 "재고 타이어의 모델과 제조 상태, "
-                "추가 비용 가능성이 있나요?"
+                "보증 조건은 어떻게 되나요?"
             ),
             "answer": (
                 f"가상 답변: {mock_model} 계열 재고, "
-                "별도 추가비용 없음으로 가정."
+                "일반적인 제조사 보증 적용으로 가정."
             ),
         },
         {
-            "question": "도착 후 실제 작업에는 얼마나 걸리나요?",
+            "question": (
+                "카드와 현금 결제 가격이 같은가요? "
+                "휠 얼라인먼트 등 추가 권유 비용이 생길 수 있나요?"
+            ),
             "answer": (
-                f"가상 답변: 약 {work_minutes}분."
+                "가상 답변: 결제수단에 따른 차이 없음, "
+                "추가 작업은 사전 동의 없이 진행하지 않는 것으로 가정."
+            ),
+        },
+        {
+            "question": (
+                "도착 후 대기와 실제 작업을 합치면 "
+                "총 얼마나 걸리나요?"
+            ),
+            "answer": (
+                f"가상 답변: 대기 약 {wait_minutes}분, "
+                f"작업 약 {work_minutes}분."
             ),
         },
     ]
@@ -235,7 +260,11 @@ def _mock_tire_call(mission, business, origin):
             "mock_work_minutes": work_minutes,
             "distance_km": distance_km,
             "drive_minutes": drive_minutes,
-            "travel_cost_estimate": travel_cost,
+            "round_trip_minutes": round_trip_minutes,
+            "total_time_minutes": total_time_minutes,
+            "distance_cost_estimate": distance_cost,
+            "time_cost_estimate": time_cost,
+            "economic_overhead": economic_overhead,
             "effective_cost": effective_cost,
             "quantity": quantity,
         }
@@ -338,17 +367,25 @@ def simulate_mock_calls(mission, businesses, origin=None):
             "mock_total_price": best.get("mock_total_price"),
             "distance_km": best.get("distance_km"),
             "drive_minutes": best.get("drive_minutes"),
+            "total_time_minutes": best.get("total_time_minutes"),
+            "distance_cost_estimate": best.get(
+                "distance_cost_estimate"
+            ),
+            "time_cost_estimate": best.get(
+                "time_cost_estimate"
+            ),
             "effective_cost": best.get("effective_cost"),
             "reason": (
                 f"가상 총액 {best['mock_total_price']:,}원, "
-                f"{distance_text}, {time_text}을 함께 반영했을 때 "
-                "현재 후보 중 시간·이동비용까지 포함한 경제성 비용이 가장 낮습니다."
+                f"{distance_text}, {time_text}, 대기·작업시간을 함께 반영했을 때 "
+                "현재 후보 중 실제 지출과 사용자의 시간비용을 합친 경제성 비용이 가장 낮습니다."
             ),
         },
         "question_policy": [
             "요청 규격·수량의 실제 재고와 당일 교체 가능 여부",
             "장착비·휠밸런스·폐기비·부가세를 포함한 최종 결제금액",
-            "타이어 모델·제조 상태·추가비용 가능성",
+            "타이어 모델·제조 상태·보증 조건",
+            "카드·현금 가격 차이와 추가 작업·추가비용 가능성",
             "대기시간과 실제 작업시간",
         ],
     }
