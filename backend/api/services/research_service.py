@@ -47,6 +47,27 @@ def _life_info_for(category):
     ]
 
 
+def _location_variants(location):
+    normalized = " ".join(
+        str(location or "").split()
+    ).strip()
+
+    if not normalized:
+        return [""]
+
+    parts = normalized.split(" ")
+    variants = [normalized]
+
+    # "창원시 의창구"처럼 세부 지역이 들어오면
+    # 결과가 없을 때 "창원시"까지 자동으로 넓혀 찾는다.
+    for length in range(len(parts) - 1, 0, -1):
+        candidate = " ".join(parts[:length]).strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+
+    return variants
+
+
 def _search_queries(mission):
     location = str(
         mission.get("location") or ""
@@ -58,39 +79,43 @@ def _search_queries(mission):
         mission.get("category") or "기타"
     ).strip()
 
-    queries = []
-
-    primary = " ".join(
-        part for part in (location, subject) if part
-    ).strip()
-    if primary:
-        queries.append(primary)
+    subject_lower = subject.lower()
+    generic_subject = subject
 
     if category == "자동차":
-        subject_lower = subject.lower()
         if "타이어" in subject_lower:
-            fallback = " ".join(
-                part for part in (location, "타이어") if part
-            ).strip()
-            if fallback and fallback not in queries:
-                queries.append(fallback)
+            generic_subject = "타이어"
         elif any(
             token in subject_lower
             for token in ("정비", "수리", "카센터")
         ):
-            fallback = " ".join(
-                part for part in (location, "자동차정비") if part
+            generic_subject = "자동차정비"
+
+    queries = []
+
+    # 카카오 장소검색은 자연어 조건 전체보다
+    # "지역 + 업종" 형태가 훨씬 안정적이다.
+    # 가장 성공률 높은 짧은 검색어를 먼저 보낸다.
+    for location_variant in _location_variants(location):
+        for candidate_subject in (generic_subject, subject):
+            query = " ".join(
+                part
+                for part in (
+                    location_variant,
+                    candidate_subject,
+                )
+                if part
             ).strip()
-            if fallback and fallback not in queries:
-                queries.append(fallback)
+
+            if query and query not in queries:
+                queries.append(query)
 
     if not queries:
         raise ResearchConfigurationError(
             "실제 업체 검색에 사용할 지역 또는 대상 정보가 부족합니다."
         )
 
-    return queries
-
+    return queries[:6]
 
 def _normalize_business(document):
     road_address = str(
@@ -160,9 +185,12 @@ def search_real_businesses(mission, api_key=None):
                 },
                 params={
                     "query": query,
-                    "size": 5,
+                    "size": 8,
                 },
-                timeout=10.0,
+                timeout=httpx.Timeout(
+                    5.0,
+                    connect=2.0,
+                ),
             )
         except httpx.HTTPError as exc:
             last_error = exc
