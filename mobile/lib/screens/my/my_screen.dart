@@ -24,6 +24,8 @@ class _MyScreenState extends State<MyScreen> {
   final TextEditingController _twilioSidController = TextEditingController();
   final TextEditingController _twilioTokenController = TextEditingController();
   final TextEditingController _twilioFromController = TextEditingController();
+  final TextEditingController _twilioCallerIdController =
+      TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _trainingCategoryController =
       TextEditingController();
@@ -47,6 +49,7 @@ class _MyScreenState extends State<MyScreen> {
   String? _maskedKakaoKey;
   String? _maskedTwilioSid;
   String? _twilioFromNumber;
+  String? _twilioCallerIdNumber;
   String _voiceGender = 'female';
   String _voiceSpeed = 'medium';
   Map<String, dynamic> _trainingStatus = const {};
@@ -65,6 +68,7 @@ class _MyScreenState extends State<MyScreen> {
     _twilioSidController.dispose();
     _twilioTokenController.dispose();
     _twilioFromController.dispose();
+    _twilioCallerIdController.dispose();
     _phoneController.dispose();
     _trainingCategoryController.dispose();
     super.dispose();
@@ -111,6 +115,7 @@ class _MyScreenState extends State<MyScreen> {
             twilioCredentials?.accountSid,
           );
           _twilioFromNumber = twilioCredentials?.fromNumber;
+          _twilioCallerIdNumber = twilioCredentials?.callerIdNumber;
           _voiceGender = voicePreferences.gender;
           _voiceSpeed = voicePreferences.speed;
         });
@@ -351,6 +356,7 @@ class _MyScreenState extends State<MyScreen> {
     final enteredSid = _twilioSidController.text.trim();
     final enteredToken = _twilioTokenController.text.trim();
     final enteredFrom = _twilioFromController.text.trim();
+    final enteredCallerId = _twilioCallerIdController.text.trim();
 
     final sid = enteredSid.isNotEmpty
         ? enteredSid
@@ -361,6 +367,9 @@ class _MyScreenState extends State<MyScreen> {
     final fromNumber = enteredFrom.isNotEmpty
         ? enteredFrom
         : existing?.fromNumber;
+    final callerIdNumber = enteredCallerId.isNotEmpty
+        ? enteredCallerId
+        : existing?.callerIdNumber;
 
     if (sid.isEmpty || token.isEmpty) {
       _showMessage('Twilio Account SID와 Auth Token을 모두 입력해주세요.');
@@ -377,6 +386,7 @@ class _MyScreenState extends State<MyScreen> {
         accountSid: sid,
         authToken: token,
         fromNumber: fromNumber,
+        callerIdNumber: callerIdNumber,
       );
 
       if (!mounted) {
@@ -386,11 +396,13 @@ class _MyScreenState extends State<MyScreen> {
       _twilioSidController.clear();
       _twilioTokenController.clear();
       _twilioFromController.clear();
+      _twilioCallerIdController.clear();
 
       setState(() {
         _twilioConfigured = true;
         _maskedTwilioSid = _maskKey(sid);
         _twilioFromNumber = fromNumber;
+        _twilioCallerIdNumber = callerIdNumber;
         _voiceReady = _openAiConfigured;
         _message = 'Twilio 계정 정보가 이 기기에 안전하게 저장되었습니다.';
       });
@@ -447,6 +459,7 @@ class _MyScreenState extends State<MyScreen> {
         twilioAccountSid: twilio.accountSid,
         twilioAuthToken: twilio.authToken,
         twilioFromNumber: twilio.fromNumber,
+        twilioCallerIdNumber: twilio.callerIdNumber,
         voiceGender: _voiceGender,
         voiceSpeed: _voiceSpeed,
       );
@@ -511,6 +524,7 @@ class _MyScreenState extends State<MyScreen> {
         twilioAccountSid: twilio.accountSid,
         twilioAuthToken: twilio.authToken,
         twilioFromNumber: twilio.fromNumber,
+        twilioCallerIdNumber: twilio.callerIdNumber,
         voiceGender: _voiceGender,
         voiceSpeed: _voiceSpeed,
         trainingMode: true,
@@ -707,6 +721,19 @@ class _MyScreenState extends State<MyScreen> {
                           border: OutlineInputBorder(),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _twilioCallerIdController,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: '실서비스 발신번호 (사용자 본인번호)',
+                          hintText: '010-1234-5678',
+                          helperText:
+                              'Twilio에서 본인 소유가 인증된 번호만 사용합니다. '
+                              '실제 업체 통화 시 이 번호를 발신번호로 요청합니다.',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
                       const SizedBox(height: 14),
                       SizedBox(
                         width: double.infinity,
@@ -867,7 +894,9 @@ class _MyScreenState extends State<MyScreen> {
                             : [
                                 '등록된 SID: $_maskedTwilioSid',
                                 if (_twilioFromNumber != null)
-                                  '발신번호: $_twilioFromNumber',
+                                  'Trial 번호: $_twilioFromNumber',
+                                if (_twilioCallerIdNumber != null)
+                                  '사용자 발신번호: $_twilioCallerIdNumber',
                               ].join('\n'),
                         style: const TextStyle(
                           color: Color(0xFF667085),
@@ -902,9 +931,9 @@ class _MyScreenState extends State<MyScreen> {
                         controller: _twilioFromController,
                         keyboardType: TextInputType.phone,
                         decoration: const InputDecoration(
-                          labelText: 'Twilio 발신번호',
-                          hintText: '+1... / Trial에서는 Try out Voice 번호',
-                          helperText: 'Trial 계정에서는 발신번호 입력이 필요할 수 있습니다.',
+                          labelText: 'Twilio Trial 테스트 번호',
+                          hintText: '+1... / Try out Voice의 From 번호',
+                          helperText: '개발용 Trial 통화에서만 사용합니다.',
                           border: OutlineInputBorder(),
                         ),
                       ),
