@@ -36,10 +36,63 @@ class ConversationContext {
   void rememberMission(
     Map<String, dynamic> mission,
   ) {
+    final searchMode =
+        mission['search_mode']?.toString().trim() ?? '';
+
+    if (searchMode == 'category_discovery' ||
+        searchMode == 'area_discovery' ||
+        searchMode == 'comparison') {
+      _known.remove('target_business');
+
+      final currentAttributes = _known['attributes'];
+      if (currentAttributes is Map) {
+        final cleaned =
+            Map<String, dynamic>.from(currentAttributes);
+        cleaned.remove('selected_business_name');
+        cleaned.remove('selected_business_address');
+        cleaned.remove('selected_business_phone');
+        cleaned.remove('selected_business_opening_hours');
+
+        if (cleaned.isEmpty) {
+          _known.remove('attributes');
+        } else {
+          _known['attributes'] = cleaned;
+        }
+      }
+    }
+
+    if (searchMode == 'exact_place') {
+      final newTarget =
+          mission['target_business']?.toString().trim() ?? '';
+      final oldTarget =
+          _known['target_business']?.toString().trim() ?? '';
+
+      if (newTarget.isNotEmpty &&
+          oldTarget.isNotEmpty &&
+          newTarget != oldTarget) {
+        final currentAttributes = _known['attributes'];
+        if (currentAttributes is Map) {
+          final cleaned =
+              Map<String, dynamic>.from(currentAttributes);
+          cleaned.remove('selected_business_name');
+          cleaned.remove('selected_business_address');
+          cleaned.remove('selected_business_phone');
+          cleaned.remove('selected_business_opening_hours');
+
+          if (cleaned.isEmpty) {
+            _known.remove('attributes');
+          } else {
+            _known['attributes'] = cleaned;
+          }
+        }
+      }
+    }
+
     for (final key in [
       'category',
       'subcategories',
       'intent',
+      'search_mode',
       'location',
       'subject',
       'target_business',
