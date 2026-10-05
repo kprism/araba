@@ -182,7 +182,6 @@ class NotificationRegistrationApiTests(TestCase):
             "/api/notifications/register/",
             {"token": token},
             format="json",
-            HTTP_X_KAKAO_REST_API_KEY="device-kakao-key",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -520,6 +519,7 @@ class ResearchSearchApiTests(TestCase):
                 }
             },
             format="json",
+            HTTP_X_KAKAO_REST_API_KEY="device-kakao-key",
         )
 
         self.assertEqual(response.status_code, 200)
