@@ -1,39 +1,145 @@
-class ConversationContext {
-  String? _location;
+import 'dart:convert';
 
-  String? get location => _location;
+class ConversationContext {
+  final Map<String, dynamic> _known = {};
+
+  String? get location =>
+      _known['location']?.toString();
+
+  Map<String, dynamic> get snapshot =>
+      Map<String, dynamic>.from(_known);
 
   String enrichRequest(String requestText) {
     final text = requestText.trim();
-    final knownLocation = _location?.trim() ?? '';
 
-    if (knownLocation.isEmpty ||
-        text.contains('[대화 문맥] 이미 확인된 지역:')) {
+    if (_known.isEmpty ||
+        text.contains('[대화 문맥]')) {
       return text;
     }
 
     return [
-      '[대화 문맥] 이미 확인된 지역: $knownLocation',
-      '사용자가 새 지역을 말하지 않았다면 이 지역을 유지하고 다시 묻지 마세요.',
+      '[대화 문맥]',
+      jsonEncode(_known),
+      '이미 확인된 정보는 사용자가 바꾸지 않는 한 유지하고 다시 묻지 마세요.',
+      '후속 명령이면 현재 주제와 대상을 유지하세요.',
       '',
       '[현재 요청]',
       text,
     ].join('\n');
   }
 
-  void rememberMission(Map<String, dynamic> mission) {
-    final rawLocation = mission['location'];
-    final resolved = rawLocation?.toString().trim() ?? '';
+  void rememberMission(
+    Map<String, dynamic> mission,
+  ) {
+    for (final key in [
+      'category',
+      'subcategories',
+      'intent',
+      'location',
+      'subject',
+      'comparison',
+    ]) {
+      final value = mission[key];
 
-    if (resolved.isEmpty ||
-        resolved.toLowerCase() == 'null') {
-      return;
+      if (_isUseful(value)) {
+        _known[key] = value;
+      }
     }
 
-    _location = resolved;
+    final attributes = mission['attributes'];
+
+    if (attributes is Map) {
+      final current = _known['attributes'];
+      final merged = current is Map
+          ? Map<String, dynamic>.from(current)
+          : <String, dynamic>{};
+
+      for (final entry in attributes.entries) {
+        if (_isUseful(entry.value)) {
+          merged[
+            entry.key.toString()
+          ] = entry.value;
+        }
+      }
+
+      if (merged.isNotEmpty) {
+        _known['attributes'] = merged;
+      }
+    }
+
+    final constraints = mission['constraints'];
+
+    if (constraints is List) {
+      final existing =
+          (_known['constraints'] is List)
+          ? List<String>.from(
+              (_known['constraints'] as List)
+                  .map((item) => item.toString()),
+            )
+          : <String>[];
+
+      for (final item in constraints) {
+        final text = item.toString().trim();
+
+        if (text.isNotEmpty &&
+            !existing.contains(text)) {
+          existing.add(text);
+        }
+      }
+
+      if (existing.isNotEmpty) {
+        _known['constraints'] = existing;
+      }
+    }
+  }
+
+  void rememberAttributes(
+    Map<String, dynamic> attributes,
+  ) {
+    final current = _known['attributes'];
+    final merged = current is Map
+        ? Map<String, dynamic>.from(current)
+        : <String, dynamic>{};
+
+    for (final entry in attributes.entries) {
+      if (_isUseful(entry.value)) {
+        merged[
+          entry.key.toString()
+        ] = entry.value;
+      }
+    }
+
+    if (merged.isNotEmpty) {
+      _known['attributes'] = merged;
+    }
+  }
+
+  bool _isUseful(dynamic value) {
+    if (value == null) {
+      return false;
+    }
+
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+
+      return normalized.isNotEmpty &&
+          normalized != 'null' &&
+          normalized != '미정' &&
+          normalized != '없음';
+    }
+
+    if (value is List) {
+      return value.isNotEmpty;
+    }
+
+    if (value is Map) {
+      return value.isNotEmpty;
+    }
+
+    return true;
   }
 
   void clear() {
-    _location = null;
+    _known.clear();
   }
 }
