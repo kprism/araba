@@ -11,6 +11,11 @@ from openai import OpenAI
 from twilio.rest import Client
 from twilio.twiml.voice_response import Gather, VoiceResponse
 
+from .training_service import (
+    active_rules_text,
+    save_training_rule,
+)
+
 
 VOICE_SESSION_SALT = "araba.voice.test-call"
 DEFAULT_PUBLIC_BASE_URL = (
@@ -116,11 +121,31 @@ def _voice_url(path, **query):
     return url
 
 
-def _create_session_token(phone_number, api_key):
+def _create_session_token(
+    phone_number,
+    api_key,
+    *,
+    voice_gender="female",
+    voice_speed="medium",
+    training_mode=False,
+    training_category="",
+):
     return signing.dumps(
         {
             "phone": phone_number,
             "openai_key": _encrypt_secret(api_key),
+            "voice_gender": str(
+                voice_gender or "female"
+            ),
+            "voice_speed": str(
+                voice_speed or "medium"
+            ),
+            "training_mode": bool(
+                training_mode
+            ),
+            "training_category": str(
+                training_category or ""
+            ),
         },
         salt=VOICE_SESSION_SALT,
         compress=True,
@@ -240,6 +265,10 @@ def start_test_call(
     auth_token,
     from_number=None,
     api_key,
+    voice_gender="female",
+    voice_speed="medium",
+    training_mode=False,
+    training_category="",
 ):
     account_sid = str(account_sid).strip()
     auth_token = str(auth_token).strip()
@@ -261,6 +290,10 @@ def start_test_call(
     session = _create_session_token(
         to_number,
         api_key,
+        voice_gender=voice_gender,
+        voice_speed=voice_speed,
+        training_mode=training_mode,
+        training_category=training_category,
     )
 
     client = Client(
@@ -299,7 +332,9 @@ def start_test_call(
 
 
 def build_answer_twiml(session_token):
-    _validate_session_token(session_token)
+    session = _validate_session_token(
+        session_token
+    )
 
     response = VoiceResponse()
     action = _voice_url(
@@ -317,13 +352,23 @@ def build_answer_twiml(session_token):
         action_on_empty_result=True,
     )
 
-    _say(
-        gather,
-        (
+    if session.get("training_mode"):
+        greeting = (
+            "관리자 실전 통화 훈련입니다. "
+            "관리자님은 업체 담당자 역할로 답해주세요. "
+            "아라바가 사용자 목표를 달성하기 위한 질문을 시작합니다. "
+            "관리 중 잘못된 질문이 나오면 지침이라고 말한 뒤 바로 교정해주세요."
+        )
+    else:
+        greeting = (
             "안녕하세요. 아라바 AI 음성통화 테스트입니다. "
             "지금부터 저와 자연스럽게 대화해 보세요. "
             "먼저 아무 말씀이나 해주세요."
-        ),
+        )
+
+    _say(
+        gather,
+        greeting,
     )
     response.append(gather)
 
@@ -341,6 +386,8 @@ def _generate_voice_reply(
     *,
     api_key,
     previous_response_id=None,
+    training_mode=False,
+    training_category="",
 ):
     api_key = str(api_key or "").strip()
 
@@ -358,11 +405,35 @@ def _generate_voice_reply(
         max_retries=1,
     )
 
+    instructions = VOICE_SYSTEM_PROMPT
+
+    learned_rules = active_rules_text(
+        category=training_category or None,
+        limit=30,
+    )
+
+    if learned_rules:
+        instructions += (
+            "\n\n누적 학습규칙:\n"
+            + learned_rules
+        )
+
+    if training_mode:
+        instructions += (
+            "\n\n현재는 관리자 실전 훈련 통화다. "
+            "당신은 실제 업체에 전화한 ARABA 조사담당자다. "
+            "관리자는 업체 직원 역할로 답한다. "
+            "한 번에 핵심 질문 하나만 하고, 이미 들은 내용은 다시 묻지 않는다. "
+            "예약시간이 미정이면 업체가 가능한 시간대를 먼저 제시하도록 묻는다. "
+            "가격만이 아니라 추가비용, 거리, 대기, 처리시간, 취소·변경조건 등 "
+            "사용자 목표에 필요한 요소를 짧게 확인한다."
+        )
+
     kwargs = {
         "model": _env("VOICE_OPENAI_MODEL") or "gpt-5-mini",
-        "instructions": VOICE_SYSTEM_PROMPT,
+        "instructions": instructions,
         "input": speech,
-        "max_output_tokens": 120,
+        "max_output_tokens": 140,
     }
 
     if previous_response_id:
@@ -408,11 +479,47 @@ def build_response_twiml(
         response.hangup()
         return str(response)
 
-    ai = _generate_voice_reply(
-        speech,
-        api_key=session["openai_key"],
-        previous_response_id=previous_response_id,
+    training_mode = bool(
+        session.get("training_mode")
     )
+    training_category = str(
+        session.get("training_category") or ""
+    ).strip()
+
+    guidance_match = re.match(
+        r"^(?:지침|교정|가이드)\s*[:：]?\s*(.+)$",
+        speech,
+    )
+
+    if training_mode and guidance_match:
+        instruction = guidance_match.group(1).strip()
+
+        save_training_rule(
+            category=training_category,
+            trigger="관리자 실전 통화에서 교정한 상황",
+            instruction=instruction,
+            source="admin_call",
+            confidence=1.0,
+        )
+
+        ai = {
+            "response_id": (
+                previous_response_id
+                or ""
+            ),
+            "reply": (
+                "지침을 바로 반영했습니다. "
+                "같은 유형의 실수를 반복하지 않도록 다음 질문부터 적용하겠습니다."
+            ),
+        }
+    else:
+        ai = _generate_voice_reply(
+            speech,
+            api_key=session["openai_key"],
+            previous_response_id=previous_response_id,
+            training_mode=training_mode,
+            training_category=training_category,
+        )
 
     next_action = _voice_url(
         "/api/voice/respond/",
