@@ -160,6 +160,80 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> trainingStatus() async {
+    final response = await _request(
+      () => http.get(
+        _uri('/api/training/status/'),
+        headers: _headers(),
+      ),
+      timeout: const Duration(seconds: 15),
+    );
+
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> generateTrainingScenarios({
+    String? category,
+    int limit = 10,
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/training/generate/'),
+        headers: _headers(),
+        body: jsonEncode({
+          'category': category,
+          'limit': limit,
+        }),
+      ),
+      timeout: const Duration(seconds: 20),
+    );
+
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> runAutoTraining({
+    required String apiKey,
+    String? category,
+    int limit = 4,
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/training/run-auto/'),
+        headers: _headers(apiKey: apiKey),
+        body: jsonEncode({
+          'category': category,
+          'limit': limit,
+        }),
+      ),
+      timeout: const Duration(seconds: 90),
+    );
+
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> saveTrainingFeedback({
+    required String category,
+    required String trigger,
+    required String instruction,
+    String example = '',
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/training/feedback/'),
+        headers: _headers(),
+        body: jsonEncode({
+          'category': category,
+          'trigger': trigger,
+          'instruction': instruction,
+          'example': example,
+        }),
+      ),
+      timeout: const Duration(seconds: 20),
+    );
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> registerNotificationToken(
     String token,
   ) async {
@@ -179,12 +253,18 @@ class ArabaApi {
   Future<Map<String, dynamic>> createLiveSession(
     String offerSdp, {
     required String apiKey,
+    String voiceGender = 'female',
+    String voiceSpeed = 'medium',
   }) async {
     final response = await _request(
       () => http.post(
         _uri('/api/live/session/'),
         headers: _headers(apiKey: apiKey),
-        body: jsonEncode({'sdp': offerSdp}),
+        body: jsonEncode({
+          'sdp': offerSdp,
+          'voice_gender': voiceGender,
+          'voice_speed': voiceSpeed,
+        }),
       ),
       timeout: const Duration(seconds: 45),
     );
