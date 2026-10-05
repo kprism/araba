@@ -1,9 +1,13 @@
+import logging
+
 import httpx
 
 from .openai_service import get_api_key
 
 
 OPENAI_LIVE_SESSIONS_URL = "https://api.openai.com/v1/live/sessions"
+
+logger = logging.getLogger(__name__)
 
 LIVE_SYSTEM_PROMPT = """
 당신은 ARABA(알아봐)의 실시간 한국어 음성 인터페이스다.
@@ -27,12 +31,31 @@ class LiveConfigurationError(ValueError):
 
 
 def create_live_session(offer_sdp, api_key=None):
-    offer_sdp = str(offer_sdp or "").strip()
+    offer_sdp = "" if offer_sdp is None else str(offer_sdp)
 
-    if not offer_sdp:
+    if not offer_sdp.strip():
         raise LiveConfigurationError(
             "GPT-Live 연결용 SDP가 없습니다."
         )
+
+    required_sdp_parts = (
+        "v=0",
+        "m=audio",
+        "a=ice-ufrag:",
+        "a=ice-pwd:",
+    )
+
+    if any(part not in offer_sdp for part in required_sdp_parts):
+        raise LiveConfigurationError(
+            "GPT-Live 연결용 SDP 형식이 올바르지 않습니다."
+        )
+
+    logger.info(
+        "GPT-Live SDP offer: length=%s, starts_v0=%s, has_audio=%s",
+        len(offer_sdp),
+        offer_sdp.startswith("v=0"),
+        "m=audio" in offer_sdp,
+    )
 
     key = get_api_key(api_key)
 
@@ -95,11 +118,14 @@ def create_live_session(offer_sdp, api_key=None):
     session_id = str(
         data.get("session", {}).get("id", "")
     ).strip()
-    answer_sdp = str(
-        data.get("transport", {}).get("sdp", "")
-    ).strip()
+    answer_sdp_value = data.get("transport", {}).get("sdp", "")
+    answer_sdp = (
+        ""
+        if answer_sdp_value is None
+        else str(answer_sdp_value)
+    )
 
-    if not session_id or not answer_sdp:
+    if not session_id or not answer_sdp.strip():
         raise LiveConfigurationError(
             "GPT-Live 세션 응답이 올바르지 않습니다."
         )
