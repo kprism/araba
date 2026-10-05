@@ -6,6 +6,7 @@ on:
       - main
       - feat/cloud-mobile-key
       - fix/live-sdp-eof
+      - feat/research-progress-simulation
     paths:
       - "mobile/**"
       - ".github/workflows/android-dev-apk.yml"
