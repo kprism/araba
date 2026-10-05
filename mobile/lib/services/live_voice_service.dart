@@ -35,6 +35,8 @@ class LiveVoiceService {
   String? _pendingRequestContext;
   bool _started = false;
   bool _closing = false;
+  Timer? _disconnectTimer;
+  RTCPeerConnectionState? _connectionState;
   int _clientEventSequence = 0;
 
   LiveVoiceService({
@@ -90,11 +92,55 @@ class LiveVoiceService {
       };
 
       peerConnection.onConnectionState = (state) {
+        _connectionState = state;
+
         if (
-            state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-            state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+            state ==
+                RTCPeerConnectionState
+                    .RTCPeerConnectionStateConnected) {
+          _disconnectTimer?.cancel();
+          _disconnectTimer = null;
+          if (_started) {
+            onStatus('듣고 있어요');
+          }
+          return;
+        }
+
+        if (
+            state ==
+                RTCPeerConnectionState
+                    .RTCPeerConnectionStateDisconnected) {
+          _disconnectTimer?.cancel();
+          _disconnectTimer = Timer(
+            const Duration(seconds: 3),
+            () {
+              if (!_closing &&
+                  _connectionState ==
+                      RTCPeerConnectionState
+                          .RTCPeerConnectionStateDisconnected) {
+                _started = false;
+                onStatus('재연결 필요');
+                onError(
+                  '실시간 음성 연결이 잠시 끊겼어요.',
+                );
+              }
+            },
+          );
+          return;
+        }
+
+        if (
+            state ==
+                RTCPeerConnectionState
+                    .RTCPeerConnectionStateFailed) {
+          _disconnectTimer?.cancel();
+          _disconnectTimer = null;
           if (!_closing) {
-            onError('실시간 음성 연결이 끊겼어요.');
+            _started = false;
+            onStatus('재연결 필요');
+            onError(
+              '실시간 음성 연결이 끊겼어요.',
+            );
           }
         }
       };
@@ -370,6 +416,9 @@ class LiveVoiceService {
 
   Future<void> _cleanup() async {
     _started = false;
+    _disconnectTimer?.cancel();
+    _disconnectTimer = null;
+    _connectionState = null;
 
     try {
       await _events?.close();
