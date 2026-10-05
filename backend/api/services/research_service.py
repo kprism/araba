@@ -203,6 +203,37 @@ def _search_queries(mission):
     location = str(
         mission.get("location") or ""
     ).strip()
+    target_business = str(
+        mission.get("target_business") or ""
+    ).strip()
+    location_explicit = (
+        mission.get("location_explicit") is True
+    )
+
+    # 사용자가 현재 요청에서 새 고유 장소를 직접 지목한 경우
+    # 이전 대화의 업종/세부지역이 검색을 오염시키지 않게 한다.
+    # 위치를 이번 요청에서 직접 말하지 않았다면 장소명 자체를
+    # 첫 검색어로 사용한다.
+    if target_business:
+        queries = []
+
+        if location_explicit and location:
+            queries.append(
+                f"{location} {target_business}".strip()
+            )
+
+        if target_business not in queries:
+            queries.append(target_business)
+
+        if location and not location_explicit:
+            # 문맥상 지역은 보조 검색에만 사용한다.
+            contextual = (
+                f"{location} {target_business}"
+            ).strip()
+            if contextual not in queries:
+                queries.append(contextual)
+
+        return queries[:3]
 
     raw_terms = mission.get("search_terms")
     search_terms = (
@@ -226,9 +257,6 @@ def _search_queries(mission):
         else []
     )
 
-    target_business = str(
-        mission.get("target_business") or ""
-    ).strip()
     subject = str(
         mission.get("subject") or ""
     ).strip()
@@ -521,6 +549,18 @@ def _mission_keywords(mission):
 
 
 def _matches_mission(document, mission):
+    target_business = str(
+        mission.get("target_business") or ""
+    ).strip()
+
+    # 고유 장소명 검색에서는 과거 대화에서 남아 있을 수 있는
+    # 식당/미용실 등의 업종 키워드로 정확한 장소를 탈락시키지 않는다.
+    if target_business:
+        return _matches_target_business(
+            document,
+            mission,
+        )
+
     keywords = _mission_keywords(mission)
     if not keywords:
         return True
@@ -607,6 +647,13 @@ def search_real_businesses(
     selected_query = None
     documents = []
 
+    target_business = str(
+        mission.get("target_business") or ""
+    ).strip()
+    location_explicit = (
+        mission.get("location_explicit") is True
+    )
+
     reference_origin = _resolve_location_origin(
         mission.get("location"),
         resolved_api_key,
@@ -638,7 +685,13 @@ def search_real_businesses(
                             "y": reference_origin["latitude"],
                             "sort": "distance",
                         }
-                        if reference_origin
+                        if (
+                            reference_origin
+                            and (
+                                not target_business
+                                or location_explicit
+                            )
+                        )
                         else {}
                     ),
                 },
@@ -669,11 +722,18 @@ def search_real_businesses(
                     item,
                     mission,
                 )
-                and _matches_location(
-                    item,
-                    search_mission.get(
-                        "location"
-                    ),
+                and (
+                    True
+                    if (
+                        target_business
+                        and not location_explicit
+                    )
+                    else _matches_location(
+                        item,
+                        search_mission.get(
+                            "location"
+                        ),
+                    )
                 )
                 and _matches_target_business(
                     item,
