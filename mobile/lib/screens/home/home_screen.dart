@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../services/api_key_store.dart';
@@ -969,7 +971,8 @@ class _BusinessCards extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: businesses.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        separatorBuilder: (context, index) =>
+            const SizedBox(width: 10),
         itemBuilder: (context, index) {
           final business = businesses[index];
           final name = business['name']?.toString() ?? '업체';
