@@ -516,6 +516,8 @@ class ResearchSearchApiTests(TestCase):
                     "category": "자동차",
                     "location": "창원",
                     "subject": "BMW S6 타이어 교체",
+                    "search_terms": ["타이어"],
+                    "subcategories": ["타이어"],
                 }
             },
             format="json",
@@ -624,6 +626,8 @@ class ResearchSearchApiTests(TestCase):
                     "category": "자동차",
                     "location": "창원시 의창구",
                     "subject": "BMW X6 타이어 교체",
+                    "search_terms": ["타이어"],
+                    "subcategories": ["타이어"],
                 }
             },
             format="json",
@@ -767,26 +771,44 @@ class MockCallComparisonApiTests(TestCase):
             int,
         )
 
-    def test_mock_call_compare_rejects_unrelated_category(self):
+    def test_mock_call_compare_supports_dynamic_category(self):
         response = self.client.post(
             "/api/research/mock-call/",
             {
                 "mission": {
-                    "category": "음식점",
-                    "subject": "점심",
+                    "category": "미용실",
+                    "subcategories": ["헤어컷"],
+                    "intent": "예약",
+                    "subject": "오늘 머리 자르기",
+                    "attributes": {
+                        "예약시간": "미정",
+                    },
+                    "required_facts": [
+                        "가능한 예약시간대",
+                        "최종 결제금액",
+                    ],
+                    "comparison": "가장빠른가능시간",
                 },
                 "businesses": [
                     {
                         "id": "1",
-                        "name": "식당",
+                        "name": "테스트미용실",
+                        "latitude": "35.2200",
+                        "longitude": "128.6800",
                     }
                 ],
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(response.data["ok"])
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertTrue(
+            response.data["businesses"][0]["mock_available_slots"]
+        )
+        self.assertTrue(
+            response.data["recommendation"]["available_slots"]
+        )
 
 
 class ResearchHistoryApiTests(TestCase):
@@ -891,3 +913,48 @@ class ResearchRelevanceFilterTests(TestCase):
         self.assertTrue(
             _matches_mission(tire_shop, mission)
         )
+
+
+
+class DynamicResearchFilterTests(TestCase):
+    def test_filters_are_created_from_actual_saved_data(self):
+        from api.models import ResearchRecord
+        from api.services.research_record_service import (
+            list_research_records_grouped,
+        )
+
+        ResearchRecord.objects.create(
+            category="미용실",
+            subject="헤어컷 예약",
+            location="창원",
+            mission={
+                "category": "미용실",
+                "subcategories": ["헤어컷"],
+                "intent": "예약",
+                "comparison": "가장빠른가능시간",
+                "attributes": {
+                    "스타일": "남성컷",
+                },
+            },
+            businesses=[],
+            recommendation={},
+        )
+
+        result = list_research_records_grouped()
+        filters = result["filters"]
+
+        self.assertEqual(
+            filters["categories"][0]["value"],
+            "미용실",
+        )
+
+        sections = filters["by_category"]["미용실"]["sections"]
+        labels = [
+            item["label"]
+            for item in sections
+        ]
+
+        self.assertIn("세부 분류", labels)
+        self.assertIn("지역", labels)
+        self.assertIn("목적", labels)
+        self.assertIn("스타일", labels)
