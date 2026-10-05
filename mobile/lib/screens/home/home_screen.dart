@@ -326,6 +326,149 @@ class _HomeScreenState extends State<HomeScreen>
     _liveVoice?.speakCommentary(text);
   }
 
+  bool _isStatusQuestion(String text) {
+    final compact = text
+        .replaceAll(RegExp(r'\s+'), '')
+        .toLowerCase();
+
+    return compact.contains('알아보고있') ||
+        compact.contains('찾고있') ||
+        compact.contains('확인중') ||
+        compact.contains('진행중');
+  }
+
+  String _statusAnswerForLastResearch(
+    String text,
+  ) {
+    if (_lastBusinesses.isEmpty) {
+      return '현재 이어서 확인 중인 업체 정보는 없어요.';
+    }
+
+    final business = _lastBusinesses.first;
+    final name =
+        business['name']?.toString().trim() ?? '해당 업체';
+    final naver = business['naver'];
+    final naverMap = naver is Map
+        ? Map<String, dynamic>.from(naver)
+        : <String, dynamic>{};
+    final rawHours = naverMap['opening_hours'];
+    final hours = rawHours is List
+        ? rawHours
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList()
+        : <String>[];
+
+    if (text.contains('영업시간') ||
+        text.contains('운영시간')) {
+      if (hours.isNotEmpty) {
+        return '$name 영업시간은 ${hours.join(' · ')}로 확인됐어요.';
+      }
+      return '$name 업체 자체는 확인됐고, 영업시간은 아직 확인되지 않았어요. '
+          '네이버 상세정보나 실제 전화로 확인해야 합니다.';
+    }
+
+    return '$name 업체는 확인됐어요. 추가로 필요한 정보를 말씀하면 '
+        '같은 업체를 기준으로 이어서 확인할게요.';
+  }
+
+  bool _isDetailFollowUp(
+    Map<String, dynamic> mission,
+  ) {
+    final target =
+        mission['target_business']?.toString().trim() ?? '';
+    if (target.isEmpty) return false;
+
+    final facts = mission['required_facts'];
+    if (facts is! List || facts.isEmpty) {
+      return false;
+    }
+
+    final joined = facts
+        .map((item) => item.toString())
+        .join(' ');
+
+    return RegExp(
+      r'영업시간|운영시간|가격|요금|전화|주소|주차|메뉴|예약|재고',
+    ).hasMatch(joined);
+  }
+
+  String _detailAnswer(
+    Map<String, dynamic> mission,
+    Map<String, dynamic> business,
+  ) {
+    final name =
+        business['name']?.toString().trim() ?? '해당 업체';
+    final naver = business['naver'];
+    final naverMap = naver is Map
+        ? Map<String, dynamic>.from(naver)
+        : <String, dynamic>{};
+    final rawHours = naverMap['opening_hours'];
+    final hours = rawHours is List
+        ? rawHours
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList()
+        : <String>[];
+    final rawPrices = naverMap['prices'];
+    final prices = rawPrices is List
+        ? rawPrices
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList()
+        : <Map<String, dynamic>>[];
+    final phone =
+        business['phone']?.toString().trim() ?? '';
+    final address =
+        business['address']?.toString().trim() ?? '';
+    final facts = mission['required_facts'];
+    final requested = facts is List
+        ? facts.map((item) => item.toString()).join(' ')
+        : '';
+
+    final parts = <String>[];
+
+    if (RegExp(r'영업시간|운영시간').hasMatch(requested)) {
+      parts.add(
+        hours.isNotEmpty
+            ? '영업시간: ${hours.join(' · ')}'
+            : '영업시간: 아직 확인되지 않음',
+      );
+    }
+
+    if (RegExp(r'가격|요금|메뉴').hasMatch(requested)) {
+      if (prices.isEmpty) {
+        parts.add('가격: 아직 확인되지 않음');
+      } else {
+        final text = prices.take(4).map((item) {
+          final label =
+              item['name']?.toString().trim() ?? '';
+          final price =
+              item['price']?.toString().trim() ?? '';
+          return label.isEmpty
+              ? price
+              : '$label $price';
+        }).where((item) => item.isNotEmpty).join(' · ');
+        if (text.isNotEmpty) {
+          parts.add('가격: $text');
+        }
+      }
+    }
+
+    if (requested.contains('전화') && phone.isNotEmpty) {
+      parts.add('전화: $phone');
+    }
+    if (requested.contains('주소') && address.isNotEmpty) {
+      parts.add('주소: $address');
+    }
+
+    if (parts.isEmpty) {
+      return '$name에서 요청한 상세정보를 아직 확인하지 못했어요.';
+    }
+
+    return '$name\n${parts.join('\n')}';
+  }
+
   List<Map<String, dynamic>> _businessesFrom(
     Map<String, dynamic> result,
   ) {
@@ -394,6 +537,13 @@ class _HomeScreenState extends State<HomeScreen>
       final searchQuery =
           result['search_query']?.toString().trim() ?? '';
 
+      if (businesses.length == 1) {
+        _conversationContext.rememberBusiness(
+          businesses.first,
+        );
+      }
+      _lastBusinesses = businesses;
+
       if (businesses.isEmpty) {
         const noResult =
             '관련 업종만 걸러서 찾아봤지만 조건에 맞는 실제 업체를 찾지 못했어요.';
@@ -421,6 +571,34 @@ class _HomeScreenState extends State<HomeScreen>
             ? '영업시간·가격 등 상세정보 확인하는 중…'
             : '결과 정리하는 중…',
       );
+
+      if (_isDetailFollowUp(mission)) {
+        final target = mission['target_business']
+                ?.toString()
+                .trim() ??
+            '';
+        final selected = businesses.firstWhere(
+          (item) {
+            final name =
+                item['name']?.toString().trim() ?? '';
+            return target.isEmpty ||
+                name.contains(target) ||
+                target.contains(name);
+          },
+          orElse: () => businesses.first,
+        );
+        final detail = _detailAnswer(
+          mission,
+          selected,
+        );
+
+        _addAssistantMessage(
+          text: detail,
+          badge: '상세 확인',
+        );
+        _speakProgress(detail);
+        return;
+      }
 
       final sourceSummary = naverConfigured
           ? '카카오맵에서 관련 업체 ${businesses.length}곳을 찾고, '
@@ -807,6 +985,28 @@ class _HomeScreenState extends State<HomeScreen>
     _controller.clear();
     _userBrowsingHistory = false;
     _toBottom(force: true);
+
+    if (_isStatusQuestion(text)) {
+      setState(() {
+        _messages.add(
+          _Message(
+            isUser: true,
+            text: text,
+          ),
+        );
+        _messages.add(
+          _Message(
+            isUser: false,
+            text: _statusAnswerForLastResearch(
+              text,
+            ),
+          ),
+        );
+      });
+      _toBottom();
+      return;
+    }
+
     await _requestMission(
       displayText: text,
       requestText: text,
@@ -935,6 +1135,8 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _keepLiveVoice = false;
     _liveVoice?.stop(force: true);
     _controller.dispose();
     _scroll.dispose();
