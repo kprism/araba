@@ -16,10 +16,14 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> {
   final _api = ArabaApi();
+  final _searchController = TextEditingController();
 
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _categories = const [];
+  Map<String, dynamic> _filters = const {};
+  String? _selectedCategory;
+  final Map<String, String> _selectedSubfilters = {};
 
   @override
   void initState() {
@@ -29,6 +33,12 @@ class _TasksScreenState extends State<TasksScreen> {
     } else {
       _loading = false;
     }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -60,10 +70,16 @@ class _TasksScreenState extends State<TasksScreen> {
                 .toList()
           : <Map<String, dynamic>>[];
 
+      final rawFilters = result['filters'];
+      final filters = rawFilters is Map
+          ? Map<String, dynamic>.from(rawFilters)
+          : <String, dynamic>{};
+
       if (!mounted) return;
 
       setState(() {
         _categories = categories;
+        _filters = filters;
         _loading = false;
       });
     } catch (error) {
@@ -76,6 +92,233 @@ class _TasksScreenState extends State<TasksScreen> {
             : '조사 기록을 불러오지 못했어요.';
       });
     }
+  }
+
+  List<Map<String, dynamic>> _categoryOptions() {
+    final raw = _filters['categories'];
+
+    if (raw is! List) {
+      return const [];
+    }
+
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => Map<String, dynamic>.from(item),
+        )
+        .toList();
+  }
+
+  List<Map<String, dynamic>> _activeFilterSections() {
+    final category = _selectedCategory;
+
+    if (category == null || category.isEmpty) {
+      return const [];
+    }
+
+    final rawByCategory = _filters['by_category'];
+
+    if (rawByCategory is! Map) {
+      return const [];
+    }
+
+    final rawCategory = rawByCategory[category];
+
+    if (rawCategory is! Map) {
+      return const [];
+    }
+
+    final rawSections = rawCategory['sections'];
+
+    if (rawSections is! List) {
+      return const [];
+    }
+
+    return rawSections
+        .whereType<Map>()
+        .map(
+          (item) => Map<String, dynamic>.from(item),
+        )
+        .toList();
+  }
+
+  bool _matchesSearch(
+    Map<String, dynamic> record,
+  ) {
+    final query =
+        _searchController.text.trim().toLowerCase();
+
+    if (query.isEmpty) {
+      return true;
+    }
+
+    final buffer = StringBuffer()
+      ..write(' ')
+      ..write(record['subject'] ?? '')
+      ..write(' ')
+      ..write(record['location'] ?? '')
+      ..write(' ')
+      ..write(record['category'] ?? '')
+      ..write(' ')
+      ..write(record['intent'] ?? '')
+      ..write(' ')
+      ..write(record['comparison'] ?? '');
+
+    final recommendation = record['recommendation'];
+    if (recommendation is Map) {
+      buffer
+        ..write(' ')
+        ..write(recommendation['name'] ?? '');
+    }
+
+    final subcategories = record['subcategories'];
+    if (subcategories is List) {
+      buffer
+        ..write(' ')
+        ..write(subcategories.join(' '));
+    }
+
+    final attributes = record['attributes'];
+    if (attributes is Map) {
+      for (final entry in attributes.entries) {
+        buffer
+          ..write(' ')
+          ..write(entry.key)
+          ..write(' ')
+          ..write(entry.value);
+      }
+    }
+
+    return buffer
+        .toString()
+        .toLowerCase()
+        .contains(query);
+  }
+
+  bool _matchesDynamicFilters(
+    Map<String, dynamic> record,
+  ) {
+    if (_selectedSubfilters.isEmpty) {
+      return true;
+    }
+
+    for (final entry in _selectedSubfilters.entries) {
+      final key = entry.key;
+      final expected = entry.value;
+
+      if (key == 'subcategory') {
+        final values = record['subcategories'];
+        if (values is! List ||
+            !values.map((item) => item.toString()).contains(expected)) {
+          return false;
+        }
+        continue;
+      }
+
+      if (key == 'location') {
+        if (record['location']?.toString() != expected) {
+          return false;
+        }
+        continue;
+      }
+
+      if (key == 'intent') {
+        if (record['intent']?.toString() != expected) {
+          return false;
+        }
+        continue;
+      }
+
+      if (key == 'comparison') {
+        if (record['comparison']?.toString() != expected) {
+          return false;
+        }
+        continue;
+      }
+
+      if (key.startsWith('attribute:')) {
+        final attributeName =
+            key.substring('attribute:'.length);
+        final attributes = record['attributes'];
+
+        if (attributes is! Map) {
+          return false;
+        }
+
+        final raw = attributes[attributeName];
+
+        if (raw is List) {
+          if (!raw
+              .map((item) => item.toString())
+              .contains(expected)) {
+            return false;
+          }
+        } else if (raw?.toString() != expected) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  List<Map<String, dynamic>> _visibleCategories() {
+    final result = <Map<String, dynamic>>[];
+
+    for (final category in _categories) {
+      final name =
+          category['category']?.toString().trim() ?? '';
+
+      if (_selectedCategory != null &&
+          _selectedCategory!.isNotEmpty &&
+          name != _selectedCategory) {
+        continue;
+      }
+
+      final rawRecords = category['records'];
+      final records = rawRecords is List
+          ? rawRecords
+                .whereType<Map>()
+                .map(
+                  (item) => Map<String, dynamic>.from(item),
+                )
+                .where(_matchesSearch)
+                .where(_matchesDynamicFilters)
+                .toList()
+          : <Map<String, dynamic>>[];
+
+      if (records.isEmpty) {
+        continue;
+      }
+
+      result.add({
+        ...category,
+        'records': records,
+        'count': records.length,
+      });
+    }
+
+    return result;
+  }
+
+  void _selectCategory(String? category) {
+    setState(() {
+      _selectedCategory = category;
+      _selectedSubfilters.clear();
+    });
+  }
+
+  void _toggleSubfilter(
+    String key,
+    String value,
+  ) {
+    setState(() {
+      if (_selectedSubfilters[key] == value) {
+        _selectedSubfilters.remove(key);
+      } else {
+        _selectedSubfilters[key] = value;
+      }
+    });
   }
 
   @override
@@ -125,11 +368,15 @@ class _TasksScreenState extends State<TasksScreen> {
         icon: Icons.inventory_2_outlined,
         title: '아직 저장된 조사가 없어요',
         description:
-            'ARABA가 업체를 조사하고 가상 통화 비교를 마치면 결과가 여기에 쌓입니다.',
+            'ARABA가 조사와 통화 비교를 마치면 결과가 여기에 자동으로 쌓입니다.',
         actionText: '새로고침',
         onAction: _load,
       );
     }
+
+    final visibleCategories = _visibleCategories();
+    final categoryOptions = _categoryOptions();
+    final filterSections = _activeFilterSections();
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -143,17 +390,141 @@ class _TasksScreenState extends State<TasksScreen> {
         ),
         children: [
           const _DatabaseNotice(),
-          const SizedBox(height: 18),
-          for (final category in _categories) ...[
-            _CategorySection(
-              category: category,
+          const SizedBox(height: 14),
+          TextField(
+            controller: _searchController,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              hintText: '조사내용·지역·업체·조건 검색',
+              prefixIcon: const Icon(
+                Icons.search_rounded,
+              ),
+              suffixIcon: _searchController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: '검색 지우기',
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {});
+                      },
+                      icon: const Icon(
+                        Icons.close_rounded,
+                      ),
+                    ),
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(
+                  color: Color(0xFFE4E7EC),
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(
+                  color: Color(0xFFE4E7EC),
+                ),
+              ),
             ),
-            const SizedBox(height: 18),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            '카테고리',
+            style: TextStyle(
+              color: Color(0xFF344054),
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('전체'),
+                selected: _selectedCategory == null,
+                onSelected: (_) => _selectCategory(null),
+              ),
+              for (final option in categoryOptions)
+                ChoiceChip(
+                  label: Text(
+                    '${option['value']} ${option['count']}',
+                  ),
+                  selected:
+                      _selectedCategory == option['value']?.toString(),
+                  onSelected: (_) => _selectCategory(
+                    option['value']?.toString(),
+                  ),
+                ),
+            ],
+          ),
+          if (filterSections.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            for (final section in filterSections) ...[
+              Text(
+                section['label']?.toString() ?? '필터',
+                style: const TextStyle(
+                  color: Color(0xFF344054),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: [
+                  for (final option
+                      in (section['options'] is List
+                          ? section['options'] as List
+                          : const []))
+                    if (option is Map)
+                      FilterChip(
+                        label: Text(
+                          '${option['value']} ${option['count']}',
+                        ),
+                        selected: _selectedSubfilters[
+                                section['key']?.toString() ?? ''] ==
+                            option['value']?.toString(),
+                        onSelected: (_) => _toggleSubfilter(
+                          section['key']?.toString() ?? '',
+                          option['value']?.toString() ?? '',
+                        ),
+                      ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
           ],
+          const SizedBox(height: 6),
+          if (visibleCategories.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(
+                vertical: 48,
+              ),
+              child: Center(
+                child: Text(
+                  '조건에 맞는 조사 기록이 없어요.',
+                  style: TextStyle(
+                    color: Color(0xFF667085),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            )
+          else
+            for (final category in visibleCategories) ...[
+              _CategorySection(
+                category: category,
+              ),
+              const SizedBox(height: 18),
+            ],
         ],
       ),
     );
   }
+
 }
 
 class _DatabaseNotice extends StatelessWidget {
