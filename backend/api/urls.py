@@ -55,6 +55,26 @@ urlpatterns = [
         name="image-analyze",
     ),
     path(
+        "training/status/",
+        views.training_status_view,
+        name="training-status",
+    ),
+    path(
+        "training/generate/",
+        views.training_generate,
+        name="training-generate",
+    ),
+    path(
+        "training/run-auto/",
+        views.training_run_auto,
+        name="training-run-auto",
+    ),
+    path(
+        "training/feedback/",
+        views.training_feedback,
+        name="training-feedback",
+    ),
+    path(
         "notifications/register/",
         views.notification_register,
         name="notification-register",
