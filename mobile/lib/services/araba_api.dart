@@ -100,8 +100,7 @@ class ArabaApi {
         headers: _headers(apiKey: apiKey),
         body: jsonEncode({'request': request}),
       ),
-      timeout: const Duration(seconds: 90),
-      retries: 1,
+      timeout: const Duration(seconds: 35),
     );
 
     return _decode(response);
@@ -119,7 +118,7 @@ class ArabaApi {
         ),
         body: jsonEncode({'mission': mission}),
       ),
-      timeout: const Duration(seconds: 20),
+      timeout: const Duration(seconds: 10),
     );
 
     return _decode(response);
