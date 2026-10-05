@@ -321,31 +321,12 @@ def _mock_business_call(
         mission.get("category"),
     )
 
-    price_relevant = _price_relevant(mission)
-
-    base_band = (
-        25000
-        + (
-            _stable_number(
-                mission.get("category"),
-                mission.get("subject"),
-            )
-            % 120000
-        )
-    )
-
+    # 가격은 실제 출처에서 확인된 값만 사용한다.
+    # 카카오 Local API에는 가격표가 없으므로 POC에서 임의 가격을 생성하지 않는다.
+    verified_price = business.get("verified_total_price")
     total_price = (
-        int(
-            round(
-                (
-                    base_band
-                    + (seed % 11) * 7500
-                )
-                / 1000
-            )
-            * 1000
-        )
-        if price_relevant
+        int(verified_price)
+        if isinstance(verified_price, (int, float))
         else None
     )
 
@@ -427,11 +408,7 @@ def _mock_business_call(
         else 150000
     )
 
-    price_component = (
-        total_price
-        if total_price is not None
-        else 0
-    )
+    price_component = total_price
 
     comparison = str(
         mission.get("comparison") or ""
@@ -450,9 +427,19 @@ def _mock_business_call(
     else:
         time_weight = 1.0
 
-    effective_cost = round(
-        price_component
-        + distance_cost
+    effective_cost = (
+        round(
+            price_component
+            + distance_cost
+            + time_cost * time_weight
+            + availability_penalty
+        )
+        if price_component is not None
+        else None
+    )
+
+    efficiency_score = round(
+        distance_cost
         + time_cost * time_weight
         + availability_penalty
     )
@@ -504,6 +491,7 @@ def _mock_business_call(
             ),
             "time_cost_estimate": time_cost,
             "effective_cost": effective_cost,
+            "efficiency_score": efficiency_score,
         }
     )
 
@@ -561,6 +549,12 @@ def simulate_mock_calls(
             ),
             item.get(
                 "effective_cost",
+            )
+            if item.get(
+                "effective_cost"
+            ) is not None
+            else item.get(
+                "efficiency_score",
                 10**12,
             ),
             item.get("mock_total_price")
@@ -605,7 +599,7 @@ def simulate_mock_calls(
             price,
             (int, float),
         )
-        else "가격 비교 제외"
+        else "실제 가격 미확인"
     )
 
     distance_text = (
@@ -717,6 +711,9 @@ def simulate_mock_calls(
             ),
             "effective_cost": best.get(
                 "effective_cost"
+            ),
+            "efficiency_score": best.get(
+                "efficiency_score"
             ),
             "reason": (
                 f"가상 통화 기준 {price_text}, "
