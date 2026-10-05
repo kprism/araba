@@ -232,6 +232,31 @@ def live_session_create(request):
 
 
 @api_view(["POST"])
+def research_simulate(request):
+    from .services.research_simulation_service import (
+        build_research_simulation,
+    )
+
+    mission = request.data.get("mission")
+
+    if not isinstance(mission, dict):
+        return Response(
+            {
+                "ok": False,
+                "message": "조사 Mission 정보가 필요합니다.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response(
+        {
+            "ok": True,
+            **build_research_simulation(mission),
+        }
+    )
+
+
+@api_view(["POST"])
 def notification_register(request):
     from .services.update_notification_service import (
         subscribe_device_to_updates,
