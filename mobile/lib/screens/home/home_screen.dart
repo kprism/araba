@@ -1276,7 +1276,7 @@ class _BusinessCards extends StatelessWidget {
     );
 
     return SizedBox(
-      height: hasMock ? 430 : 410,
+      height: hasMock ? 472 : 454,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: businesses.length,
@@ -1293,6 +1293,10 @@ class _BusinessCards extends StatelessWidget {
               business['phone']?.toString().trim() ?? '';
           final placeUrl =
               business['place_url']?.toString().trim() ?? '';
+          final imageUrl =
+              business['image_url']?.toString().trim() ?? '';
+          final imageSource =
+              business['image_source']?.toString().trim() ?? '';
           final callResult =
               business['mock_call_result']?.toString().trim() ?? '';
           final rank = business['economic_rank'];
@@ -1353,19 +1357,72 @@ class _BusinessCards extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  height: 74,
+                SizedBox(
+                  height: 118,
                   width: double.infinity,
-                  color: const Color(0xFFEEF4FF),
                   child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      const Center(
-                        child: Icon(
-                          Icons.storefront_rounded,
-                          size: 36,
-                          color: Color(0xFF3157D5),
+                      if (imageUrl.isNotEmpty)
+                        Image.network(
+                          imageUrl,
+                          fit: BoxFit.cover,
+                          cacheWidth: 700,
+                          errorBuilder: (
+                            context,
+                            error,
+                            stackTrace,
+                          ) {
+                            return const ColoredBox(
+                              color: Color(0xFFEEF4FF),
+                              child: Center(
+                                child: Icon(
+                                  Icons.storefront_rounded,
+                                  size: 38,
+                                  color: Color(0xFF3157D5),
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      else
+                        const ColoredBox(
+                          color: Color(0xFFEEF4FF),
+                          child: Center(
+                            child: Icon(
+                              Icons.storefront_rounded,
+                              size: 38,
+                              color: Color(0xFF3157D5),
+                            ),
+                          ),
                         ),
-                      ),
+                      if (imageUrl.isNotEmpty)
+                        Positioned(
+                          left: 8,
+                          bottom: 8,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: const Color(0xCC101828),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              child: Text(
+                                imageSource == 'kakao_place'
+                                    ? '카카오 등록사진'
+                                    : '업체 사진',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       Positioned(
                         top: 8,
                         right: 8,
