@@ -1372,6 +1372,89 @@ class ResearchSearchApiTests(TestCase):
             _matches_mission(salon, mission)
         )
 
+    def test_exact_named_place_ignores_stale_category_and_neighborhood(self):
+        from api.services.research_service import (
+            _matches_location,
+            _matches_mission,
+        )
+
+        mission = {
+            "category": "음식점",
+            "subcategories": ["식당"],
+            "location": "경남 창원시 의창구 중동",
+            "location_explicit": False,
+            "subject": "의창구청",
+            "target_business": "의창구청",
+            "search_terms": ["식당"],
+        }
+        office = {
+            "place_name": "의창구청",
+            "category_name": "사회,공공기관 > 지방행정기관 > 구청",
+            "address_name": "경남 창원시 의창구 도계동 263-2",
+            "road_address_name": "경남 창원시 의창구 태복산로15번길 8",
+        }
+
+        self.assertTrue(
+            _matches_mission(
+                office,
+                mission,
+            )
+        )
+        self.assertFalse(
+            _matches_location(
+                office,
+                mission["location"],
+            )
+        )
+
+    def test_exact_named_place_without_new_location_searches_name_first(self):
+        from api.services.research_service import (
+            _search_queries,
+        )
+
+        queries = _search_queries(
+            {
+                "category": "음식점",
+                "subcategories": ["식당"],
+                "location": "경남 창원시 의창구 중동",
+                "location_explicit": False,
+                "subject": "의창구청",
+                "target_business": "의창구청",
+                "search_terms": ["식당"],
+            }
+        )
+
+        self.assertEqual(
+            queries[0],
+            "의창구청",
+        )
+        self.assertIn(
+            "경남 창원시 의창구 중동 의창구청",
+            queries,
+        )
+        self.assertNotIn(
+            "경남 창원시 의창구 중동 식당",
+            queries,
+        )
+
+    def test_exact_named_place_with_new_location_keeps_location_scope(self):
+        from api.services.research_service import (
+            _search_queries,
+        )
+
+        queries = _search_queries(
+            {
+                "location": "경남 창원시 의창구",
+                "location_explicit": True,
+                "target_business": "삼거리식당",
+            }
+        )
+
+        self.assertEqual(
+            queries[0],
+            "경남 창원시 의창구 삼거리식당",
+        )
+
     def test_search_queries_prioritize_exact_target_business(self):
         from api.services.research_service import (
             _search_queries,
