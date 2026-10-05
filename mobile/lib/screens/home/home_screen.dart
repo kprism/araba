@@ -405,9 +405,15 @@ class _HomeScreenState extends State<HomeScreen> {
           '최종 결제금액, 재고, 대기시간, 작업시간을 같은 기준으로 비교할게요.';
       _speakProgress(callText);
 
+      final originValue = result['reference_origin'];
+      final origin = originValue is Map
+          ? Map<String, dynamic>.from(originValue)
+          : null;
+
       final mockResult = await _api.simulateMockCalls(
         mission,
         businesses,
+        origin: origin,
       );
       final calledBusinesses = _businessesFrom(mockResult);
       final recommendation = mockResult['recommendation'];
@@ -442,6 +448,8 @@ class _HomeScreenState extends State<HomeScreen> {
           recommendation['effective_cost'];
       final reason =
           recommendation['reason']?.toString().trim() ?? '';
+      final basis =
+          mockResult['basis']?.toString().trim() ?? '';
 
       String won(dynamic value) {
         if (value is! num) return '-';
@@ -468,7 +476,8 @@ class _HomeScreenState extends State<HomeScreen> {
           '총 결제금액 ${won(price)}, 이동거리 $distanceText, '
           '차량 이동 $driveText이며, 시간·이동비용까지 반영한 '
           '경제성 비용은 ${won(effective)}입니다.'
-          '${reason.isEmpty ? '' : '\n\n$reason'}';
+          '${reason.isEmpty ? '' : '\n\n$reason'}'
+          '${basis.isEmpty ? '' : '\n\n기준: $basis'}';
 
       _addAssistantMessage(
         text: summary,
@@ -572,19 +581,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   bool _handleChatScroll(ScrollNotification notification) {
-    if (notification is ScrollUpdateNotification &&
+    if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
-      final remaining =
-          notification.metrics.maxScrollExtent -
-          notification.metrics.pixels;
-
-      _userBrowsingHistory = remaining > 120;
+      _userBrowsingHistory = true;
+    } else if (notification is ScrollUpdateNotification &&
+        notification.dragDetails != null) {
+      _userBrowsingHistory = true;
     } else if (notification is ScrollEndNotification) {
       final remaining =
           notification.metrics.maxScrollExtent -
           notification.metrics.pixels;
 
-      if (remaining <= 120) {
+      if (remaining <= 40) {
         _userBrowsingHistory = false;
       }
     }
