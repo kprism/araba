@@ -290,8 +290,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       _updateResearchStage(
         naverCredentials == null
-            ? '카카오맵에서 상점 찾는 중…'
-            : '카카오맵 후보 확인 후 네이버 플레이스 보는 중…',
+            ? '상점 찾는 중…'
+            : '상점 찾고 네이버 정보 확인하는 중…',
       );
 
       final result = await _api.searchBusinesses(
@@ -328,8 +328,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       _updateResearchStage(
         naverConfigured
-            ? '네이버 플레이스 상세정보 확인 중…'
-            : '검색 결과 정리 중…',
+            ? '영업시간·가격 등 상세정보 확인하는 중…'
+            : '결과 정리하는 중…',
       );
 
       final sourceSummary = naverConfigured
@@ -494,12 +494,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _reply(Map<String, dynamic> mission) {
     final summary = mission['summary']?.toString().trim() ?? '';
+    final directAnswer =
+        mission['direct_answer']?.toString().trim() ?? '';
+    final responseMode =
+        mission['response_mode']?.toString().trim() ?? '';
     final clarifications = _clarifications(mission);
 
     if (clarifications.isNotEmpty) {
       return summary.isEmpty
-          ? '알아보기 전에 한 가지만 더 알려주세요.'
-          : '$summary\n\n알아보기 전에 한 가지만 더 알려주세요.';
+          ? '한 가지만 더 알려주세요.'
+          : '$summary\n\n한 가지만 더 알려주세요.';
+    }
+
+    if (responseMode == 'answer' && directAnswer.isNotEmpty) {
+      return directAnswer;
     }
 
     return summary.isEmpty ? '요청을 이해했어요.' : summary;
@@ -780,7 +788,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _conversationContext.rememberMission(mission);
       final clarifications = _clarifications(mission);
 
-      if (clarifications.isNotEmpty) {
+      final responseMode =
+          mission['response_mode']?.toString().trim() ?? '';
+
+      if (clarifications.isNotEmpty || responseMode == 'clarify') {
         setState(() {
           _messages.add(
             _Message(
@@ -791,8 +802,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         });
-      } else if (mission['ready_to_research'] == true) {
-        unawaited(_runRealResearch(mission));
+      } else if (
+          responseMode == 'research' ||
+          mission['ready_to_research'] == true) {
+        setState(() => _sending = false);
+        await _runRealResearch(mission);
       } else {
         setState(() {
           _messages.add(
