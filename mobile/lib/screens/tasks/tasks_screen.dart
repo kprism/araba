@@ -279,6 +279,67 @@ class _ResearchRecordCard extends StatelessWidget {
     return '${buffer.toString()}원';
   }
 
+  void _showDetails(
+    BuildContext context,
+    List<Map<String, dynamic>> businesses,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) {
+        return FractionallySizedBox(
+          heightFactor: 0.88,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  18,
+                  16,
+                  8,
+                  10,
+                ),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '가상 통화 수집정보',
+                        style: TextStyle(
+                          color: Color(0xFF101828),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '닫기',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: businesses.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    return _StoredBusinessDetail(
+                      business: businesses[index],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final subject =
@@ -297,6 +358,15 @@ class _ResearchRecordCard extends StatelessWidget {
     final driveMinutes = recommendation['drive_minutes'];
     final effective = recommendation['effective_cost'];
     final isMock = record['is_mock'] == true;
+    final rawBusinesses = record['businesses'];
+    final businesses = rawBusinesses is List
+        ? rawBusinesses
+              .whereType<Map>()
+              .map(
+                (item) => Map<String, dynamic>.from(item),
+              )
+              .toList()
+        : <Map<String, dynamic>>[];
 
     return Container(
       width: double.infinity,
@@ -401,6 +471,177 @@ class _ResearchRecordCard extends StatelessWidget {
               ),
             ],
           ),
+          if (businesses.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _showDetails(
+                  context,
+                  businesses,
+                ),
+                icon: const Icon(
+                  Icons.fact_check_outlined,
+                  size: 18,
+                ),
+                label: Text(
+                  '업체 ${businesses.length}곳 통화정보 보기',
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StoredBusinessDetail extends StatelessWidget {
+  final Map<String, dynamic> business;
+
+  const _StoredBusinessDetail({
+    required this.business,
+  });
+
+  String _won(dynamic value) {
+    if (value is! num) return '-';
+
+    final digits = value.round().toString();
+    final buffer = StringBuffer();
+
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) {
+        buffer.write(',');
+      }
+      buffer.write(digits[i]);
+    }
+
+    return '${buffer.toString()}원';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name =
+        business['name']?.toString().trim() ?? '업체';
+    final rank = business['economic_rank'];
+    final totalPrice = business['mock_total_price'];
+    final effective = business['effective_cost'];
+    final distance = business['distance_km'];
+    final drive = business['drive_minutes'];
+    final wait = business['mock_wait_minutes'];
+    final work = business['mock_work_minutes'];
+    final stock = business['mock_stock'];
+    final rawQuestions = business['mock_questions'];
+    final questions = rawQuestions is List
+        ? rawQuestions
+              .whereType<Map>()
+              .map(
+                (item) => Map<String, dynamic>.from(item),
+              )
+              .toList()
+        : <Map<String, dynamic>>[];
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: rank == 1
+              ? const Color(0xFF9DB7FF)
+              : const Color(0xFFE4E7EC),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: const TextStyle(
+                    color: Color(0xFF101828),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              if (rank is num)
+                Text(
+                  '경제성 ${rank.round()}위',
+                  style: const TextStyle(
+                    color: Color(0xFF3157D5),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: [
+              _MetricChip(
+                label: '최종금액',
+                value: _won(totalPrice),
+              ),
+              _MetricChip(
+                label: '재고',
+                value: stock == true ? '있음' : '없음',
+              ),
+              if (distance is num)
+                _MetricChip(
+                  label: '거리',
+                  value: '${distance.toStringAsFixed(1)}km',
+                ),
+              if (drive is num)
+                _MetricChip(
+                  label: '이동',
+                  value: '${drive.round()}분',
+                ),
+              if (wait is num)
+                _MetricChip(
+                  label: '대기',
+                  value: '${wait.round()}분',
+                ),
+              if (work is num)
+                _MetricChip(
+                  label: '작업',
+                  value: '${work.round()}분',
+                ),
+              _MetricChip(
+                label: '경제성 비용',
+                value: _won(effective),
+                strong: rank == 1,
+              ),
+            ],
+          ),
+          if (questions.isNotEmpty) ...[
+            const SizedBox(height: 13),
+            for (final qa in questions) ...[
+              Text(
+                'Q. ${qa['question']?.toString() ?? ''}',
+                style: const TextStyle(
+                  color: Color(0xFF344054),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'A. ${qa['answer']?.toString() ?? ''}',
+                style: const TextStyle(
+                  color: Color(0xFF667085),
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 9),
+            ],
+          ],
         ],
       ),
     );
