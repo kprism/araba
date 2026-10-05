@@ -292,11 +292,13 @@ def mock_call_compare(request):
 
     mission = request.data.get("mission")
     businesses = request.data.get("businesses")
+    origin = request.data.get("origin")
 
     try:
         result = simulate_mock_calls(
             mission,
             businesses,
+            origin=origin,
         )
         record = save_research_record(
             mission,
