@@ -32,6 +32,7 @@ ARABA는 자동차에 한정된 서비스가 아니다.
   "response_mode": "answer|research|clarify",
   "direct_answer": "현재 대화정보만으로 확실히 답할 수 있을 때의 짧은 답변 또는 null",
   "location": "지역 또는 null",
+  "location_explicit": true,
   "subject": "현재 이어지고 있는 핵심 대상",
   "target_business": "사용자가 특정 업체를 지목했으면 정확한 상호명, 아니면 null",
   "attributes": {
@@ -79,11 +80,18 @@ ARABA는 자동차에 한정된 서비스가 아니다.
     애매함을 여러 후보로 보여줘 해결할 수 있으면 질문하지 말고 조사한다.
 14. 역질문이 있으면 ready_to_research=false, 없으면 clarification_questions=[] 및 ready_to_research=true다.
 15. 일반적인 업체 탐색에서는 search_terms를 업종/서비스 중심의 짧은 검색어 1~4개로 만든다.
-16. 사용자가 특정 상호명을 직접 말하고 그 업체의 영업시간, 가격, 전화번호, 예약 등 상세정보를 물으면
-    target_business에 그 상호명을 그대로 보존하고 search_terms 첫 항목에도 정확한 상호명을 넣는다.
-    이 경우 다른 업체로 주제를 바꾸거나 넓은 업종 재검색을 먼저 하지 않는다.
-17. 사용자가 결과를 요청했으면 과정 설명보다 최종적으로 확인해야 할 사실을 required_facts에 집중한다.
-18. response_mode 결정 기준:
+16. [현재 요청]에서 사용자가 특정 상호명, 기관명, 시설명, 학교명, 병원명 등
+    고유한 장소 이름을 직접 말하면 단순 "찾아봐" 요청이라도 반드시 target_business에
+    그 이름을 그대로 넣고 search_terms 첫 항목에도 정확한 이름을 넣는다.
+    예: "의창구청 찾아봐" -> target_business="의창구청".
+    이 경우 이전 대화의 업종/category/subcategories가 새 대상을 막아서는 안 된다.
+    새 대상에 맞게 category/subcategories를 다시 만들고, 이전 대상의 업종 조건을 버린다.
+17. location_explicit은 [현재 요청] 자체에 지역명이 직접 들어 있을 때만 true다.
+    대화 문맥에서 물려받은 지역만 있으면 false다.
+    새 고유 장소를 직접 지목했는데 현재 요청에 지역을 말하지 않았다면,
+    과거의 동/읍/면 같은 세부 지역으로 그 장소를 제한하지 않는다.
+18. 사용자가 결과를 요청했으면 과정 설명보다 최종적으로 확인해야 할 사실을 required_facts에 집중한다.
+19. response_mode 결정 기준:
     - answer: 현재 대화에서 이미 확인된 사실 또는 외부 조회가 필요 없는 설명만으로 정확히 답할 수 있을 때.
       이때 direct_answer에 실제 답변을 넣고 clarification_questions=[],
       ready_to_research=false로 한다.
@@ -93,12 +101,12 @@ ARABA는 자동차에 한정된 서비스가 아니다.
     - clarify: 오직 사용자만 답할 수 있는 필수정보가 없고,
       그 정보 없이는 서로 전혀 다른 결과나 실행으로 갈릴 때만 사용한다.
       이때 질문은 정확히 1개만 만들고 ready_to_research=false로 한다.
-19. "찾아볼까요?", "검색해도 될까요?", "어느 정도로 찾아드릴까요?" 같은
+20. "찾아볼까요?", "검색해도 될까요?", "어느 정도로 찾아드릴까요?" 같은
     검색 시작 허가나 불필요한 확인 질문은 절대 하지 않는다.
-20. 조사 후 사용자의 선택이 필요한 경우에만 결과를 먼저 보여준 뒤 묻는다.
+21. 조사 후 사용자의 선택이 필요한 경우에만 결과를 먼저 보여준 뒤 묻는다.
     예: 실제 가능한 예약시간 3개를 확인한 뒤 그중 하나를 선택하게 한다.
-21. direct_answer에는 확인되지 않은 외부 사실을 절대 넣지 않는다.
-22. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
+22. direct_answer에는 확인되지 않은 외부 사실을 절대 넣지 않는다.
+23. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
 """.strip()
 
 
@@ -180,6 +188,7 @@ def create_mission(user_request, api_key=None):
 
     mission.setdefault("subcategories", [])
     mission.setdefault("target_business", None)
+    mission.setdefault("location_explicit", False)
     mission.setdefault("intent", "조사")
     mission.setdefault(
         "response_mode",
