@@ -19,6 +19,12 @@ NAVER_ALLOWED_HOST_SUFFIXES = (
     "naver.me",
 )
 
+NAVER_IMAGE_HOST_SUFFIXES = (
+    "pstatic.net",
+    "naver.net",
+    "navercorp.com",
+)
+
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Linux; Android 16) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -96,6 +102,25 @@ def _is_allowed_naver_url(value):
     return parsed.scheme in ("http", "https") and any(
         host == suffix or host.endswith(suffix)
         for suffix in NAVER_ALLOWED_HOST_SUFFIXES
+    )
+
+
+def _is_allowed_naver_image_url(value):
+    try:
+        parsed = urlparse(
+            str(value or "").strip()
+        )
+    except ValueError:
+        return False
+
+    host = (parsed.hostname or "").lower()
+    return (
+        parsed.scheme in ("http", "https")
+        and any(
+            host == suffix
+            or host.endswith("." + suffix)
+            for suffix in NAVER_IMAGE_HOST_SUFFIXES
+        )
     )
 
 
@@ -428,6 +453,18 @@ def inspect_naver_place_page(url):
         or parser.meta.get("description")
         or ""
     )
+    image_candidate = str(
+        parser.meta.get("og:image")
+        or parser.meta.get("twitter:image")
+        or ""
+    ).strip()
+    image_url = (
+        image_candidate
+        if _is_allowed_naver_image_url(
+            image_candidate
+        )
+        else None
+    )
 
     return {
         "checked": True,
@@ -435,6 +472,7 @@ def inspect_naver_place_page(url):
         "url": final_url,
         "title": title or None,
         "description": description or None,
+        "image_url": image_url,
         "opening_hours": (
             _opening_hours_from_json_ld(
                 json_ld
@@ -569,6 +607,21 @@ def enrich_one_business(
     ).strip()
     page = inspect_naver_place_page(link)
 
+    if (
+        not str(
+            business.get("image_url") or ""
+        ).strip()
+        and str(
+            page.get("image_url") or ""
+        ).strip()
+    ):
+        business["image_url"] = str(
+            page.get("image_url")
+        ).strip()
+        business["image_source"] = (
+            "naver_place"
+        )
+
     business["naver"] = {
         "matched": True,
         "match_score": score,
@@ -597,6 +650,7 @@ def enrich_one_business(
         "page_description": (
             page.get("description")
         ),
+        "image_url": page.get("image_url"),
         "opening_hours": (
             page.get("opening_hours")
             or []
