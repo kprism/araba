@@ -100,12 +100,12 @@ class ArabaApi {
     return _decode(response);
   }
 
-  Future<Map<String, dynamic>> simulateResearch(
+  Future<Map<String, dynamic>> searchBusinesses(
     Map<String, dynamic> mission,
   ) async {
     final response = await _request(
       () => http.post(
-        _uri('/api/research/simulate/'),
+        _uri('/api/research/search/'),
         headers: _headers(),
         body: jsonEncode({'mission': mission}),
       ),
