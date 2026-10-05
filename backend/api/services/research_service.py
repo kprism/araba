@@ -135,11 +135,14 @@ def _normalize_business(document):
     }
 
 
-def search_real_businesses(mission):
-    api_key = _kakao_rest_api_key()
-    if not api_key:
+def search_real_businesses(mission, api_key=None):
+    resolved_api_key = str(api_key or "").strip()
+    if not resolved_api_key:
+        resolved_api_key = _kakao_rest_api_key()
+
+    if not resolved_api_key:
         raise ResearchConfigurationError(
-            "카카오 장소검색 키가 서버에 설정되지 않았습니다."
+            "MY의 관리자 API 설정에서 Kakao REST API Key를 먼저 등록해주세요."
         )
 
     last_error = None
@@ -153,7 +156,7 @@ def search_real_businesses(mission):
             response = httpx.get(
                 KAKAO_LOCAL_SEARCH_URL,
                 headers={
-                    "Authorization": f"KakaoAK {api_key}",
+                    "Authorization": f"KakaoAK {resolved_api_key}",
                 },
                 params={
                     "query": query,
