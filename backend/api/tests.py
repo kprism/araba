@@ -542,19 +542,27 @@ class ResearchSearchApiTests(TestCase):
         self.assertTrue(response.data["life_info"])
 
         mocked_server_key.assert_not_called()
-        mocked_get.assert_called_once()
-        request_kwargs = mocked_get.call_args.kwargs
         self.assertEqual(
-            request_kwargs["headers"]["Authorization"],
+            mocked_get.call_count,
+            2,
+        )
+        search_kwargs = mocked_get.call_args_list[0].kwargs
+        self.assertEqual(
+            search_kwargs["headers"]["Authorization"],
             "KakaoAK device-kakao-key",
         )
         self.assertEqual(
-            request_kwargs["params"]["query"],
+            search_kwargs["params"]["query"],
             "창원 타이어",
         )
         self.assertEqual(
-            request_kwargs["params"]["size"],
+            search_kwargs["params"]["size"],
             8,
+        )
+        origin_kwargs = mocked_get.call_args_list[1].kwargs
+        self.assertEqual(
+            origin_kwargs["params"]["query"],
+            "창원시",
         )
 
     @patch(
@@ -588,10 +596,25 @@ class ResearchSearchApiTests(TestCase):
             ],
         }
 
+        origin_response = Mock()
+        origin_response.status_code = 200
+        origin_response.json.return_value = {
+            "documents": [
+                {
+                    "x": "128.6818",
+                    "y": "35.2285",
+                    "address": {
+                        "address_name": "경남 창원시",
+                    },
+                }
+            ],
+        }
+
         mocked_get.side_effect = [
             empty_response,
             empty_response,
             city_response,
+            origin_response,
         ]
 
         response = self.client.post(
