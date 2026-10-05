@@ -225,6 +225,9 @@ def _search_queries(mission):
         else []
     )
 
+    target_business = str(
+        mission.get("target_business") or ""
+    ).strip()
     subject = str(
         mission.get("subject") or ""
     ).strip()
@@ -233,6 +236,9 @@ def _search_queries(mission):
     ).strip()
 
     primary_terms = []
+
+    if target_business:
+        primary_terms.append(target_business)
 
     for item in [
         *search_terms,
