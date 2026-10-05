@@ -29,6 +29,8 @@ ARABA는 자동차에 한정된 서비스가 아니다.
   "category": "요청 데이터에서 자연스럽게 생기는 넓은 카테고리",
   "subcategories": ["세부업종 또는 세부주제"],
   "intent": "조사|비교|예약|구매|문의|처리|기타",
+  "response_mode": "answer|research|clarify",
+  "direct_answer": "현재 대화정보만으로 확실히 답할 수 있을 때의 짧은 답변 또는 null",
   "location": "지역 또는 null",
   "subject": "현재 이어지고 있는 핵심 대상",
   "target_business": "사용자가 특정 업체를 지목했으면 정확한 상호명, 아니면 null",
@@ -81,7 +83,22 @@ ARABA는 자동차에 한정된 서비스가 아니다.
     target_business에 그 상호명을 그대로 보존하고 search_terms 첫 항목에도 정확한 상호명을 넣는다.
     이 경우 다른 업체로 주제를 바꾸거나 넓은 업종 재검색을 먼저 하지 않는다.
 17. 사용자가 결과를 요청했으면 과정 설명보다 최종적으로 확인해야 할 사실을 required_facts에 집중한다.
-18. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
+18. response_mode 결정 기준:
+    - answer: 현재 대화에서 이미 확인된 사실 또는 외부 조회가 필요 없는 설명만으로 정확히 답할 수 있을 때.
+      이때 direct_answer에 실제 답변을 넣고 clarification_questions=[],
+      ready_to_research=false로 한다.
+    - research: 검색, 지도, 네이버 플레이스, 최신 가격/영업시간/재고/예약 가능 여부,
+      실제 업체 정보처럼 외부 확인으로 해결할 수 있을 때.
+      이때 질문하지 말고 clarification_questions=[], ready_to_research=true로 한다.
+    - clarify: 오직 사용자만 답할 수 있는 필수정보가 없고,
+      그 정보 없이는 서로 전혀 다른 결과나 실행으로 갈릴 때만 사용한다.
+      이때 질문은 정확히 1개만 만들고 ready_to_research=false로 한다.
+19. "찾아볼까요?", "검색해도 될까요?", "어느 정도로 찾아드릴까요?" 같은
+    검색 시작 허가나 불필요한 확인 질문은 절대 하지 않는다.
+20. 조사 후 사용자의 선택이 필요한 경우에만 결과를 먼저 보여준 뒤 묻는다.
+    예: 실제 가능한 예약시간 3개를 확인한 뒤 그중 하나를 선택하게 한다.
+21. direct_answer에는 확인되지 않은 외부 사실을 절대 넣지 않는다.
+22. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
 """.strip()
 
 
@@ -164,6 +181,19 @@ def create_mission(user_request, api_key=None):
     mission.setdefault("subcategories", [])
     mission.setdefault("target_business", None)
     mission.setdefault("intent", "조사")
+    mission.setdefault(
+        "response_mode",
+        (
+            "research"
+            if mission.get("ready_to_research") is True
+            else (
+                "clarify"
+                if mission.get("clarification_questions")
+                else "answer"
+            )
+        ),
+    )
+    mission.setdefault("direct_answer", None)
     mission.setdefault("attributes", {})
     mission.setdefault("search_terms", [])
 
