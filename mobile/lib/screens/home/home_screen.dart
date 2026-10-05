@@ -459,6 +459,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _send() async {
+    if (_researching) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('현재 알아보는 작업을 진행하고 있어요.'),
+        ),
+      );
+      return;
+    }
+
     final text = _controller.text.trim();
 
     if (text.isEmpty) {
@@ -480,6 +489,8 @@ class _HomeScreenState extends State<HomeScreen> {
     required String option,
     required String requestContext,
   }) async {
+    _liveVoice?.resetPendingMissionContext();
+
     final combinedRequest = [
       requestContext,
       '',
@@ -497,7 +508,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String displayText,
     required String requestText,
   }) async {
-    if (_sending) return;
+    if (_sending || _researching) return;
 
     setState(() {
       _messages.add(
@@ -533,16 +544,33 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
 
-      setState(() {
-        _messages.add(
-          _Message(
-            isUser: false,
-            text: _reply(mission),
-            mission: mission,
-            requestContext: requestText,
-          ),
-        );
-      });
+      final clarifications = _clarifications(mission);
+
+      if (clarifications.isNotEmpty) {
+        setState(() {
+          _messages.add(
+            _Message(
+              isUser: false,
+              text: _reply(mission),
+              mission: mission,
+              requestContext: requestText,
+            ),
+          );
+        });
+      } else if (mission['ready_to_research'] == true) {
+        unawaited(_runResearchSimulation(mission));
+      } else {
+        setState(() {
+          _messages.add(
+            _Message(
+              isUser: false,
+              text: _reply(mission),
+              mission: mission,
+              requestContext: requestText,
+            ),
+          );
+        });
+      }
     } catch (error) {
       if (!mounted) return;
 
