@@ -452,6 +452,16 @@ class _HomeScreenState extends State<HomeScreen> {
           recommendation['reason']?.toString().trim() ?? '';
       final basis =
           mockResult['basis']?.toString().trim() ?? '';
+      final rawSlots =
+          recommendation['available_slots'];
+      final availableSlots = rawSlots is List
+          ? rawSlots
+                .map((item) => item.toString().trim())
+                .where((item) => item.isNotEmpty)
+                .toList()
+          : <String>[];
+      final intent =
+          mission['intent']?.toString().trim() ?? '';
 
       String won(dynamic value) {
         if (value is! num) return '-';
@@ -476,24 +486,50 @@ class _HomeScreenState extends State<HomeScreen> {
           ? '왕복 이동·대기·작업 포함 약 ${totalTimeMinutes.round()}분'
           : '총 소요시간 추정 없음';
 
+      final priceText = price is num
+          ? '총 결제금액 ${won(price)}, '
+          : '';
+      final effectiveText = effective is num
+          ? '경제성 비용은 ${won(effective)}입니다.'
+          : '거리·시간·가능조건을 함께 반영한 1순위입니다.';
+      final slotText = availableSlots.isEmpty
+          ? ''
+          : '\n\n업체가 제시한 가능 시간: ${availableSlots.join(' · ')}';
+
       final summary =
-          '가상 통화 기준 경제성 1순위는 $name입니다. '
-          '총 결제금액 ${won(price)}, 이동거리 $distanceText, '
-          '편도 차량 이동 $driveText, $totalTimeText이며, '
-          '실제 지출과 시간비용까지 반영한 경제성 비용은 '
-          '${won(effective)}입니다.'
+          '가상 통화 기준 현재 목표에 가장 효율적인 1순위는 $name입니다. '
+          '$priceText'
+          '이동거리 $distanceText, 편도 차량 이동 $driveText, '
+          '$totalTimeText이며, $effectiveText'
           '${reason.isEmpty ? '' : '\n\n$reason'}'
+          '$slotText'
           '${basis.isEmpty ? '' : '\n\n기준: $basis'}';
+
+      final wantsReservation =
+          intent == '예약' ||
+          mission['summary']
+                  ?.toString()
+                  .contains('예약') ==
+              true;
+
+      final actions = <String>[
+        if (wantsReservation)
+          for (final slot in availableSlots.take(3))
+            '예약: $slot',
+        '다른 후보 보기',
+        '여기까지',
+      ];
 
       _addAssistantMessage(
         text: summary,
-        badge: '경제성 1순위 · 가상 테스트',
+        badge: '목표 효율 1순위 · 가상 테스트',
         businesses: calledBusinesses,
-        actionQuestion: '이 비교에서 다른 후보의 상세 조건도 볼까요?',
-        actions: const [
-          '다른 후보 보기',
-          '여기까지',
-        ],
+        actionQuestion: wantsReservation
+            ? (availableSlots.isEmpty
+                ? '예약 가능한 시간을 더 확인할까요?'
+                : '원하는 가능 시간대를 선택해주세요.')
+            : '이 비교에서 다른 후보의 상세 조건도 볼까요?',
+        actions: actions,
       );
       _speakProgress(summary);
     } catch (error) {
@@ -526,24 +562,37 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     _toBottom();
 
-    if (action == '예약하기') {
+    if (action == '예약하기' ||
+        action.startsWith('예약:')) {
       setState(() => _researching = true);
 
-      const calling =
-          '추천 업체에 예약 전화를 걸고 있어요. 지금은 가상 통화로 진행합니다.';
+      final selectedTime = action.startsWith('예약:')
+          ? action.substring('예약:'.length).trim()
+          : '';
+
+      final businesses =
+          source.businesses ?? const [];
+      final first = businesses.isNotEmpty
+          ? businesses.first
+          : const <String, dynamic>{};
+      final businessName =
+          first['name']?.toString().trim() ?? '추천 업체';
+
+      final calling = selectedTime.isEmpty
+          ? '$businessName에 가능한 예약시간을 다시 확인하고 있어요. 지금은 가상 통화입니다.'
+          : '$businessName에 $selectedTime 예약 가능 여부를 확인하고 있어요. 지금은 가상 통화입니다.';
+
       _addAssistantMessage(
         text: calling,
         badge: '가상 예약',
       );
       _speakProgress(calling);
 
-      await Future<void>.delayed(
-        const Duration(milliseconds: 1400),
-      );
+      final done = selectedTime.isEmpty
+          ? '가상 예약 확인을 마쳤어요. 실제 예약은 아직 이루어지지 않았습니다.'
+          : '$businessName의 $selectedTime 예약이 가능하다고 가정해 가상 예약을 완료했어요. '
+              '실제 통화 기능이 연결되면 같은 흐름으로 확정 예약까지 진행합니다.';
 
-      const done =
-          '가상 예약 시뮬레이션이 완료됐어요. 실제 예약은 아직 이루어지지 않았습니다. '
-          '다음 단계에서 실제 예약 성공 시 ARABA 일정에 자동 등록하고 사전 알림까지 연결할게요.';
       _addAssistantMessage(
         text: done,
         badge: '가상 예약 완료',
