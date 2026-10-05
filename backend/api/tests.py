@@ -1200,6 +1200,82 @@ class MockCallComparisonApiTests(TestCase):
             int,
         )
 
+    def test_mock_call_never_invents_unverified_price(self):
+        response = self.client.post(
+            "/api/research/mock-call/",
+            {
+                "mission": {
+                    "category": "미용실",
+                    "intent": "예약",
+                    "subject": "커트 예약",
+                    "required_facts": [
+                        "가격",
+                        "가능한 예약시간대",
+                    ],
+                },
+                "businesses": [
+                    {
+                        "id": "salon-1",
+                        "name": "테스트미용실",
+                        "latitude": "35.2200",
+                        "longitude": "128.6800",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        business = response.data["businesses"][0]
+        self.assertIsNone(
+            business["mock_total_price"]
+        )
+        self.assertIsNone(
+            business["effective_cost"]
+        )
+        self.assertIsInstance(
+            business["efficiency_score"],
+            int,
+        )
+        self.assertIn(
+            "실제 가격 미확인",
+            response.data["recommendation"]["reason"],
+        )
+
+    def test_mock_call_uses_verified_price_when_present(self):
+        response = self.client.post(
+            "/api/research/mock-call/",
+            {
+                "mission": {
+                    "category": "미용실",
+                    "intent": "예약",
+                    "subject": "커트 예약",
+                    "required_facts": ["가격"],
+                },
+                "businesses": [
+                    {
+                        "id": "salon-2",
+                        "name": "가격확인미용실",
+                        "verified_total_price": 25000,
+                        "latitude": "35.2200",
+                        "longitude": "128.6800",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        business = response.data["businesses"][0]
+        self.assertEqual(
+            business["mock_total_price"],
+            25000,
+        )
+        self.assertIsInstance(
+            business["effective_cost"],
+            int,
+        )
+
     def test_mock_call_compare_supports_dynamic_category(self):
         response = self.client.post(
             "/api/research/mock-call/",
