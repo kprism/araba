@@ -31,6 +31,7 @@ ARABA는 자동차에 한정된 서비스가 아니다.
   "intent": "조사|비교|예약|구매|문의|처리|기타",
   "location": "지역 또는 null",
   "subject": "현재 이어지고 있는 핵심 대상",
+  "target_business": "사용자가 특정 업체를 지목했으면 정확한 상호명, 아니면 null",
   "attributes": {
     "사용자가 이미 말한 핵심 속성명": "값"
   },
@@ -64,8 +65,11 @@ ARABA는 자동차에 한정된 서비스가 아니다.
 10. 특정 희망시간이 있으면 attributes에 보존하고 그 시간 가능 여부를 required_facts에 포함한다.
 11. 사용자만 답할 수 있고 결과를 크게 바꾸는 정보가 정말 부족할 때만 역질문 1개를 한다.
 12. 역질문이 있으면 ready_to_research=false, 없으면 clarification_questions=[] 및 ready_to_research=true다.
-13. search_terms는 상호명이 아니라 업종/서비스 중심의 짧은 검색어를 1~4개 만든다.
-14. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
+13. 일반적인 업체 탐색에서는 search_terms를 업종/서비스 중심의 짧은 검색어 1~4개로 만든다.
+14. 사용자가 특정 상호명을 직접 말하고 그 업체의 영업시간, 가격, 전화번호, 예약 등 상세정보를 물으면
+    target_business에 그 상호명을 그대로 보존하고 search_terms 첫 항목에도 정확한 상호명을 넣는다.
+    이 경우 다른 업체로 주제를 바꾸거나 넓은 업종 재검색을 먼저 하지 않는다.
+15. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
 """.strip()
 
 
@@ -146,6 +150,7 @@ def create_mission(user_request, api_key=None):
         )
 
     mission.setdefault("subcategories", [])
+    mission.setdefault("target_business", None)
     mission.setdefault("intent", "조사")
     mission.setdefault("attributes", {})
     mission.setdefault("search_terms", [])
