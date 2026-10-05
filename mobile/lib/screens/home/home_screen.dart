@@ -39,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _liveActive = false;
   bool _sending = false;
   bool _researching = false;
+  bool _showResearchTips = false;
+  bool _userBrowsingHistory = false;
   String _liveStatus = '';
   String _researchStage = '';
   List<String> _researchTips = const [];
@@ -286,6 +288,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _researching = true;
+      _showResearchTips = true;
       _researchStage = '실제 업체를 빠르게 찾는 중';
       _researchTips = tips;
       _researchTipIndex = 0;
@@ -321,10 +324,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _researching = false;
+      _showResearchTips = false;
       _researchStage = '';
       _researchTips = const [];
       _researchTipIndex = 0;
     });
+  }
+
+  void _dismissResearchTips() {
+    if (!mounted) return;
+    setState(() => _showResearchTips = false);
   }
 
   Future<void> _runRealResearch(
@@ -353,7 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
 
-      _updateResearchStage('카카오맵에서 실제 업체 검색 중');
+      _updateResearchStage('카카오맵에서 관련 업체만 검색 중');
 
       final result = await _api.searchBusinesses(
         mission,
@@ -365,8 +374,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (businesses.isEmpty) {
         const noResult =
-            '실제 장소검색 결과에서 조건에 맞는 업체를 찾지 못했어요. '
-            '세부 지역 결과가 없으면 상위 지역까지 자동으로 넓혀 검색했습니다.';
+            '관련 업종만 걸러서 찾아봤지만 조건에 맞는 실제 업체를 찾지 못했어요.';
         _addAssistantMessage(
           text: noResult,
           badge: '검색 결과 없음',
@@ -376,101 +384,111 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       _updateResearchStage(
-        '${businesses.length}곳 확인 · 결과 정리 중',
+        '${businesses.length}곳 확인 · 가상 통화 준비 중',
       );
 
       _addAssistantMessage(
         text: searchQuery.isEmpty
-            ? '${businesses.length}곳의 실제 업체를 찾았어요.'
-            : '카카오맵에서 “$searchQuery”로 실제 업체 '
+            ? '${businesses.length}곳의 실제 관련 업체를 찾았어요.'
+            : '카카오맵에서 “$searchQuery”로 관련 업체 '
                 '${businesses.length}곳을 찾았어요.',
-        badge: '실제 업체',
+        badge: '실제 관련 업체',
         businesses: businesses,
       );
-      _speakProgress(
-        '${businesses.length}곳의 실제 업체를 찾았어요. '
-        '카드에서 상호명과 주소, 전화번호를 확인할 수 있어요.',
+
+      _updateResearchStage(
+        '가상 통화로 가격·재고·대기시간 확인 중',
       );
-
-      final lifeInfo = result['life_info'];
-      if (lifeInfo is List) {
-        for (final item in lifeInfo.take(2)) {
-          final tip = item.toString().trim();
-          if (tip.isEmpty) continue;
-
-          _addAssistantMessage(
-            text: tip,
-            badge: '알아두면 좋아요',
-          );
-        }
-      }
 
       const callText =
-          '이 실제 업체들에 전화해서 가격, 재고, 가능 시간 같은 최신 정보를 '
-          '확인해야 해요. 지금은 전화망이 연결되지 않아 통화 구간만 '
-          '가상으로 진행할게요.';
-      _addAssistantMessage(
-        text: callText,
-        badge: '전화 확인',
-      );
+          '이제 실제 업체 목록을 대상으로 가상 통화를 돌려서 '
+          '최종 결제금액, 재고, 대기시간, 작업시간을 같은 기준으로 비교할게요.';
       _speakProgress(callText);
 
-      final calledBusinesses = businesses
-          .map((business) {
-            final item = Map<String, dynamic>.from(business);
-            final phone = item['phone']?.toString().trim() ?? '';
-            item['mock_call_result'] = phone.isEmpty
-                ? '가상 통화 테스트: 공개 전화번호가 없어 실제 통화 전 번호 확인이 필요합니다.'
-                : '가상 통화 테스트: 이 실제 전화번호로 가격·재고·가능 시간을 확인한다고 가정했습니다.';
-            return item;
-          })
-          .toList();
+      final mockResult = await _api.simulateMockCalls(
+        mission,
+        businesses,
+      );
+      final calledBusinesses = _businessesFrom(mockResult);
+      final recommendation = mockResult['recommendation'];
+
+      if (calledBusinesses.isEmpty ||
+          recommendation is! Map) {
+        throw const ArabaApiException(
+          '가상 통화 비교 결과 형식이 올바르지 않아요.',
+        );
+      }
+
+      _updateResearchStage(
+        '가격·거리·시간까지 경제성 비교 중',
+      );
 
       _addAssistantMessage(
-        text: '실제 업체 목록을 대상으로 가상 전화 확인 구간을 마쳤어요. '
-            '통화 내용 자체는 아직 실제 결과가 아닙니다.',
-        badge: '가상 통화 결과',
+        text: '가상 통화를 마쳤어요. 실제 업체별로 같은 질문을 했다고 가정해 '
+            '가격, 재고, 대기시간과 작업시간을 비교했습니다.',
+        badge: '가상 통화 비교',
         businesses: calledBusinesses,
       );
-      _speakProgress(
-        '업체 목록은 실제 정보이고, 전화 확인 부분만 가상으로 테스트했어요.',
-      );
 
-      final firstBusiness = calledBusinesses.first;
-      final firstName =
-          firstBusiness['name']?.toString().trim() ??
-          '첫 번째 업체';
+      final name =
+          recommendation['name']?.toString().trim() ?? '1순위 업체';
+      final price =
+          recommendation['mock_total_price'];
+      final distance =
+          recommendation['distance_km'];
+      final driveMinutes =
+          recommendation['drive_minutes'];
+      final effective =
+          recommendation['effective_cost'];
+      final reason =
+          recommendation['reason']?.toString().trim() ?? '';
+
+      String won(dynamic value) {
+        if (value is! num) return '-';
+        final digits = value.round().toString();
+        final buffer = StringBuffer();
+        for (var i = 0; i < digits.length; i++) {
+          if (i > 0 && (digits.length - i) % 3 == 0) {
+            buffer.write(',');
+          }
+          buffer.write(digits[i]);
+        }
+        return '${buffer.toString()}원';
+      }
+
+      final distanceText = distance is num
+          ? '${distance.toStringAsFixed(1)}km'
+          : '거리 추정 없음';
+      final driveText = driveMinutes is num
+          ? '약 ${driveMinutes.round()}분'
+          : '이동시간 추정 없음';
+
       final summary =
-          '가상 통화 흐름 테스트에서는 $firstName을 임시 1순위로 보여드릴게요. '
-          '다만 가격, 재고, 예약 가능 여부는 실제 통화를 하지 않았기 때문에 '
-          '아직 확정된 추천은 아니에요.';
-      final finalQuestion =
-          result['final_question']?.toString().trim() ??
-          '실제 통화 기능이 연결되면 이 업체에 예약을 진행할까요?';
-      final rawActions = result['actions'];
-      final actions = rawActions is List
-          ? rawActions
-                .map((item) => item.toString())
-                .where((item) => item.trim().isNotEmpty)
-                .toList()
-          : <String>[];
+          '가상 통화 기준 경제성 1순위는 $name입니다. '
+          '총 결제금액 ${won(price)}, 이동거리 $distanceText, '
+          '차량 이동 $driveText이며, 시간·이동비용까지 반영한 '
+          '경제성 비용은 ${won(effective)}입니다.'
+          '${reason.isEmpty ? '' : '\n\n$reason'}';
 
       _addAssistantMessage(
         text: summary,
-        badge: '임시 추천',
+        badge: '경제성 1순위 · 가상 테스트',
         businesses: calledBusinesses,
-        actionQuestion: finalQuestion,
-        actions: actions,
+        actionQuestion: '이 비교에서 다른 후보의 상세 조건도 볼까요?',
+        actions: const [
+          '다른 후보 보기',
+          '여기까지',
+        ],
       );
-      _speakProgress('$summary $finalQuestion');
+      _speakProgress(summary);
     } catch (error) {
       final message = error is ArabaApiException
           ? error.message
-          : '실제 업체 검색 중 문제가 생겼어요.';
+          : '실제 업체 조사 중 문제가 생겼어요.';
 
       _addAssistantMessage(
         text: message,
-        badge: '검색 오류',
+        badge: '조사 오류',
       );
     } finally {
       _stopResearchProgress();
@@ -540,15 +558,38 @@ class _HomeScreenState extends State<HomeScreen> {
     _speakProgress('알겠어요. 여기까지 정리해둘게요.');
   }
 
-  void _toBottom() {
+  void _toBottom({bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
+      if (_userBrowsingHistory && !force) return;
+
       _scroll.animateTo(
         _scroll.position.maxScrollExtent,
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOut,
       );
     });
+  }
+
+  bool _handleChatScroll(ScrollNotification notification) {
+    if (notification is ScrollUpdateNotification &&
+        notification.dragDetails != null) {
+      final remaining =
+          notification.metrics.maxScrollExtent -
+          notification.metrics.pixels;
+
+      _userBrowsingHistory = remaining > 120;
+    } else if (notification is ScrollEndNotification) {
+      final remaining =
+          notification.metrics.maxScrollExtent -
+          notification.metrics.pixels;
+
+      if (remaining <= 120) {
+        _userBrowsingHistory = false;
+      }
+    }
+
+    return false;
   }
 
   List<Map<String, dynamic>> _clarifications(
@@ -601,6 +642,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     _controller.clear();
+    _userBrowsingHistory = false;
+    _toBottom(force: true);
     await _requestMission(
       displayText: text,
       requestText: text,
@@ -782,57 +825,58 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
-            child: Column(
+            child: Stack(
               children: [
+                Column(
+                  children: [
                 Expanded(
-                  child: ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(
-                      16,
-                      22,
-                      16,
-                      18,
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: _handleChatScroll,
+                    child: ListView.builder(
+                      controller: _scroll,
+                      padding: const EdgeInsets.fromLTRB(
+                        16,
+                        22,
+                        16,
+                        18,
+                      ),
+                      itemCount:
+                          _messages.length + (_sending ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index == _messages.length) {
+                          return const _ThinkingBubble();
+                        }
+
+                        final message = _messages[index];
+
+                        if (message.isUser) {
+                          return _UserBubble(text: message.text);
+                        }
+
+                        return _AssistantBubble(
+                          message: message,
+                          onClarification: ({
+                            required question,
+                            required option,
+                            required requestContext,
+                          }) {
+                            _answerClarification(
+                              question: question,
+                              option: option,
+                              requestContext: requestContext,
+                            );
+                          },
+                          onAction: (action) {
+                            _handleResearchAction(
+                              action,
+                              message,
+                            );
+                          },
+                        );
+                      },
                     ),
-                    itemCount: _messages.length + (_sending ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (index == _messages.length) {
-                        return const _ThinkingBubble();
-                      }
-
-                      final message = _messages[index];
-
-                      if (message.isUser) {
-                        return _UserBubble(text: message.text);
-                      }
-
-                      return _AssistantBubble(
-                        message: message,
-                        onClarification: ({
-                          required question,
-                          required option,
-                          required requestContext,
-                        }) {
-                          _answerClarification(
-                            question: question,
-                            option: option,
-                            requestContext: requestContext,
-                          );
-                        },
-                        onAction: (action) {
-                          _handleResearchAction(
-                            action,
-                            message,
-                          );
-                        },
-                      );
-                    },
                   ),
                 ),
-                if (_researching && _researchTips.isNotEmpty)
-                  _ResearchTipPopup(
-                    stage: _researchStage,
-                    tip: _currentResearchTip,
-                  ),
                 if (_liveConnecting || _liveActive)
                   _LivePanel(
                     status: _liveStatus,
@@ -847,6 +891,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   onMic: _toggleLiveVoice,
                   onSend: _send,
                 ),
+                  ],
+                ),
+                if (_researching &&
+                    _showResearchTips &&
+                    _researchTips.isNotEmpty)
+                  Positioned(
+                    left: 14,
+                    right: 14,
+                    bottom:
+                        (_liveConnecting || _liveActive) ? 138 : 76,
+                    child: _ResearchTipPopup(
+                      stage: _researchStage,
+                      tip: _currentResearchTip,
+                      onClose: _dismissResearchTips,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1516,10 +1576,12 @@ class _ThinkingBubble extends StatelessWidget {
 class _ResearchTipPopup extends StatelessWidget {
   final String stage;
   final String tip;
+  final VoidCallback onClose;
 
   const _ResearchTipPopup({
     required this.stage,
     required this.tip,
+    required this.onClose,
   });
 
   @override
@@ -1557,15 +1619,31 @@ class _ResearchTipPopup extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  stage,
-                  style: const TextStyle(
-                    color: Color(0xFF1939A6),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        stage,
+                        style: const TextStyle(
+                          color: Color(0xFF1939A6),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '닫기',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onClose,
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        size: 19,
+                        color: Color(0xFF667085),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 2),
                 const Text(
                   '기다리는 동안 알아두면 좋아요',
                   style: TextStyle(
