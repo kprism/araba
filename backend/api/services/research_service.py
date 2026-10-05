@@ -3,6 +3,7 @@ import re
 
 import httpx
 
+from .kakao_place_service import enrich_businesses_with_kakao_pages
 from .naver_place_service import enrich_businesses_with_naver
 
 
@@ -342,6 +343,106 @@ RELEVANCE_STOP_WORDS = {
 }
 
 
+ADMIN_SUFFIXES = (
+    "특별시",
+    "광역시",
+    "특별자치시",
+    "특별자치도",
+    "도",
+    "시",
+    "군",
+    "구",
+    "읍",
+    "면",
+    "동",
+    "리",
+)
+
+
+def _location_scope_tokens(location):
+    tokens = re.findall(
+        r"[0-9a-zA-Z가-힣]{2,}",
+        str(location or "").strip(),
+    )
+    admin_tokens = [
+        token
+        for token in tokens
+        if token.endswith(ADMIN_SUFFIXES)
+    ]
+
+    # 광역 단위만 너무 강하게 잡으면 검색결과를 불필요하게
+    # 버릴 수 있어 시/군/구 이하를 우선한다.
+    specific = [
+        token
+        for token in admin_tokens
+        if token.endswith(
+            ("시", "군", "구", "읍", "면", "동", "리")
+        )
+    ]
+
+    return specific or admin_tokens or tokens
+
+
+def _matches_location(document, location):
+    required = _location_scope_tokens(
+        location
+    )
+    if not required:
+        return True
+
+    haystack = " ".join(
+        [
+            str(
+                document.get("address_name") or ""
+            ),
+            str(
+                document.get(
+                    "road_address_name"
+                )
+                or ""
+            ),
+        ]
+    ).lower()
+
+    return all(
+        token.lower() in haystack
+        for token in required
+    )
+
+
+def _matches_target_business(
+    document,
+    mission,
+):
+    target = re.sub(
+        r"[^0-9a-zA-Z가-힣]",
+        "",
+        str(
+            mission.get("target_business")
+            or ""
+        ).lower(),
+    )
+    if not target:
+        return True
+
+    place_name = re.sub(
+        r"[^0-9a-zA-Z가-힣]",
+        "",
+        str(
+            document.get("place_name")
+            or ""
+        ).lower(),
+    )
+
+    if not place_name:
+        return False
+
+    return (
+        target in place_name
+        or place_name in target
+    )
+
+
 def _mission_keywords(mission):
     raw_subcategories = mission.get("subcategories")
     raw_search_terms = mission.get("search_terms")
@@ -531,6 +632,15 @@ def search_real_businesses(
                 params={
                     "query": query,
                     "size": 8,
+                    **(
+                        {
+                            "x": reference_origin["longitude"],
+                            "y": reference_origin["latitude"],
+                            "sort": "distance",
+                        }
+                        if reference_origin
+                        else {}
+                    ),
                 },
                 timeout=httpx.Timeout(
                     5.0,
@@ -555,7 +665,20 @@ def search_real_businesses(
                 item
                 for item in raw_documents
                 if isinstance(item, dict)
-                and _matches_mission(item, mission)
+                and _matches_mission(
+                    item,
+                    mission,
+                )
+                and _matches_location(
+                    item,
+                    search_mission.get(
+                        "location"
+                    ),
+                )
+                and _matches_target_business(
+                    item,
+                    mission,
+                )
             ]
 
         if documents:
@@ -575,6 +698,12 @@ def search_real_businesses(
         )
         if business["name"]
     ]
+
+    kakao_businesses = (
+        enrich_businesses_with_kakao_pages(
+            kakao_businesses
+        )
+    )
 
     businesses = enrich_businesses_with_naver(
         kakao_businesses,
@@ -607,6 +736,15 @@ def search_real_businesses(
         "businesses": businesses,
         "naver_matched_count": naver_matched_count,
         "naver_page_checked_count": naver_page_checked_count,
+        "kakao_photo_count": sum(
+            1
+            for item in businesses
+            if str(
+                item.get("image_url") or ""
+            ).strip()
+            and item.get("image_source")
+            == "kakao_place"
+        ),
         "reference_origin": reference_origin,
         "life_info": _life_info_for(category),
         "phone_call_mock": True,
