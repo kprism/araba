@@ -42,6 +42,7 @@ class ConversationContext {
       'intent',
       'location',
       'subject',
+      'target_business',
       'comparison',
     ]) {
       final value = mission[key];
