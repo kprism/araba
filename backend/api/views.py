@@ -453,6 +453,12 @@ def voice_test_call(request):
             "",
         )
     ).strip()
+    caller_id_number = str(
+        request.headers.get(
+            "X-Twilio-Caller-ID",
+            "",
+        )
+    ).strip()
     phone_number = str(
         request.data.get("phone_number", "")
     ).strip()
@@ -474,6 +480,7 @@ def voice_test_call(request):
                 account_sid=account_sid,
                 auth_token=auth_token,
                 from_number=from_number or None,
+                caller_id_number=caller_id_number or None,
                 api_key=_request_api_key(request),
             )
         else:
@@ -482,6 +489,7 @@ def voice_test_call(request):
                 account_sid=account_sid,
                 auth_token=auth_token,
                 from_number=from_number or None,
+                caller_id_number=caller_id_number or None,
                 api_key=_request_api_key(request),
                 voice_gender=str(
                     request.data.get(
