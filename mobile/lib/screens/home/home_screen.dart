@@ -762,16 +762,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (!mounted) return;
 
+      final attributeText = attributes.entries
+          .map(
+            (entry) =>
+                '${entry.key} ${entry.value}',
+          )
+          .join(' · ');
+
       final parts = <String>[
         if (summary.isNotEmpty) summary,
         if (attributes.isNotEmpty)
-          '확인한 정보: ' +
-              attributes.entries
-                  .map(
-                    (entry) =>
-                        '${entry.key} ${entry.value}',
-                  )
-                  .join(' · '),
+          '확인한 정보: $attributeText',
         if (warnings.isNotEmpty)
           '확인이 더 필요한 부분: ${warnings.join(' · ')}',
       ];
