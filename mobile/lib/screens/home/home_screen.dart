@@ -1533,7 +1533,11 @@ class _BusinessCards extends StatelessWidget {
                             ),
                             child: Text(
                               rank is num
-                                  ? '경제성 ${rank.round()}위'
+                                  ? (
+                                      totalPrice is num
+                                          ? '경제성 ${rank.round()}위'
+                                          : '추천 ${rank.round()}위'
+                                    )
                                   : '실제 업체',
                               style: TextStyle(
                                 color: rank == 1
