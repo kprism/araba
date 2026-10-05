@@ -286,6 +286,34 @@ def research_search(request):
 
 
 @api_view(["POST"])
+def mock_call_compare(request):
+    from .services.mock_call_service import simulate_mock_calls
+
+    mission = request.data.get("mission")
+    businesses = request.data.get("businesses")
+
+    try:
+        result = simulate_mock_calls(
+            mission,
+            businesses,
+        )
+        return Response(
+            {
+                "ok": True,
+                **result,
+            }
+        )
+    except ValueError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+@api_view(["POST"])
 def notification_register(request):
     from .services.update_notification_service import (
         subscribe_device_to_updates,
