@@ -1175,10 +1175,29 @@ class _BusinessCards extends StatelessWidget {
     );
   }
 
+  String _won(dynamic value) {
+    if (value is! num) return '';
+    final digits = value.round().toString();
+    final buffer = StringBuffer();
+
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) {
+        buffer.write(',');
+      }
+      buffer.write(digits[i]);
+    }
+
+    return '${buffer.toString()}원';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasMock = businesses.any(
+      (item) => item['mock_total_price'] is num,
+    );
+
     return SizedBox(
-      height: 306,
+      height: hasMock ? 392 : 306,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: businesses.length,
@@ -1197,14 +1216,25 @@ class _BusinessCards extends StatelessWidget {
               business['place_url']?.toString().trim() ?? '';
           final callResult =
               business['mock_call_result']?.toString().trim() ?? '';
+          final rank = business['economic_rank'];
+          final totalPrice = business['mock_total_price'];
+          final distance = business['distance_km'];
+          final driveMinutes = business['drive_minutes'];
+          final waitMinutes = business['mock_wait_minutes'];
+          final workMinutes = business['mock_work_minutes'];
+          final effectiveCost = business['effective_cost'];
+          final stock = business['mock_stock'];
 
           return Container(
-            width: 258,
+            width: hasMock ? 286 : 258,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: const Color(0xFFE4E7EC),
+                color: rank == 1
+                    ? const Color(0xFF7F9CF5)
+                    : const Color(0xFFE4E7EC),
+                width: rank == 1 ? 1.5 : 1,
               ),
               boxShadow: const [
                 BoxShadow(
@@ -1222,9 +1252,9 @@ class _BusinessCards extends StatelessWidget {
                   height: 74,
                   width: double.infinity,
                   color: const Color(0xFFEEF4FF),
-                  child: const Stack(
+                  child: Stack(
                     children: [
-                      Center(
+                      const Center(
                         child: Icon(
                           Icons.storefront_rounded,
                           size: 36,
@@ -1235,21 +1265,25 @@ class _BusinessCards extends StatelessWidget {
                         top: 8,
                         right: 8,
                         child: DecoratedBox(
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: Colors.white,
                             borderRadius: BorderRadius.all(
                               Radius.circular(20),
                             ),
                           ),
                           child: Padding(
-                            padding: EdgeInsets.symmetric(
+                            padding: const EdgeInsets.symmetric(
                               horizontal: 8,
                               vertical: 4,
                             ),
                             child: Text(
-                              '실제 업체',
+                              rank is num
+                                  ? '경제성 ${rank.round()}위'
+                                  : '실제 업체',
                               style: TextStyle(
-                                color: Color(0xFF3157D5),
+                                color: rank == 1
+                                    ? const Color(0xFF1939A6)
+                                    : const Color(0xFF3157D5),
                                 fontSize: 10.5,
                                 fontWeight: FontWeight.w900,
                               ),
@@ -1282,7 +1316,7 @@ class _BusinessCards extends StatelessWidget {
                           ),
                         ),
                         if (description.isNotEmpty) ...[
-                          const SizedBox(height: 5),
+                          const SizedBox(height: 4),
                           Text(
                             description,
                             maxLines: 1,
@@ -1293,6 +1327,70 @@ class _BusinessCards extends StatelessWidget {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                        ],
+                        if (totalPrice is num) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            '가상 최종금액 ${_won(totalPrice)}',
+                            style: const TextStyle(
+                              color: Color(0xFF101828),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Wrap(
+                            spacing: 7,
+                            runSpacing: 5,
+                            children: [
+                              if (stock is bool)
+                                _MetricChip(
+                                  icon: stock
+                                      ? Icons.check_circle_outline_rounded
+                                      : Icons.cancel_outlined,
+                                  text: stock ? '재고 있음' : '재고 없음',
+                                ),
+                              if (distance is num)
+                                _MetricChip(
+                                  icon: Icons.route_outlined,
+                                  text:
+                                      '${distance.toStringAsFixed(1)}km',
+                                ),
+                              if (driveMinutes is num)
+                                _MetricChip(
+                                  icon: Icons.directions_car_outlined,
+                                  text:
+                                      '이동 ${driveMinutes.round()}분',
+                                ),
+                              if (waitMinutes is num)
+                                _MetricChip(
+                                  icon: Icons.schedule_outlined,
+                                  text:
+                                      '대기 ${waitMinutes.round()}분',
+                                ),
+                              if (workMinutes is num)
+                                _MetricChip(
+                                  icon: Icons.build_outlined,
+                                  text:
+                                      '작업 ${workMinutes.round()}분',
+                                ),
+                            ],
+                          ),
+                          if (effectiveCost is num) ...[
+                            const SizedBox(height: 7),
+                            Text(
+                              '시간·이동비 포함 경제성 비용 '
+                              '${_won(effectiveCost)}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF3157D5),
+                                fontSize: 11.5,
+                                height: 1.3,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
                         ],
                         if (address.isNotEmpty) ...[
                           const SizedBox(height: 7),
@@ -1348,14 +1446,14 @@ class _BusinessCards extends StatelessWidget {
                           ],
                         ),
                         if (callResult.isNotEmpty) ...[
-                          const SizedBox(height: 7),
+                          const SizedBox(height: 6),
                           Text(
                             callResult,
-                            maxLines: 3,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: Color(0xFF344054),
-                              fontSize: 11,
+                              color: Color(0xFF667085),
+                              fontSize: 10.5,
                               height: 1.3,
                               fontWeight: FontWeight.w600,
                             ),
@@ -1402,6 +1500,49 @@ class _BusinessCards extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _MetricChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _MetricChip({
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 7,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F4F7),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 12,
+            color: const Color(0xFF667085),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Color(0xFF475467),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
