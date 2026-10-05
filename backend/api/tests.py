@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -379,7 +379,7 @@ class LiveSessionApiTests(TestCase):
     ):
         response = self.client.post(
             "/api/live/session/",
-            {"sdp": "v=0\r\na=offer"},
+            {"sdp": "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=ice-ufrag:test\r\na=ice-pwd:testpwd\r\n"},
             format="json",
             HTTP_X_OPENAI_API_KEY="sk-test",
         )
@@ -395,6 +395,77 @@ class LiveSessionApiTests(TestCase):
             "gpt-live-1",
         )
         mocked_create.assert_called_once_with(
-            "v=0\r\na=offer",
+            "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=ice-ufrag:test\r\na=ice-pwd:testpwd\r\n",
             "sk-test",
         )
+
+
+
+class LiveServiceTests(TestCase):
+    @patch(
+        "api.services.live_service.httpx.post"
+    )
+    @patch(
+        "api.services.live_service.get_api_key",
+        return_value="sk-test",
+    )
+    def test_live_service_preserves_offer_sdp_exactly(
+        self,
+        mocked_key,
+        mocked_post,
+    ):
+        from api.services.live_service import create_live_session
+
+        response = Mock()
+        response.status_code = 201
+        response.json.return_value = {
+            "session": {"id": "live_test"},
+            "transport": {
+                "type": "webrtc",
+                "sdp": "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n",
+            },
+        }
+        mocked_post.return_value = response
+
+        offer_sdp = (
+            "v=0\r\n"
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+            "a=ice-ufrag:test\r\n"
+            "a=ice-pwd:testpwd\r\n"
+        )
+
+        result = create_live_session(
+            offer_sdp,
+            "sk-test",
+        )
+
+        self.assertEqual(result["session_id"], "live_test")
+        request_json = mocked_post.call_args.kwargs["json"]
+        self.assertEqual(
+            request_json["transport"]["sdp"],
+            offer_sdp,
+        )
+        self.assertTrue(
+            request_json["transport"]["sdp"].endswith("\r\n")
+        )
+        mocked_key.assert_called_once_with("sk-test")
+
+    @patch(
+        "api.services.live_service.httpx.post"
+    )
+    def test_live_service_rejects_incomplete_sdp(
+        self,
+        mocked_post,
+    ):
+        from api.services.live_service import (
+            LiveConfigurationError,
+            create_live_session,
+        )
+
+        with self.assertRaises(LiveConfigurationError):
+            create_live_session(
+                "v=0\r\n",
+                "sk-test",
+            )
+
+        mocked_post.assert_not_called()
