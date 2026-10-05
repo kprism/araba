@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
 import '../../services/kakao_credential_store.dart';
+import '../../services/naver_credential_store.dart';
 import '../../services/twilio_credential_store.dart';
 import '../../services/voice_preference_store.dart';
 
@@ -17,10 +18,15 @@ class _MyScreenState extends State<MyScreen> {
   final ArabaApi _api = ArabaApi();
   final ApiKeyStore _apiKeyStore = ApiKeyStore();
   final KakaoCredentialStore _kakaoStore = KakaoCredentialStore();
+  final NaverCredentialStore _naverStore = NaverCredentialStore();
   final TwilioCredentialStore _twilioStore = TwilioCredentialStore();
   final VoicePreferenceStore _voicePreferenceStore = VoicePreferenceStore();
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _kakaoKeyController = TextEditingController();
+  final TextEditingController _naverClientIdController =
+      TextEditingController();
+  final TextEditingController _naverClientSecretController =
+      TextEditingController();
   final TextEditingController _twilioSidController = TextEditingController();
   final TextEditingController _twilioTokenController = TextEditingController();
   final TextEditingController _twilioFromController = TextEditingController();
@@ -35,9 +41,11 @@ class _MyScreenState extends State<MyScreen> {
   bool _testing = false;
   bool _voiceTesting = false;
   bool _kakaoSaving = false;
+  bool _naverSaving = false;
   bool _twilioSaving = false;
   bool _voiceReady = false;
   bool _kakaoConfigured = false;
+  bool _naverConfigured = false;
   bool _twilioConfigured = false;
   bool _trainingBusy = false;
 
@@ -47,6 +55,7 @@ class _MyScreenState extends State<MyScreen> {
 
   String? _maskedKey;
   String? _maskedKakaoKey;
+  String? _maskedNaverClientId;
   String? _maskedTwilioSid;
   String? _twilioFromNumber;
   String? _twilioCallerIdNumber;
@@ -65,6 +74,8 @@ class _MyScreenState extends State<MyScreen> {
   void dispose() {
     _apiKeyController.dispose();
     _kakaoKeyController.dispose();
+    _naverClientIdController.dispose();
+    _naverClientSecretController.dispose();
     _twilioSidController.dispose();
     _twilioTokenController.dispose();
     _twilioFromController.dispose();
@@ -101,6 +112,7 @@ class _MyScreenState extends State<MyScreen> {
     try {
       savedKey = await _apiKeyStore.read();
       final kakaoKey = await _kakaoStore.read();
+      final naverCredentials = await _naverStore.read();
       final twilioCredentials = await _twilioStore.read();
       final voicePreferences = await _voicePreferenceStore.read();
 
@@ -110,6 +122,10 @@ class _MyScreenState extends State<MyScreen> {
           _maskedKey = _maskKey(savedKey);
           _kakaoConfigured = kakaoKey != null;
           _maskedKakaoKey = _maskKey(kakaoKey);
+          _naverConfigured = naverCredentials != null;
+          _maskedNaverClientId = _maskKey(
+            naverCredentials?.clientId,
+          );
           _twilioConfigured = twilioCredentials != null;
           _maskedTwilioSid = _maskKey(
             twilioCredentials?.accountSid,
@@ -347,6 +363,86 @@ class _MyScreenState extends State<MyScreen> {
         setState(() {
           _kakaoSaving = false;
         });
+      }
+    }
+  }
+
+  Future<void> _saveNaverCredentials() async {
+    final existing = await _naverStore.read();
+    final enteredId = _naverClientIdController.text.trim();
+    final enteredSecret = _naverClientSecretController.text.trim();
+
+    final clientId = enteredId.isNotEmpty
+        ? enteredId
+        : existing?.clientId ?? '';
+    final clientSecret = enteredSecret.isNotEmpty
+        ? enteredSecret
+        : existing?.clientSecret ?? '';
+
+    if (clientId.isEmpty || clientSecret.isEmpty) {
+      _showMessage(
+        'Naver Client ID와 Client Secret을 모두 입력해주세요.',
+      );
+      return;
+    }
+
+    setState(() {
+      _naverSaving = true;
+      _message = null;
+    });
+
+    try {
+      await _naverStore.write(
+        clientId: clientId,
+        clientSecret: clientSecret,
+      );
+
+      if (!mounted) return;
+
+      _naverClientIdController.clear();
+      _naverClientSecretController.clear();
+
+      setState(() {
+        _naverConfigured = true;
+        _maskedNaverClientId = _maskKey(clientId);
+        _message =
+            'Naver Search API 정보가 이 기기에 안전하게 저장되었습니다.';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _naverSaving = false);
+      }
+    }
+  }
+
+  Future<void> _deleteNaverCredentials() async {
+    setState(() {
+      _naverSaving = true;
+      _message = null;
+    });
+
+    try {
+      await _naverStore.delete();
+
+      if (!mounted) return;
+
+      _naverClientIdController.clear();
+      _naverClientSecretController.clear();
+
+      setState(() {
+        _naverConfigured = false;
+        _maskedNaverClientId = null;
+        _message = 'Naver Search API 등록을 해제했습니다.';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _naverSaving = false);
       }
     }
   }
@@ -849,6 +945,115 @@ class _MyScreenState extends State<MyScreen> {
                                 : _deleteKakaoKey,
                             icon: const Icon(Icons.delete_outline_rounded),
                             label: const Text('Kakao Key 등록 해제'),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFEAECF0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Naver Search API',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _maskedNaverClientId == null
+                            ? '등록된 Naver API 정보가 없습니다.'
+                            : '등록된 Client ID: $_maskedNaverClientId',
+                        style: const TextStyle(
+                          color: Color(0xFF667085),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        '카카오맵 1차 후보를 네이버 지역검색과 공개 상세페이지로 2차 교차확인합니다. '
+                        '가격·영업시간은 페이지에서 실제 확인된 값만 사용합니다.',
+                        style: TextStyle(
+                          color: Color(0xFF98A2B3),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _naverClientIdController,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Naver Client ID',
+                          hintText: 'Naver Developers 애플리케이션 Client ID',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _naverClientSecretController,
+                        obscureText: true,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Naver Client Secret',
+                          hintText: 'Naver Developers 애플리케이션 Client Secret',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _naverSaving
+                              ? null
+                              : _saveNaverCredentials,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 13,
+                            ),
+                            child: _naverSaving
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    _naverConfigured
+                                        ? 'Naver API 정보 교체'
+                                        : 'Naver API 정보 저장',
+                                  ),
+                          ),
+                        ),
+                      ),
+                      if (_naverConfigured) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _naverSaving
+                                ? null
+                                : _deleteNaverCredentials,
+                            icon: const Icon(
+                              Icons.delete_outline_rounded,
+                            ),
+                            label: const Text(
+                              'Naver API 등록 해제',
+                            ),
                           ),
                         ),
                       ],
