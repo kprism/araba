@@ -40,6 +40,11 @@ urlpatterns = [
         name="research-search",
     ),
     path(
+        "research/mock-call/",
+        views.mock_call_compare,
+        name="mock-call-compare",
+    ),
+    path(
         "notifications/register/",
         views.notification_register,
         name="notification-register",
