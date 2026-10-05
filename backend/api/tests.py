@@ -654,3 +654,116 @@ class ResearchSearchApiTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.data["ok"])
+
+
+class MockCallComparisonApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_mock_call_compare_ranks_by_effective_cost(self):
+        response = self.client.post(
+            "/api/research/mock-call/",
+            {
+                "mission": {
+                    "category": "자동차",
+                    "location": "창원",
+                    "subject": "BMW X6 타이어 두 개 교체",
+                    "constraints": ["오늘 가능"],
+                },
+                "businesses": [
+                    {
+                        "id": "101",
+                        "name": "A타이어",
+                        "latitude": "35.2200",
+                        "longitude": "128.6800",
+                        "address": "창원시 성산구",
+                    },
+                    {
+                        "id": "102",
+                        "name": "B타이어",
+                        "latitude": "35.2300",
+                        "longitude": "128.6900",
+                        "address": "창원시 의창구",
+                    },
+                    {
+                        "id": "103",
+                        "name": "C타이어",
+                        "latitude": "35.2400",
+                        "longitude": "128.7000",
+                        "address": "창원시 마산회원구",
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertTrue(response.data["mock"])
+        self.assertEqual(len(response.data["businesses"]), 3)
+        self.assertEqual(
+            response.data["businesses"][0]["economic_rank"],
+            1,
+        )
+        self.assertIn(
+            "mock_total_price",
+            response.data["businesses"][0],
+        )
+        self.assertIn(
+            "effective_cost",
+            response.data["businesses"][0],
+        )
+        self.assertTrue(
+            response.data["businesses"][0]["mock_questions"]
+        )
+        self.assertEqual(
+            response.data["recommendation"]["name"],
+            response.data["businesses"][0]["name"],
+        )
+
+    def test_mock_call_compare_rejects_unrelated_category(self):
+        response = self.client.post(
+            "/api/research/mock-call/",
+            {
+                "mission": {
+                    "category": "음식점",
+                    "subject": "점심",
+                },
+                "businesses": [
+                    {
+                        "id": "1",
+                        "name": "식당",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.data["ok"])
+
+
+class ResearchRelevanceFilterTests(TestCase):
+    def test_tire_research_filters_unrelated_restaurant(self):
+        from api.services.research_service import _matches_mission
+
+        mission = {
+            "category": "자동차",
+            "subject": "BMW X6 타이어 교체",
+        }
+
+        restaurant = {
+            "place_name": "창원맛집",
+            "category_name": "음식점 > 한식",
+        }
+        tire_shop = {
+            "place_name": "창원타이어",
+            "category_name": "자동차 > 자동차정비 > 타이어",
+        }
+
+        self.assertFalse(
+            _matches_mission(restaurant, mission)
+        )
+        self.assertTrue(
+            _matches_mission(tire_shop, mission)
+        )
