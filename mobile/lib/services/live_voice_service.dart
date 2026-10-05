@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'araba_api.dart';
+import 'conversation_context.dart';
 
 typedef LiveStatusCallback = void Function(String status);
 typedef LiveTranscriptCallback = void Function({
@@ -18,6 +19,7 @@ typedef LiveMissionCallback = void Function(
 class LiveVoiceService {
   final ArabaApi api;
   final String apiKey;
+  final ConversationContext conversationContext;
   final LiveStatusCallback onStatus;
   final LiveTranscriptCallback onTranscript;
   final LiveMissionCallback onMission;
@@ -36,6 +38,7 @@ class LiveVoiceService {
   LiveVoiceService({
     required this.api,
     required this.apiKey,
+    required this.conversationContext,
     required this.onStatus,
     required this.onTranscript,
     required this.onMission,
@@ -223,7 +226,7 @@ class LiveVoiceService {
     }
 
     try {
-      final requestText = _pendingRequestContext == null
+      final rawRequestText = _pendingRequestContext == null
           ? latestUserText
           : [
               _pendingRequestContext!,
@@ -231,6 +234,9 @@ class LiveVoiceService {
               '사용자 추가 답변:',
               latestUserText,
             ].join('\n');
+      final requestText = conversationContext.enrichRequest(
+        rawRequestText,
+      );
 
       _sendEvent({
         'type': 'session.thinking.append',
@@ -251,6 +257,7 @@ class LiveVoiceService {
         );
       }
 
+      conversationContext.rememberMission(mission);
       onMission(mission, requestText);
 
       final summary = mission['summary']?.toString().trim() ?? '';
