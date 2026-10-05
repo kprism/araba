@@ -290,6 +290,10 @@ class ArabaApi {
     required String twilioAccountSid,
     required String twilioAuthToken,
     String? twilioFromNumber,
+    String voiceGender = 'female',
+    String voiceSpeed = 'medium',
+    bool trainingMode = false,
+    String trainingCategory = '',
   }) async {
     final response = await _request(
       () => http.post(
@@ -302,6 +306,10 @@ class ArabaApi {
         ),
         body: jsonEncode({
           'phone_number': phoneNumber,
+          'voice_gender': voiceGender,
+          'voice_speed': voiceSpeed,
+          'training_mode': trainingMode,
+          'training_category': trainingCategory,
         }),
       ),
       timeout: const Duration(seconds: 30),
