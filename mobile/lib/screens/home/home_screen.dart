@@ -32,7 +32,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final _conversationContext = ConversationContext();
 
   LiveVoiceService? _liveVoice;
-  Timer? _researchTipTimer;
 
   final List<_Message> _messages = [
     _Message(
@@ -45,12 +44,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _liveActive = false;
   bool _sending = false;
   bool _researching = false;
-  bool _showResearchTips = false;
   bool _userBrowsingHistory = false;
   String _liveStatus = '';
   String _researchStage = '';
-  List<String> _researchTips = const [];
-  int _researchTipIndex = 0;
   String? _liveTranscriptSpeaker;
   int? _liveTranscriptMessageIndex;
 
@@ -252,99 +248,26 @@ class _HomeScreenState extends State<HomeScreen> {
         .toList();
   }
 
-  List<String> _researchTipsFor(
-    Map<String, dynamic> mission,
-  ) {
-    final category =
-        mission['category']?.toString().trim() ?? '';
-    final subject =
-        mission['subject']?.toString().toLowerCase() ?? '';
-
-    if (category == '자동차' && subject.contains('타이어')) {
-      return const [
-        '타이어는 같은 규격이라도 제조주차에 따라 가격과 선호도가 달라질 수 있어요.',
-        '견적을 비교할 때 장착비, 휠밸런스, 폐타이어 처리비 포함 여부를 같이 보세요.',
-        '앞 타이어 2개만 교체할 때는 좌우 같은 모델과 규격으로 맞추는 게 기본입니다.',
-        '가장 싼 가격만 보기보다 재고와 당일 장착 가능 시간까지 같이 확인하면 헛걸음을 줄일 수 있어요.',
-      ];
-    }
-
-    if (category == '자동차') {
-      return const [
-        '정비 견적은 부품값과 공임이 따로 표시되는지 확인하면 비교가 쉬워요.',
-        '방문 전 재고와 당일 작업 가능 시간을 확인하면 대기 시간을 줄일 수 있어요.',
-        '같은 작업도 차량 모델과 부품 등급에 따라 실제 결제금액이 달라질 수 있어요.',
-      ];
-    }
-
-    return const [
-      '검색 중에는 표시 가격보다 추가비용과 실제 이용 가능 여부를 함께 확인하고 있어요.',
-      '후기보다 영업시간, 재고, 예약 가능 여부처럼 자주 바뀌는 정보를 우선 확인하는 게 좋아요.',
-      '후보가 너무 적으면 가까운 상위 지역까지 자동으로 범위를 넓혀 다시 찾아볼게요.',
-    ];
-  }
-
-  String get _currentResearchTip {
-    if (_researchTips.isEmpty) return '';
-    return _researchTips[
-      _researchTipIndex % _researchTips.length
-    ];
-  }
-
-  void _startResearchProgress(
-    Map<String, dynamic> mission,
-  ) {
-    _researchTipTimer?.cancel();
-    final tips = _researchTipsFor(mission);
-
+  void _startResearchProgress() {
     setState(() {
       _researching = true;
-      _showResearchTips = true;
-      _researchStage = '실제 업체를 빠르게 찾는 중';
-      _researchTips = tips;
-      _researchTipIndex = 0;
+      _researchStage = '상점 찾는 중…';
     });
-
-    _researchTipTimer = Timer.periodic(
-      const Duration(seconds: 3),
-      (_) {
-        if (!mounted ||
-            !_researching ||
-            _researchTips.length < 2) {
-          return;
-        }
-
-        setState(() {
-          _researchTipIndex =
-              (_researchTipIndex + 1) % _researchTips.length;
-        });
-      },
-    );
   }
 
   void _updateResearchStage(String stage) {
     if (!mounted || !_researching) return;
     setState(() => _researchStage = stage);
+    _toBottom();
   }
 
   void _stopResearchProgress() {
-    _researchTipTimer?.cancel();
-    _researchTipTimer = null;
-
     if (!mounted) return;
 
     setState(() {
       _researching = false;
-      _showResearchTips = false;
       _researchStage = '';
-      _researchTips = const [];
-      _researchTipIndex = 0;
     });
-  }
-
-  void _dismissResearchTips() {
-    if (!mounted) return;
-    setState(() => _showResearchTips = false);
   }
 
   Future<void> _runRealResearch(
@@ -352,17 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
   ) async {
     if (_researching) return;
 
-    _startResearchProgress(mission);
-
-    const startText =
-        '조건 정리가 끝났어요. 실제 업체를 빠르게 찾고 있어요.';
-    _addAssistantMessage(
-      text: startText,
-      badge: '실제 검색 중',
-    );
-    _speakProgress(
-      '조건 정리가 끝났어요. 실제 업체를 바로 찾아볼게요.',
-    );
+    _startResearchProgress();
 
     try {
       final kakaoRestApiKey = await _kakaoStore.read();
@@ -377,8 +290,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       _updateResearchStage(
         naverCredentials == null
-            ? '카카오맵에서 정확한 업체를 검색 중'
-            : '카카오맵 후보 검색 · 네이버 플레이스 교차 확인 중',
+            ? '카카오맵에서 상점 찾는 중…'
+            : '카카오맵 후보 확인 후 네이버 플레이스 보는 중…',
       );
 
       final result = await _api.searchBusinesses(
@@ -415,8 +328,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       _updateResearchStage(
         naverConfigured
-            ? '네이버 플레이스 상세페이지 확인 완료'
-            : '카카오맵 업체 확인 완료',
+            ? '네이버 플레이스 상세정보 확인 중…'
+            : '검색 결과 정리 중…',
       );
 
       final sourceSummary = naverConfigured
@@ -437,11 +350,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ? '카카오 + 네이버 검증'
             : '카카오 검증',
         businesses: businesses,
-        actionQuestion: '확인된 업체 중에서 더 알아볼까요?',
-        actions: const [
-          '다른 후보 보기',
-          '여기까지',
-        ],
       );
       _speakProgress(sourceSummary);
     } catch (error) {
@@ -923,7 +831,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _researchTipTimer?.cancel();
     _liveVoice?.stop(force: true);
     _controller.dispose();
     _scroll.dispose();
@@ -997,11 +904,25 @@ class _HomeScreenState extends State<HomeScreen> {
                         16,
                         18,
                       ),
-                      itemCount:
-                          _messages.length + (_sending ? 1 : 0),
+                      itemCount: _messages.length +
+                          (_sending ? 1 : 0) +
+                          (_researching ? 1 : 0),
                       itemBuilder: (context, index) {
-                        if (index == _messages.length) {
-                          return const _ThinkingBubble();
+                        if (index >= _messages.length) {
+                          final extraIndex =
+                              index - _messages.length;
+
+                          if (_sending && extraIndex == 0) {
+                            return const _InlineStatusText(
+                              text: '요청 이해 중…',
+                            );
+                          }
+
+                          return _InlineStatusText(
+                            text: _researchStage.isEmpty
+                                ? '확인 중…'
+                                : _researchStage,
+                          );
                         }
 
                         final message = _messages[index];
@@ -1051,20 +972,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                   ],
                 ),
-                if (_researching &&
-                    _showResearchTips &&
-                    _researchTips.isNotEmpty)
-                  Positioned(
-                    left: 14,
-                    right: 14,
-                    bottom:
-                        (_liveConnecting || _liveActive) ? 138 : 76,
-                    child: _ResearchTipPopup(
-                      stage: _researchStage,
-                      tip: _currentResearchTip,
-                      onClose: _dismissResearchTips,
-                    ),
-                  ),
               ],
             ),
           ),
@@ -1962,154 +1869,29 @@ class _ClarificationCard extends StatelessWidget {
   }
 }
 
-class _ThinkingBubble extends StatelessWidget {
-  const _ThinkingBubble();
+class _InlineStatusText extends StatelessWidget {
+  final String text;
 
-  @override
-  Widget build(BuildContext context) {
-    return const Align(
-      alignment: Alignment.centerLeft,
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 43,
-          right: 34,
-          bottom: 14,
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.all(
-              Radius.circular(18),
-            ),
-          ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
-                ),
-                SizedBox(width: 9),
-                Text(
-                  '요청을 정리하고 있어요…',
-                  style: TextStyle(
-                    color: Color(0xFF667085),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ResearchTipPopup extends StatelessWidget {
-  final String stage;
-  final String tip;
-  final VoidCallback onClose;
-
-  const _ResearchTipPopup({
-    required this.stage,
-    required this.tip,
-    required this.onClose,
+  const _InlineStatusText({
+    required this.text,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0F5FF),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFB7CCFF),
-        ),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1A3157D5),
-            blurRadius: 14,
-            offset: Offset(0, 5),
-          ),
-        ],
+    return Padding(
+      padding: const EdgeInsets.only(
+        left: 43,
+        right: 34,
+        bottom: 12,
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.4,
-            ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        stage,
-                        style: const TextStyle(
-                          color: Color(0xFF1939A6),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '닫기',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: onClose,
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        size: 19,
-                        color: Color(0xFF667085),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  '기다리는 동안 알아두면 좋아요',
-                  style: TextStyle(
-                    color: Color(0xFF667085),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                AnimatedSwitcher(
-                  duration: Duration(milliseconds: 250),
-                  child: Text(
-                    tip,
-                    key: ValueKey(tip),
-                    style: const TextStyle(
-                      color: Color(0xFF344054),
-                      fontSize: 12.5,
-                      height: 1.4,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFF667085),
+          fontSize: 13,
+          height: 1.35,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
