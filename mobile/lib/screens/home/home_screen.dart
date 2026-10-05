@@ -999,10 +999,20 @@ class _BusinessCards extends StatelessWidget {
     required this.businesses,
   });
 
+  Future<void> _openPlace(String placeUrl) async {
+    final uri = Uri.tryParse(placeUrl);
+    if (uri == null) return;
+
+    await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 238,
+      height: 306,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: businesses.length,
@@ -1013,12 +1023,17 @@ class _BusinessCards extends StatelessWidget {
           final name = business['name']?.toString() ?? '업체';
           final description =
               business['description']?.toString() ?? '';
+          final address =
+              business['address']?.toString().trim() ?? '';
+          final phone =
+              business['phone']?.toString().trim() ?? '';
+          final placeUrl =
+              business['place_url']?.toString().trim() ?? '';
           final callResult =
-              business['mock_call_result']?.toString() ?? '';
-          final score = business['score']?.toString() ?? '';
+              business['mock_call_result']?.toString().trim() ?? '';
 
           return Container(
-            width: 245,
+            width: 258,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
@@ -1038,79 +1053,180 @@ class _BusinessCards extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  height: 78,
+                  height: 74,
                   width: double.infinity,
                   color: const Color(0xFFEEF4FF),
-                  child: const Icon(
-                    Icons.storefront_rounded,
-                    size: 36,
-                    color: Color(0xFF3157D5),
+                  child: const Stack(
+                    children: [
+                      Center(
+                        child: Icon(
+                          Icons.storefront_rounded,
+                          size: 36,
+                          color: Color(0xFF3157D5),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.all(
+                              Radius.circular(20),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            child: Text(
+                              '실제 업체',
+                              style: TextStyle(
+                                color: Color(0xFF3157D5),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.fromLTRB(
+                      12,
+                      11,
+                      12,
+                      10,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                name,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF101828),
-                                ),
-                              ),
-                            ),
-                            if (score.isNotEmpty)
-                              Text(
-                                '$score점',
-                                style: const TextStyle(
-                                  color: Color(0xFF3157D5),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
                         Text(
-                          description,
+                          name,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: Color(0xFF667085),
-                            fontSize: 12,
-                            height: 1.35,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF101828),
                           ),
                         ),
+                        if (description.isNotEmpty) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            description,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF667085),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        if (address.isNotEmpty) ...[
+                          const SizedBox(height: 7),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.location_on_outlined,
+                                size: 15,
+                                color: Color(0xFF667085),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  address,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Color(0xFF475467),
+                                    fontSize: 11.5,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 5),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.phone_outlined,
+                              size: 15,
+                              color: Color(0xFF667085),
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                phone.isEmpty
+                                    ? '공개 전화번호 없음'
+                                    : phone,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: phone.isEmpty
+                                      ? const Color(0xFF98A2B3)
+                                      : const Color(0xFF344054),
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                         if (callResult.isNotEmpty) ...[
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 7),
                           Text(
                             callResult,
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: Color(0xFF344054),
-                              fontSize: 11.5,
-                              height: 1.35,
+                              fontSize: 11,
+                              height: 1.3,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
                         const Spacer(),
-                        const Text(
-                          '가상 테스트',
-                          style: TextStyle(
-                            color: Color(0xFFD92D20),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                '카카오맵 장소검색',
+                                style: TextStyle(
+                                  color: Color(0xFF667085),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: placeUrl.isEmpty
+                                  ? null
+                                  : () => _openPlace(placeUrl),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                ),
+                              ),
+                              child: const Text(
+                                '지도 보기',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
