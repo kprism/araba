@@ -25,6 +25,8 @@ class _MyScreenState extends State<MyScreen> {
   final TextEditingController _twilioTokenController = TextEditingController();
   final TextEditingController _twilioFromController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _trainingCategoryController =
+      TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
@@ -64,6 +66,7 @@ class _MyScreenState extends State<MyScreen> {
     _twilioTokenController.dispose();
     _twilioFromController.dispose();
     _phoneController.dispose();
+    _trainingCategoryController.dispose();
     super.dispose();
   }
 
@@ -458,6 +461,69 @@ class _MyScreenState extends State<MyScreen> {
       if (!mounted) {
         return;
       }
+
+      setState(() {
+        _message = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _voiceTesting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _startAdminTrainingCall() async {
+    final phone = _phoneController.text.trim();
+
+    if (phone.isEmpty) {
+      _showMessage('훈련 전화를 받을 번호를 먼저 입력해주세요.');
+      return;
+    }
+
+    setState(() {
+      _voiceTesting = true;
+      _message = null;
+    });
+
+    try {
+      final apiKey = await _apiKeyStore.read();
+      final twilio = await _twilioStore.read();
+
+      if (apiKey == null) {
+        throw const ArabaApiException(
+          'OpenAI API Key를 먼저 저장해주세요.',
+        );
+      }
+
+      if (twilio == null) {
+        throw const ArabaApiException(
+          'Twilio 계정 정보를 먼저 저장해주세요.',
+        );
+      }
+
+      final result = await _api.startVoiceTestCall(
+        phone,
+        apiKey: apiKey,
+        twilioAccountSid: twilio.accountSid,
+        twilioAuthToken: twilio.authToken,
+        twilioFromNumber: twilio.fromNumber,
+        voiceGender: _voiceGender,
+        voiceSpeed: _voiceSpeed,
+        trainingMode: true,
+        trainingCategory:
+            _trainingCategoryController.text.trim(),
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _message = result['message']?.toString() ??
+            '관리자 실전 훈련 전화를 시작했습니다.';
+      });
+    } catch (error) {
+      if (!mounted) return;
 
       setState(() {
         _message = error.toString();
