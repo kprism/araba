@@ -117,6 +117,43 @@ def _search_queries(mission):
 
     return queries[:6]
 
+def _matches_mission(document, mission):
+    category = str(
+        mission.get("category") or "기타"
+    ).strip()
+    subject = str(
+        mission.get("subject") or ""
+    ).lower()
+    place_name = str(
+        document.get("place_name") or ""
+    ).lower()
+    place_category = str(
+        document.get("category_name") or ""
+    ).lower()
+
+    if category == "자동차":
+        allowed_tokens = (
+            "자동차",
+            "타이어",
+            "정비",
+            "카센터",
+            "휠",
+        )
+        if not any(
+            token in place_category or token in place_name
+            for token in allowed_tokens
+        ):
+            return False
+
+        if "타이어" in subject and not any(
+            token in place_category or token in place_name
+            for token in ("타이어", "휠", "자동차정비", "카센터")
+        ):
+            return False
+
+    return True
+
+
 def _normalize_business(document):
     road_address = str(
         document.get("road_address_name") or ""
@@ -206,7 +243,12 @@ def search_real_businesses(mission, api_key=None):
         raw_documents = payload.get("documents", [])
 
         if isinstance(raw_documents, list):
-            documents = raw_documents
+            documents = [
+                item
+                for item in raw_documents
+                if isinstance(item, dict)
+                and _matches_mission(item, mission)
+            ]
 
         if documents:
             break
