@@ -360,6 +360,8 @@ class _ResearchRecordCard extends StatelessWidget {
     final price = recommendation['mock_total_price'];
     final distance = recommendation['distance_km'];
     final driveMinutes = recommendation['drive_minutes'];
+    final totalTimeMinutes =
+        recommendation['total_time_minutes'];
     final effective = recommendation['effective_cost'];
     final isMock = record['is_mock'] == true;
     final rawBusinesses = record['businesses'];
@@ -463,9 +465,15 @@ class _ResearchRecordCard extends StatelessWidget {
                     : '-',
               ),
               _MetricChip(
-                label: '이동',
+                label: '편도 이동',
                 value: driveMinutes is num
                     ? '약 ${driveMinutes.round()}분'
+                    : '-',
+              ),
+              _MetricChip(
+                label: '총 소요',
+                value: totalTimeMinutes is num
+                    ? '약 ${totalTimeMinutes.round()}분'
                     : '-',
               ),
               _MetricChip(
