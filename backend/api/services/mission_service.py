@@ -61,6 +61,9 @@ ARABA는 사용자가 현실에서 알고 싶은 정보를
 9. 역질문이 있으면 ready_to_research=false, 없으면 clarification_questions=[] 및 ready_to_research=true로 한다.
 10. missing_information은 clarification_questions의 질문과 같은 취지의 정말 필요한 정보만 넣는다.
 11. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
+12. 입력에 "[대화 문맥] 이미 확인된 지역:"이 있으면 사용자가 새 지역을 명시하지 않는 한 그 지역을 location에 그대로 유지한다.
+13. 이미 대화에서 확인된 지역을 다시 묻지 않는다. 지역이 이미 있으면 지역 관련 clarification_questions를 만들지 않는다.
+14. 사용자가 새 지역을 명시하면 기존 지역보다 새 지역을 우선한다.
 """.strip()
 
 
@@ -79,8 +82,8 @@ def create_mission(user_request, api_key=None):
 
     client = OpenAI(
         api_key=api_key,
-        timeout=45.0,
-        max_retries=1,
+        timeout=25.0,
+        max_retries=0,
     )
 
     response = client.responses.create(
