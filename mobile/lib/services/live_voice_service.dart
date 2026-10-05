@@ -363,6 +363,18 @@ class LiveVoiceService {
     }
   }
 
+  Future<void> resumeAudio() async {
+    for (final track
+        in _localStream?.getAudioTracks() ??
+            <MediaStreamTrack>[]) {
+      track.enabled = true;
+    }
+
+    try {
+      await Helper.setSpeakerphoneOnButPreferBluetooth();
+    } catch (_) {}
+  }
+
   void resetPendingMissionContext() {
     _pendingRequestContext = null;
   }
