@@ -100,6 +100,21 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> simulateResearch(
+    Map<String, dynamic> mission,
+  ) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/research/simulate/'),
+        headers: _headers(),
+        body: jsonEncode({'mission': mission}),
+      ),
+      timeout: const Duration(seconds: 20),
+    );
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> registerNotificationToken(
     String token,
   ) async {
