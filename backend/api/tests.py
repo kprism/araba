@@ -798,6 +798,117 @@ class LiveServiceTests(TestCase):
         mocked_post.assert_not_called()
 
 
+class NaverPlaceServiceTests(TestCase):
+    @patch(
+        "api.services.naver_place_service.httpx.get"
+    )
+    def test_naver_place_matches_same_business_and_reads_json_ld(
+        self,
+        mocked_get,
+    ):
+        from api.services.naver_place_service import (
+            enrich_one_business,
+        )
+
+        search_response = Mock()
+        search_response.status_code = 200
+        search_response.json.return_value = {
+            "items": [
+                {
+                    "title": "<b>이루다헤어</b>",
+                    "link": "https://m.place.naver.com/place/123",
+                    "category": "생활,편의>미용실",
+                    "address": "경남 창원시 의창구 중동 1",
+                    "roadAddress": "경남 창원시 의창구 중동로 10",
+                }
+            ]
+        }
+
+        page_response = Mock()
+        page_response.status_code = 200
+        page_response.url = (
+            "https://m.place.naver.com/place/123"
+        )
+        page_response.text = """
+        <html>
+          <head>
+            <title>이루다헤어 : 네이버</title>
+            <meta property="og:description"
+                  content="창원 중동 미용실" />
+            <script type="application/ld+json">
+            {
+              "@type": "HairSalon",
+              "name": "이루다헤어",
+              "openingHours": ["Mo-Fr 10:00-20:00"],
+              "offers": [
+                {
+                  "name": "남성컷",
+                  "price": "20000",
+                  "priceCurrency": "KRW"
+                }
+              ]
+            }
+            </script>
+          </head>
+        </html>
+        """
+
+        mocked_get.side_effect = [
+            search_response,
+            page_response,
+        ]
+
+        result = enrich_one_business(
+            {
+                "name": "이루다헤어",
+                "category": "가정,생활 > 미용 > 미용실",
+                "address": "경남 창원시 의창구 중동로 10",
+                "road_address": "경남 창원시 의창구 중동로 10",
+            },
+            client_id="naver-id",
+            client_secret="naver-secret",
+        )
+
+        self.assertTrue(result["naver"]["matched"])
+        self.assertTrue(
+            result["naver"]["page_checked"]
+        )
+        self.assertEqual(
+            result["naver"]["opening_hours"],
+            ["Mo-Fr 10:00-20:00"],
+        )
+        self.assertEqual(
+            result["naver"]["prices"][0]["price"],
+            "20000",
+        )
+
+    def test_naver_enrichment_is_optional_without_credentials(
+        self,
+    ):
+        from api.services.naver_place_service import (
+            enrich_businesses_with_naver,
+        )
+
+        with patch.dict(
+            "os.environ",
+            {},
+            clear=True,
+        ):
+            result = enrich_businesses_with_naver(
+                [
+                    {
+                        "name": "테스트미용실",
+                    }
+                ]
+            )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(
+            result[0]["naver"]["status"],
+            "not_configured",
+        )
+
+
 class ResearchSearchApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -870,7 +981,15 @@ class ResearchSearchApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["ok"])
-        self.assertEqual(response.data["source"], "kakao")
+        self.assertEqual(response.data["source"], "kakao+naver")
+        self.assertEqual(
+            response.data["primary_source"],
+            "kakao",
+        )
+        self.assertEqual(
+            response.data["secondary_source"],
+            "naver_place",
+        )
         self.assertEqual(len(response.data["businesses"]), 1)
         self.assertEqual(
             response.data["businesses"][0]["name"],
