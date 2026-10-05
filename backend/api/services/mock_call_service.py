@@ -3,39 +3,19 @@ import math
 import re
 
 
+TIME_SLOTS = (
+    "오늘 오전",
+    "오늘 오후",
+    "오늘 저녁",
+    "내일 오전",
+    "내일 오후",
+)
+
+
 def _stable_number(*parts):
     text = "|".join(str(part or "") for part in parts)
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return int(digest[:12], 16)
-
-
-def _quantity_from_mission(mission):
-    chunks = [
-        str(mission.get("subject") or ""),
-        *[
-            str(item)
-            for item in (mission.get("constraints") or [])
-        ],
-    ]
-    text = " ".join(chunks)
-
-    match = re.search(r"(\d+)\s*(?:개|짝|본)", text)
-    if match:
-        return max(1, min(4, int(match.group(1))))
-
-    korean_counts = {
-        "한 개": 1,
-        "하나": 1,
-        "두 개": 2,
-        "둘": 2,
-        "네 개": 4,
-        "넷": 4,
-    }
-    for token, value in korean_counts.items():
-        if token in text:
-            return value
-
-    return 2
 
 
 def _float(value):
@@ -68,6 +48,7 @@ def _reference_origin(businesses, origin=None):
     if isinstance(origin, dict):
         lat = _float(origin.get("latitude"))
         lon = _float(origin.get("longitude"))
+
         if lat is not None and lon is not None:
             return {
                 "latitude": lat,
@@ -88,8 +69,10 @@ def _reference_origin(businesses, origin=None):
     for business in businesses:
         lat = _float(business.get("latitude"))
         lon = _float(business.get("longitude"))
+
         if lat is None or lon is None:
             continue
+
         coordinates.append((lat, lon))
 
     if not coordinates:
@@ -106,35 +89,290 @@ def _reference_origin(businesses, origin=None):
     }
 
 
-def _mock_tire_call(mission, business, origin):
-    quantity = _quantity_from_mission(mission)
+def _mission_text(mission):
+    parts = [
+        str(mission.get("subject") or ""),
+        str(mission.get("comparison") or ""),
+        str(mission.get("intent") or ""),
+        *[
+            str(item)
+            for item in (
+                mission.get("constraints") or []
+            )
+        ],
+        *[
+            str(item)
+            for item in (
+                mission.get("required_facts") or []
+            )
+        ],
+    ]
+
+    attributes = mission.get("attributes")
+    if isinstance(attributes, dict):
+        for key, value in attributes.items():
+            parts.extend(
+                [str(key), str(value)]
+            )
+
+    return " ".join(parts)
+
+
+def _requested_time(mission):
+    attributes = mission.get("attributes")
+
+    if isinstance(attributes, dict):
+        for key, value in attributes.items():
+            key_text = str(key)
+
+            if any(
+                token in key_text
+                for token in (
+                    "시간",
+                    "예약",
+                    "방문",
+                    "일정",
+                )
+            ):
+                text = str(value).strip()
+
+                if text and text not in (
+                    "미정",
+                    "없음",
+                    "null",
+                ):
+                    return text
+
+    text = _mission_text(mission)
+
+    patterns = (
+        r"(오늘\s*(?:오전|오후|저녁))",
+        r"(내일\s*(?:오전|오후|저녁))",
+        r"(\d{1,2}\s*시(?:\s*~\s*\d{1,2}\s*시)?)",
+    )
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
+
+    return None
+
+
+def _price_relevant(mission):
+    text = _mission_text(mission)
+
+    return any(
+        token in text
+        for token in (
+            "가격",
+            "비용",
+            "최저가",
+            "경제",
+            "견적",
+            "금액",
+            "결제",
+        )
+    )
+
+
+def _question_policy(mission):
+    questions = []
+
+    required = mission.get("required_facts")
+    if isinstance(required, list):
+        for item in required:
+            value = str(item).strip()
+            if value and value not in questions:
+                questions.append(value)
+
+    defaults = [
+        "현재 실제 이용 또는 예약 가능 여부",
+        "추가비용까지 포함한 최종 조건",
+        "가능한 시간대와 예상 소요시간",
+        "취소·변경·보증 등 선택에 영향을 주는 조건",
+    ]
+
+    for item in defaults:
+        if item not in questions:
+            questions.append(item)
+
+    return questions[:7]
+
+
+def _available_slots(seed):
+    slots = [
+        slot
+        for index, slot in enumerate(TIME_SLOTS)
+        if ((seed >> index) & 1) == 1
+    ]
+
+    if not slots:
+        slots = [
+            TIME_SLOTS[
+                seed % len(TIME_SLOTS)
+            ]
+        ]
+
+    return slots[:3]
+
+
+def _slot_matches(requested, slots):
+    if not requested:
+        return True
+
+    normalized = re.sub(
+        r"\s+",
+        "",
+        requested,
+    )
+
+    for slot in slots:
+        candidate = re.sub(
+            r"\s+",
+            "",
+            slot,
+        )
+
+        if (
+            normalized in candidate
+            or candidate in normalized
+        ):
+            return True
+
+    return False
+
+
+def _answer_for_fact(
+    fact,
+    *,
+    total_price,
+    slots,
+    wait_minutes,
+    work_minutes,
+):
+    fact_text = str(fact)
+
+    if any(
+        token in fact_text
+        for token in (
+            "가격",
+            "비용",
+            "금액",
+            "결제",
+            "견적",
+        )
+    ):
+        if total_price is None:
+            return (
+                "가상 답변: 이 요청에서는 가격이 "
+                "핵심 비교항목이 아닌 것으로 가정."
+            )
+
+        return (
+            f"가상 답변: 최종 조건 기준 "
+            f"{total_price:,}원."
+        )
+
+    if any(
+        token in fact_text
+        for token in (
+            "시간",
+            "예약",
+            "가능",
+            "일정",
+        )
+    ):
+        return (
+            "가상 답변: 가능한 시간대 "
+            + ", ".join(slots)
+            + f", 예상 대기 {wait_minutes}분."
+        )
+
+    if any(
+        token in fact_text
+        for token in (
+            "취소",
+            "변경",
+            "환불",
+            "보증",
+        )
+    ):
+        return (
+            "가상 답변: 변경 가능, 취소나 특수조건은 "
+            "예약 확정 전에 다시 안내하는 것으로 가정."
+        )
+
+    return (
+        f"가상 답변: {fact_text}에 대해 "
+        "선택에 필요한 핵심 조건을 확인한 것으로 가정."
+    )
+
+
+def _mock_business_call(
+    mission,
+    business,
+    origin,
+):
     seed = _stable_number(
         business.get("id"),
         business.get("name"),
         mission.get("subject"),
-        quantity,
+        mission.get("category"),
     )
 
-    unit_price = 165000 + (seed % 16) * 8500
-    fitting_fee = quantity * (12000 + (seed % 4) * 2500)
-    balance_fee = quantity * (5000 + (seed % 3) * 1500)
-    disposal_fee = quantity * 3000
+    price_relevant = _price_relevant(mission)
+
+    base_band = (
+        25000
+        + (
+            _stable_number(
+                mission.get("category"),
+                mission.get("subject"),
+            )
+            % 120000
+        )
+    )
+
     total_price = (
-        quantity * unit_price
-        + fitting_fee
-        + balance_fee
-        + disposal_fee
+        int(
+            round(
+                (
+                    base_band
+                    + (seed % 11) * 7500
+                )
+                / 1000
+            )
+            * 1000
+        )
+        if price_relevant
+        else None
     )
 
-    stock = (seed % 7) != 0
-    wait_minutes = 15 + (seed % 7) * 10
-    work_minutes = 35 + (seed % 5) * 10
+    wait_minutes = 5 + (seed % 8) * 10
+    work_minutes = 15 + (seed % 7) * 15
+    available_slots = _available_slots(seed)
+    requested_time = _requested_time(mission)
 
-    lat = _float(business.get("latitude"))
-    lon = _float(business.get("longitude"))
+    requested_time_available = _slot_matches(
+        requested_time,
+        available_slots,
+    )
+
+    lat = _float(
+        business.get("latitude")
+    )
+    lon = _float(
+        business.get("longitude")
+    )
+
     distance_km = None
 
-    if origin is not None and lat is not None and lon is not None:
+    if (
+        origin is not None
+        and lat is not None
+        and lon is not None
+    ):
         distance_km = round(
             _haversine_km(
                 origin["latitude"],
@@ -146,9 +384,20 @@ def _mock_tire_call(mission, business, origin):
         )
 
     drive_minutes = (
-        max(5, round(distance_km / 28 * 60))
+        max(
+            5,
+            round(
+                distance_km / 28 * 60
+            ),
+        )
         if distance_km is not None
         else None
+    )
+
+    round_trip_minutes = (
+        drive_minutes * 2
+        if drive_minutes is not None
+        else 0
     )
 
     round_trip_distance = (
@@ -156,138 +405,127 @@ def _mock_tire_call(mission, business, origin):
         if distance_km is not None
         else 0
     )
-    round_trip_minutes = (
-        drive_minutes * 2
-        if drive_minutes is not None
-        else 0
-    )
 
-    distance_cost = round(
-        round_trip_distance * 250
-    )
     total_time_minutes = (
         round_trip_minutes
         + wait_minutes
         + work_minutes
     )
+
+    distance_cost = round(
+        round_trip_distance * 250
+    )
+
     time_cost = round(
-        (total_time_minutes / 60) * 10000
+        (total_time_minutes / 60)
+        * 10000
     )
-    economic_overhead = (
-        distance_cost
-        + time_cost
+
+    availability_penalty = (
+        0
+        if requested_time_available
+        else 150000
     )
-    availability_penalty = 0 if stock else 120000
-    effective_cost = (
+
+    price_component = (
         total_price
-        + economic_overhead
+        if total_price is not None
+        else 0
+    )
+
+    comparison = str(
+        mission.get("comparison") or ""
+    )
+
+    if (
+        "최저" in comparison
+        or "가격" in comparison
+    ):
+        time_weight = 0.5
+    elif (
+        "빠른" in comparison
+        or "시간" in comparison
+    ):
+        time_weight = 1.7
+    else:
+        time_weight = 1.0
+
+    effective_cost = round(
+        price_component
+        + distance_cost
+        + time_cost * time_weight
         + availability_penalty
     )
 
-    model_index = seed % 4
-    mock_models = [
-        "프리미엄 컴포트",
-        "고성능 투어링",
-        "SUV 컴포트",
-        "올시즌 퍼포먼스",
-    ]
-    mock_model = mock_models[model_index]
+    questions = _question_policy(mission)
 
     qa = [
         {
-            "question": (
-                f"요청한 타이어 {quantity}개를 오늘 "
-                "교체할 수 있나요?"
+            "question": fact,
+            "answer": _answer_for_fact(
+                fact,
+                total_price=total_price,
+                slots=available_slots,
+                wait_minutes=wait_minutes,
+                work_minutes=work_minutes,
             ),
-            "answer": (
-                f"가상 답변: {'재고 있음' if stock else '현재 재고 없음'}, "
-                f"예상 대기 {wait_minutes}분."
-            ),
-        },
-        {
-            "question": (
-                "장착비, 휠밸런스, 폐타이어 처리비까지 "
-                "모두 포함한 최종 결제금액은 얼마인가요?"
-            ),
-            "answer": (
-                f"가상 답변: 총 {total_price:,}원 "
-                "(부대비용 포함)."
-            ),
-        },
-        {
-            "question": (
-                "재고 타이어의 모델과 제조 상태, "
-                "보증 조건은 어떻게 되나요?"
-            ),
-            "answer": (
-                f"가상 답변: {mock_model} 계열 재고, "
-                "일반적인 제조사 보증 적용으로 가정."
-            ),
-        },
-        {
-            "question": (
-                "카드와 현금 결제 가격이 같은가요? "
-                "휠 얼라인먼트 등 추가 권유 비용이 생길 수 있나요?"
-            ),
-            "answer": (
-                "가상 답변: 결제수단에 따른 차이 없음, "
-                "추가 작업은 사전 동의 없이 진행하지 않는 것으로 가정."
-            ),
-        },
-        {
-            "question": (
-                "도착 후 대기와 실제 작업을 합치면 "
-                "총 얼마나 걸리나요?"
-            ),
-            "answer": (
-                f"가상 답변: 대기 약 {wait_minutes}분, "
-                f"작업 약 {work_minutes}분."
-            ),
-        },
+        }
+        for fact in questions
     ]
 
     result = dict(business)
+
     result.update(
         {
             "mock": True,
             "mock_call_result": (
-                "가상 통화 테스트 결과입니다. 실제 가격·재고가 아닙니다."
+                "가상 통화 테스트 결과입니다. "
+                "실제 가격·재고·예약 결과가 아닙니다."
             ),
             "mock_questions": qa,
             "mock_total_price": total_price,
-            "mock_stock": stock,
+            "mock_available_slots": available_slots,
+            "mock_requested_time": requested_time,
+            "mock_requested_time_available": (
+                requested_time_available
+            ),
             "mock_wait_minutes": wait_minutes,
             "mock_work_minutes": work_minutes,
             "distance_km": distance_km,
             "drive_minutes": drive_minutes,
-            "round_trip_minutes": round_trip_minutes,
-            "total_time_minutes": total_time_minutes,
-            "distance_cost_estimate": distance_cost,
+            "round_trip_minutes": (
+                round_trip_minutes
+            ),
+            "total_time_minutes": (
+                total_time_minutes
+            ),
+            "distance_cost_estimate": (
+                distance_cost
+            ),
             "time_cost_estimate": time_cost,
-            "economic_overhead": economic_overhead,
             "effective_cost": effective_cost,
-            "quantity": quantity,
         }
     )
+
     return result
 
 
-def simulate_mock_calls(mission, businesses, origin=None):
+def simulate_mock_calls(
+    mission,
+    businesses,
+    origin=None,
+):
     if not isinstance(mission, dict):
-        raise ValueError("조사 Mission 정보가 필요합니다.")
-    if not isinstance(businesses, list) or not businesses:
-        raise ValueError("가상 통화할 실제 업체 목록이 필요합니다.")
-
-    category = str(
-        mission.get("category") or "기타"
-    ).strip()
-    subject = str(
-        mission.get("subject") or ""
-    ).lower()
-
-    if category != "자동차" or "타이어" not in subject:
         raise ValueError(
-            "현재 POC 가상 통화 최적화는 자동차 타이어 조사부터 지원합니다."
+            "조사 Mission 정보가 필요합니다."
+        )
+
+    if (
+        not isinstance(businesses, list)
+        or not businesses
+    ):
+        raise ValueError(
+            "가상 통화할 실제 업체 목록이 필요합니다."
         )
 
     safe_businesses = [
@@ -296,13 +534,18 @@ def simulate_mock_calls(mission, businesses, origin=None):
         if isinstance(item, dict)
     ][:8]
 
+    if not safe_businesses:
+        raise ValueError(
+            "가상 통화할 실제 업체 목록이 필요합니다."
+        )
+
     resolved_origin = _reference_origin(
         safe_businesses,
         origin=origin,
     )
 
     called = [
-        _mock_tire_call(
+        _mock_business_call(
             mission,
             business,
             resolved_origin,
@@ -312,48 +555,123 @@ def simulate_mock_calls(mission, businesses, origin=None):
 
     called.sort(
         key=lambda item: (
-            not item.get("mock_stock", False),
-            item.get("effective_cost", 10**12),
-            item.get("mock_total_price", 10**12),
+            not item.get(
+                "mock_requested_time_available",
+                False,
+            ),
+            item.get(
+                "effective_cost",
+                10**12,
+            ),
+            item.get("mock_total_price")
+            if item.get(
+                "mock_total_price"
+            ) is not None
+            else 10**12,
         )
     )
 
-    for index, item in enumerate(called, start=1):
+    for index, item in enumerate(
+        called,
+        start=1,
+    ):
         item["economic_rank"] = index
 
     best = called[0]
+
+    requested_time = _requested_time(
+        mission
+    )
+
+    available_slots = (
+        best.get(
+            "mock_available_slots"
+        )
+        or []
+    )
+
+    slot_text = (
+        ", ".join(available_slots)
+        or "확인 필요"
+    )
+
+    price = best.get(
+        "mock_total_price"
+    )
+
+    price_text = (
+        f"{price:,}원"
+        if isinstance(
+            price,
+            (int, float),
+        )
+        else "가격 비교 제외"
+    )
+
     distance_text = (
         f"{best['distance_km']:.1f}km"
-        if best.get("distance_km") is not None
+        if best.get(
+            "distance_km"
+        ) is not None
         else "거리 계산 불가"
     )
-    time_text = (
-        f"차량 약 {best['drive_minutes']}분"
-        if best.get("drive_minutes") is not None
+
+    drive_text = (
+        f"차량 약 "
+        f"{best['drive_minutes']}분"
+        if best.get(
+            "drive_minutes"
+        ) is not None
         else "이동시간 계산 불가"
     )
 
     origin_label = (
         resolved_origin.get("label")
-        if isinstance(resolved_origin, dict)
-        else None
-    )
-    origin_source = (
-        resolved_origin.get("source")
-        if isinstance(resolved_origin, dict)
+        if isinstance(
+            resolved_origin,
+            dict,
+        )
         else None
     )
 
-    if origin_source == "user_search_region":
+    origin_source = (
+        resolved_origin.get("source")
+        if isinstance(
+            resolved_origin,
+            dict,
+        )
+        else None
+    )
+
+    if (
+        origin_source
+        == "user_search_region"
+    ):
         basis = (
-            "실제 업체 위치 + 가상 전화 견적을 이용한 POC 비교입니다. "
-            f"거리와 이동시간은 사용자가 지정한 검색 지역 "
-            f"{origin_label or ''} 기준의 대략적인 추정치입니다."
+            "실제 업체 위치 + 가상 전화 응답을 이용한 "
+            "POC 비교입니다. 거리와 이동시간은 "
+            f"사용자가 지정한 검색 지역 "
+            f"{origin_label or ''} 기준의 "
+            "대략적인 추정치입니다."
         )
     else:
         basis = (
-            "실제 업체 위치 + 가상 전화 견적을 이용한 POC 비교입니다. "
-            "정확한 사용자 출발 좌표가 없어 후보군 중심을 임시 기준으로 사용했습니다."
+            "실제 업체 위치 + 가상 전화 응답을 이용한 "
+            "POC 비교입니다. 정확한 사용자 출발 좌표가 없어 "
+            "후보군 중심을 임시 기준으로 사용했습니다."
+        )
+
+    if requested_time:
+        schedule_reason = (
+            f"희망시간 {requested_time} "
+            "가능 여부를 우선 반영했습니다."
+        )
+    else:
+        schedule_reason = (
+            "희망시간이 정해지지 않아 "
+            "업체가 제시한 가능시간 "
+            f"{slot_text}을 사용자 선택용으로 "
+            "함께 제공합니다."
         )
 
     return {
@@ -364,28 +682,51 @@ def simulate_mock_calls(mission, businesses, origin=None):
         "recommendation": {
             "business_id": best.get("id"),
             "name": best.get("name"),
-            "mock_total_price": best.get("mock_total_price"),
-            "distance_km": best.get("distance_km"),
-            "drive_minutes": best.get("drive_minutes"),
-            "total_time_minutes": best.get("total_time_minutes"),
-            "distance_cost_estimate": best.get(
-                "distance_cost_estimate"
+            "mock_total_price": price,
+            "available_slots": (
+                available_slots
             ),
-            "time_cost_estimate": best.get(
-                "time_cost_estimate"
+            "requested_time": (
+                requested_time
             ),
-            "effective_cost": best.get("effective_cost"),
+            "requested_time_available": (
+                best.get(
+                    "mock_requested_time_available"
+                )
+            ),
+            "distance_km": best.get(
+                "distance_km"
+            ),
+            "drive_minutes": best.get(
+                "drive_minutes"
+            ),
+            "total_time_minutes": (
+                best.get(
+                    "total_time_minutes"
+                )
+            ),
+            "distance_cost_estimate": (
+                best.get(
+                    "distance_cost_estimate"
+                )
+            ),
+            "time_cost_estimate": (
+                best.get(
+                    "time_cost_estimate"
+                )
+            ),
+            "effective_cost": best.get(
+                "effective_cost"
+            ),
             "reason": (
-                f"가상 총액 {best['mock_total_price']:,}원, "
-                f"{distance_text}, {time_text}, 대기·작업시간을 함께 반영했을 때 "
-                "현재 후보 중 실제 지출과 사용자의 시간비용을 합친 경제성 비용이 가장 낮습니다."
+                f"가상 통화 기준 {price_text}, "
+                f"{distance_text}, {drive_text}, "
+                "대기·처리시간과 예약 가능성을 함께 반영했을 때 "
+                "현재 후보 중 목표 달성 효율이 가장 높습니다. "
+                f"{schedule_reason}"
             ),
         },
-        "question_policy": [
-            "요청 규격·수량의 실제 재고와 당일 교체 가능 여부",
-            "장착비·휠밸런스·폐기비·부가세를 포함한 최종 결제금액",
-            "타이어 모델·제조 상태·보증 조건",
-            "카드·현금 가격 차이와 추가 작업·추가비용 가능성",
-            "대기시간과 실제 작업시간",
-        ],
+        "question_policy": (
+            _question_policy(mission)
+        ),
     }
