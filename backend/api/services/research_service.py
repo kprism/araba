@@ -199,6 +199,19 @@ def _compact_term_variants(term):
     return variants
 
 
+BROAD_SEARCH_MODES = {
+    "category_discovery",
+    "area_discovery",
+    "comparison",
+}
+
+
+def _is_broad_search(mission):
+    return str(
+        mission.get("search_mode") or ""
+    ).strip() in BROAD_SEARCH_MODES
+
+
 def _effective_target_business(mission):
     mode = str(
         mission.get("search_mode") or ""
@@ -664,6 +677,11 @@ def search_real_businesses(
     last_error = None
     selected_query = None
     documents = []
+    broad_search = _is_broad_search(
+        mission
+    )
+    collected = {}
+    kakao_total_count = None
 
     target_business = _effective_target_business(
         mission
@@ -696,7 +714,11 @@ def search_real_businesses(
                 },
                 params={
                     "query": query,
-                    "size": 8,
+                    "size": (
+                        15
+                        if broad_search
+                        else 8
+                    ),
                     **(
                         {
                             "x": reference_origin["longitude"],
@@ -730,9 +752,22 @@ def search_real_businesses(
 
         payload = response.json()
         raw_documents = payload.get("documents", [])
+        meta = payload.get("meta")
+        if (
+            kakao_total_count is None
+            and isinstance(meta, dict)
+            and isinstance(
+                meta.get("total_count"),
+                int,
+            )
+        ):
+            kakao_total_count = meta.get(
+                "total_count"
+            )
 
+        filtered = []
         if isinstance(raw_documents, list):
-            documents = [
+            filtered = [
                 item
                 for item in raw_documents
                 if isinstance(item, dict)
@@ -759,8 +794,43 @@ def search_real_businesses(
                 )
             ]
 
-        if documents:
+        if filtered and selected_query is None:
+            selected_query = query
+
+        if broad_search:
+            for item in filtered:
+                key = str(
+                    item.get("id")
+                    or "|".join(
+                        [
+                            str(
+                                item.get(
+                                    "place_name"
+                                )
+                                or ""
+                            ),
+                            str(
+                                item.get(
+                                    "address_name"
+                                )
+                                or ""
+                            ),
+                        ]
+                    )
+                )
+                if key and key not in collected:
+                    collected[key] = item
+
+            if len(collected) >= 12:
+                break
+        elif filtered:
+            documents = filtered
             break
+
+    if broad_search:
+        documents = list(
+            collected.values()
+        )[:12]
 
     if not documents and last_error is not None:
         raise ResearchProviderError(
@@ -811,7 +881,14 @@ def search_real_businesses(
         "primary_source": "kakao",
         "secondary_source": "naver_place",
         "search_query": selected_query,
+        "search_mode": str(
+            mission.get("search_mode")
+            or ""
+        ).strip(),
         "businesses": businesses,
+        "displayed_count": len(businesses),
+        "kakao_reported_total_count": kakao_total_count,
+        "count_is_exhaustive": False,
         "naver_matched_count": naver_matched_count,
         "naver_page_checked_count": naver_page_checked_count,
         "kakao_photo_count": sum(
