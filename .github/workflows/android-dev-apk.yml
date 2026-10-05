@@ -108,7 +108,6 @@ jobs:
 
           echo "EXPECTED_SHA256=$EXPECTED"
           echo "ACTUAL_SHA256=$ACTUAL"
-
           test "$EXPECTED" = "$ACTUAL"
 
       - name: Prepare stable APK name
@@ -122,7 +121,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Check this is still the newest main build
+      - name: Check newest main build
         id: freshness
         if: github.ref == 'refs/heads/main'
         working-directory: .
@@ -133,7 +132,6 @@ jobs:
             echo "latest=true" >> "$GITHUB_OUTPUT"
           else
             echo "latest=false" >> "$GITHUB_OUTPUT"
-            echo "A newer main commit exists. Skip publish and push notification."
           fi
 
       - name: Publish latest dev APK
@@ -156,53 +154,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts"             --paginate             --jq '.artifacts[] | select(.name=="araba-dev-apk") | [.id, .workflow_run.id] | @tsv'             > /tmp/araba-apk-artifacts.tsv
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts" \
+            --paginate \
+            --jq '.artifacts[] | select(.name=="araba-dev-apk") | [.id, .workflow_run.id] | @tsv' \
+            > /tmp/araba-apk-artifacts.tsv
 
-          while IFS=        working-directory: .
-        shell: bash
-        run: |
-          RESPONSE="$(curl -fsSL \
-            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=araba-update-notifier")"
-
-          OIDC_TOKEN="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$RESPONSE")"
-
-          for attempt in $(seq 1 18); do
-            STATUS="$(curl -sS \
-              -o /tmp/araba-notify-response.json \
-              -w "%{http_code}" \
-              -H "Authorization: Bearer ${OIDC_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -X POST \
-              "https://araba-api-dev-908580697493.asia-northeast3.run.app/api/internal/notify-update/" \
-              -d '{}')"
-
-            if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 300 ]; then
-              cat /tmp/araba-notify-response.json
-              echo
-              exit 0
-            fi
-
-            echo "Notify attempt $attempt failed with HTTP $STATUS"
-            cat /tmp/araba-notify-response.json || true
-            echo
-
-            if [ "$STATUS" -ge 400 ] && [ "$STATUS" -lt 500 ]; then
-              echo "Permanent client/auth error. Not retrying."
-              exit 1
-            fi
-
-            if [ "$attempt" -lt 18 ]; then
-              sleep 10
-            fi
-          done
-
-          exit 1
-\t' read -r artifact_id run_id; do
+          while IFS=$'\t' read -r artifact_id run_id; do
             [ -z "$artifact_id" ] && continue
             if [ "$run_id" != "$GITHUB_RUN_ID" ]; then
               echo "Deleting old APK artifact $artifact_id from run $run_id"
-              gh api --method DELETE                 "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id"
+              gh api --method DELETE \
+                "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id"
             fi
           done < /tmp/araba-apk-artifacts.tsv
 
@@ -217,34 +179,16 @@ jobs:
 
           OIDC_TOKEN="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$RESPONSE")"
 
-          for attempt in $(seq 1 18); do
-            STATUS="$(curl -sS \
-              -o /tmp/araba-notify-response.json \
-              -w "%{http_code}" \
-              -H "Authorization: Bearer ${OIDC_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -X POST \
-              "https://araba-api-dev-908580697493.asia-northeast3.run.app/api/internal/notify-update/" \
-              -d '{}')"
+          STATUS="$(curl -sS \
+            -o /tmp/araba-notify-response.json \
+            -w "%{http_code}" \
+            -H "Authorization: Bearer ${OIDC_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "https://araba-api-dev-908580697493.asia-northeast3.run.app/api/internal/notify-update/" \
+            -d '{}')"
 
-            if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 300 ]; then
-              cat /tmp/araba-notify-response.json
-              echo
-              exit 0
-            fi
-
-            echo "Notify attempt $attempt failed with HTTP $STATUS"
-            cat /tmp/araba-notify-response.json || true
-            echo
-
-            if [ "$STATUS" -ge 400 ] && [ "$STATUS" -lt 500 ]; then
-              echo "Permanent client/auth error. Not retrying."
-              exit 1
-            fi
-
-            if [ "$attempt" -lt 18 ]; then
-              sleep 10
-            fi
-          done
-
-          exit 1
+          cat /tmp/araba-notify-response.json || true
+          echo
+          test "$STATUS" -ge 200
+          test "$STATUS" -lt 300
