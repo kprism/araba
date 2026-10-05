@@ -99,6 +99,52 @@ class ConversationContext {
     }
   }
 
+  void rememberBusiness(
+    Map<String, dynamic> business,
+  ) {
+    final name =
+        business['name']?.toString().trim() ?? '';
+    if (name.isNotEmpty) {
+      _known['target_business'] = name;
+      _known['subject'] = name;
+    }
+
+    final address =
+        business['address']?.toString().trim() ?? '';
+    final phone =
+        business['phone']?.toString().trim() ?? '';
+
+    final current = _known['attributes'];
+    final merged = current is Map
+        ? Map<String, dynamic>.from(current)
+        : <String, dynamic>{};
+
+    if (name.isNotEmpty) {
+      merged['selected_business_name'] = name;
+    }
+    if (address.isNotEmpty) {
+      merged['selected_business_address'] = address;
+    }
+    if (phone.isNotEmpty) {
+      merged['selected_business_phone'] = phone;
+    }
+
+    final naver = business['naver'];
+    if (naver is Map) {
+      final hours = naver['opening_hours'];
+      if (hours is List && hours.isNotEmpty) {
+        merged['selected_business_opening_hours'] =
+            List<String>.from(
+          hours.map((item) => item.toString()),
+        );
+      }
+    }
+
+    if (merged.isNotEmpty) {
+      _known['attributes'] = merged;
+    }
+  }
+
   void rememberAttributes(
     Map<String, dynamic> attributes,
   ) {
