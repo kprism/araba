@@ -27,6 +27,8 @@ class ArabaApi {
   Map<String, String> _headers({
     String? apiKey,
     String? kakaoRestApiKey,
+    String? naverClientId,
+    String? naverClientSecret,
     String? twilioAccountSid,
     String? twilioAuthToken,
     String? twilioFromNumber,
@@ -46,6 +48,17 @@ class ArabaApi {
 
     if (kakaoKey != null && kakaoKey.isNotEmpty) {
       headers['X-Kakao-REST-API-Key'] = kakaoKey;
+    }
+
+    final naverId = naverClientId?.trim();
+    final naverSecret = naverClientSecret?.trim();
+
+    if (naverId != null && naverId.isNotEmpty) {
+      headers['X-Naver-Client-Id'] = naverId;
+    }
+
+    if (naverSecret != null && naverSecret.isNotEmpty) {
+      headers['X-Naver-Client-Secret'] = naverSecret;
     }
 
     final sid = twilioAccountSid?.trim();
@@ -116,16 +129,20 @@ class ArabaApi {
   Future<Map<String, dynamic>> searchBusinesses(
     Map<String, dynamic> mission, {
     required String kakaoRestApiKey,
+    String? naverClientId,
+    String? naverClientSecret,
   }) async {
     final response = await _request(
       () => http.post(
         _uri('/api/research/search/'),
         headers: _headers(
           kakaoRestApiKey: kakaoRestApiKey,
+          naverClientId: naverClientId,
+          naverClientSecret: naverClientSecret,
         ),
         body: jsonEncode({'mission': mission}),
       ),
-      timeout: const Duration(seconds: 10),
+      timeout: const Duration(seconds: 22),
     );
 
     return _decode(response);
