@@ -1,4 +1,5 @@
 import json
+import re
 
 from openai import OpenAI
 
@@ -132,6 +133,134 @@ ARABA는 자동차에 한정된 서비스가 아니다.
 """.strip()
 
 
+VALID_SEARCH_MODES = {
+    "exact_place",
+    "category_discovery",
+    "area_discovery",
+    "follow_up_detail",
+    "comparison",
+    "general",
+}
+
+
+def _current_request_text(request_text):
+    marker = "[현재 요청]"
+    if marker not in request_text:
+        return request_text.strip()
+
+    return request_text.split(
+        marker,
+        1,
+    )[1].strip()
+
+
+def _compact_text(value):
+    return re.sub(
+        r"[^0-9a-zA-Z가-힣]",
+        "",
+        str(value or "").lower(),
+    )
+
+
+def _has_follow_up_reference(text):
+    compact = _compact_text(text)
+    markers = (
+        "그곳",
+        "거기",
+        "그업체",
+        "그가게",
+        "그치과",
+        "그병원",
+        "그식당",
+        "그미용실",
+        "아까",
+        "방금",
+        "해당업체",
+        "해당가게",
+    )
+    return any(
+        marker in compact
+        for marker in markers
+    )
+
+
+def _normalize_search_scope(
+    mission,
+    request_text,
+):
+    current = _current_request_text(
+        request_text
+    )
+    current_compact = _compact_text(current)
+    target = str(
+        mission.get("target_business") or ""
+    ).strip()
+    target_compact = _compact_text(target)
+
+    target_is_explicit = bool(
+        target_compact
+        and target_compact in current_compact
+    )
+    follow_up_reference = (
+        _has_follow_up_reference(current)
+    )
+
+    mode = str(
+        mission.get("search_mode") or ""
+    ).strip()
+
+    if target:
+        if target_is_explicit:
+            if mode not in {
+                "exact_place",
+                "follow_up_detail",
+            }:
+                mission["search_mode"] = (
+                    "exact_place"
+                )
+        elif follow_up_reference:
+            mission["search_mode"] = (
+                "follow_up_detail"
+            )
+        else:
+            # 현재 질문에 상호가 없고 지시대명사도 없으면
+            # 과거의 특정 업체가 새 범위 검색을 가두지 못하게 한다.
+            mission["target_business"] = None
+            if mode in {
+                "",
+                "exact_place",
+                "follow_up_detail",
+                "general",
+            }:
+                mission["search_mode"] = (
+                    "category_discovery"
+                )
+
+    if (
+        str(
+            mission.get("search_mode") or ""
+        ).strip()
+        not in VALID_SEARCH_MODES
+    ):
+        if mission.get("target_business"):
+            mission["search_mode"] = (
+                "exact_place"
+            )
+        elif (
+            mission.get("ready_to_research")
+            is True
+        ):
+            mission["search_mode"] = (
+                "category_discovery"
+            )
+        else:
+            mission["search_mode"] = (
+                "general"
+            )
+
+    return mission
+
+
 def create_mission(user_request, api_key=None):
     request_text = str(user_request).strip()
 
@@ -211,7 +340,7 @@ def create_mission(user_request, api_key=None):
     mission.setdefault("subcategories", [])
     mission.setdefault("target_business", None)
     mission.setdefault("location_explicit", False)
-    mission.setdefault("search_mode", "general")
+    mission.setdefault("search_mode", "")
     mission.setdefault("intent", "조사")
     mission.setdefault(
         "response_mode",
@@ -237,5 +366,10 @@ def create_mission(user_request, api_key=None):
 
     if not isinstance(mission["search_terms"], list):
         mission["search_terms"] = []
+
+    mission = _normalize_search_scope(
+        mission,
+        request_text,
+    )
 
     return mission
