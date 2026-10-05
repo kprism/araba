@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
+import '../../services/conversation_context.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
 
@@ -22,8 +23,10 @@ class _HomeScreenState extends State<HomeScreen> {
   final _api = ArabaApi();
   final _keyStore = ApiKeyStore();
   final _kakaoStore = KakaoCredentialStore();
+  final _conversationContext = ConversationContext();
 
   LiveVoiceService? _liveVoice;
+  Timer? _researchTipTimer;
 
   final List<_Message> _messages = [
     _Message(
@@ -37,6 +40,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _sending = false;
   bool _researching = false;
   String _liveStatus = '';
+  String _researchStage = '';
+  List<String> _researchTips = const [];
+  int _researchTipIndex = 0;
   String? _liveTranscriptSpeaker;
   int? _liveTranscriptMessageIndex;
 
@@ -80,6 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
       liveVoice = LiveVoiceService(
         api: _api,
         apiKey: apiKey,
+        conversationContext: _conversationContext,
         onStatus: (status) {
           if (!mounted || _liveVoice != liveVoice) return;
 
@@ -232,20 +239,110 @@ class _HomeScreenState extends State<HomeScreen> {
         .toList();
   }
 
+  List<String> _researchTipsFor(
+    Map<String, dynamic> mission,
+  ) {
+    final category =
+        mission['category']?.toString().trim() ?? '';
+    final subject =
+        mission['subject']?.toString().toLowerCase() ?? '';
+
+    if (category == '자동차' && subject.contains('타이어')) {
+      return const [
+        '타이어는 같은 규격이라도 제조주차에 따라 가격과 선호도가 달라질 수 있어요.',
+        '견적을 비교할 때 장착비, 휠밸런스, 폐타이어 처리비 포함 여부를 같이 보세요.',
+        '앞 타이어 2개만 교체할 때는 좌우 같은 모델과 규격으로 맞추는 게 기본입니다.',
+        '가장 싼 가격만 보기보다 재고와 당일 장착 가능 시간까지 같이 확인하면 헛걸음을 줄일 수 있어요.',
+      ];
+    }
+
+    if (category == '자동차') {
+      return const [
+        '정비 견적은 부품값과 공임이 따로 표시되는지 확인하면 비교가 쉬워요.',
+        '방문 전 재고와 당일 작업 가능 시간을 확인하면 대기 시간을 줄일 수 있어요.',
+        '같은 작업도 차량 모델과 부품 등급에 따라 실제 결제금액이 달라질 수 있어요.',
+      ];
+    }
+
+    return const [
+      '검색 중에는 표시 가격보다 추가비용과 실제 이용 가능 여부를 함께 확인하고 있어요.',
+      '후기보다 영업시간, 재고, 예약 가능 여부처럼 자주 바뀌는 정보를 우선 확인하는 게 좋아요.',
+      '후보가 너무 적으면 가까운 상위 지역까지 자동으로 범위를 넓혀 다시 찾아볼게요.',
+    ];
+  }
+
+  String get _currentResearchTip {
+    if (_researchTips.isEmpty) return '';
+    return _researchTips[
+      _researchTipIndex % _researchTips.length
+    ];
+  }
+
+  void _startResearchProgress(
+    Map<String, dynamic> mission,
+  ) {
+    _researchTipTimer?.cancel();
+    final tips = _researchTipsFor(mission);
+
+    setState(() {
+      _researching = true;
+      _researchStage = '실제 업체를 빠르게 찾는 중';
+      _researchTips = tips;
+      _researchTipIndex = 0;
+    });
+
+    _researchTipTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) {
+        if (!mounted ||
+            !_researching ||
+            _researchTips.length < 2) {
+          return;
+        }
+
+        setState(() {
+          _researchTipIndex =
+              (_researchTipIndex + 1) % _researchTips.length;
+        });
+      },
+    );
+  }
+
+  void _updateResearchStage(String stage) {
+    if (!mounted || !_researching) return;
+    setState(() => _researchStage = stage);
+  }
+
+  void _stopResearchProgress() {
+    _researchTipTimer?.cancel();
+    _researchTipTimer = null;
+
+    if (!mounted) return;
+
+    setState(() {
+      _researching = false;
+      _researchStage = '';
+      _researchTips = const [];
+      _researchTipIndex = 0;
+    });
+  }
+
   Future<void> _runRealResearch(
     Map<String, dynamic> mission,
   ) async {
     if (_researching) return;
 
-    setState(() => _researching = true);
+    _startResearchProgress(mission);
 
     const startText =
-        '조건 정리가 끝났어요. 실제 업체를 찾고 있어요. 현재 0곳 찾았어요.';
+        '조건 정리가 끝났어요. 실제 업체를 빠르게 찾고 있어요.';
     _addAssistantMessage(
       text: startText,
       badge: '실제 검색 중',
     );
-    _speakProgress('조건 정리가 끝났어요. 실제 업체를 바로 찾아볼게요.');
+    _speakProgress(
+      '조건 정리가 끝났어요. 실제 업체를 바로 찾아볼게요.',
+    );
 
     try {
       final kakaoRestApiKey = await _kakaoStore.read();
@@ -255,6 +352,8 @@ class _HomeScreenState extends State<HomeScreen> {
           'MY의 관리자 API 설정에서 Kakao REST API Key를 먼저 등록해주세요.',
         );
       }
+
+      _updateResearchStage('카카오맵에서 실제 업체 검색 중');
 
       final result = await _api.searchBusinesses(
         mission,
@@ -267,7 +366,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (businesses.isEmpty) {
         const noResult =
             '실제 장소검색 결과에서 조건에 맞는 업체를 찾지 못했어요. '
-            '검색 조건을 조금 넓혀 다시 시도해 주세요.';
+            '세부 지역 결과가 없으면 상위 지역까지 자동으로 넓혀 검색했습니다.';
         _addAssistantMessage(
           text: noResult,
           badge: '검색 결과 없음',
@@ -276,8 +375,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      await Future<void>.delayed(
-        const Duration(milliseconds: 450),
+      _updateResearchStage(
+        '${businesses.length}곳 확인 · 결과 정리 중',
       );
 
       _addAssistantMessage(
@@ -299,19 +398,12 @@ class _HomeScreenState extends State<HomeScreen> {
           final tip = item.toString().trim();
           if (tip.isEmpty) continue;
 
-          await Future<void>.delayed(
-            const Duration(milliseconds: 650),
-          );
           _addAssistantMessage(
             text: tip,
             badge: '알아두면 좋아요',
           );
         }
       }
-
-      await Future<void>.delayed(
-        const Duration(milliseconds: 650),
-      );
 
       const callText =
           '이 실제 업체들에 전화해서 가격, 재고, 가능 시간 같은 최신 정보를 '
@@ -322,10 +414,6 @@ class _HomeScreenState extends State<HomeScreen> {
         badge: '전화 확인',
       );
       _speakProgress(callText);
-
-      await Future<void>.delayed(
-        const Duration(milliseconds: 1100),
-      );
 
       final calledBusinesses = businesses
           .map((business) {
@@ -350,7 +438,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final firstBusiness = calledBusinesses.first;
       final firstName =
-          firstBusiness['name']?.toString().trim() ?? '첫 번째 업체';
+          firstBusiness['name']?.toString().trim() ??
+          '첫 번째 업체';
       final summary =
           '가상 통화 흐름 테스트에서는 $firstName을 임시 1순위로 보여드릴게요. '
           '다만 가격, 재고, 예약 가능 여부는 실제 통화를 하지 않았기 때문에 '
@@ -365,10 +454,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 .where((item) => item.trim().isNotEmpty)
                 .toList()
           : <String>[];
-
-      await Future<void>.delayed(
-        const Duration(milliseconds: 550),
-      );
 
       _addAssistantMessage(
         text: summary,
@@ -388,9 +473,7 @@ class _HomeScreenState extends State<HomeScreen> {
         badge: '검색 오류',
       );
     } finally {
-      if (mounted) {
-        setState(() => _researching = false);
-      }
+      _stopResearchProgress();
     }
   }
 
@@ -570,8 +653,10 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
 
+      final contextualRequest =
+          _conversationContext.enrichRequest(requestText);
       final result = await _api.createMission(
-        requestText,
+        contextualRequest,
         apiKey: apiKey,
       );
 
@@ -584,6 +669,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
 
+      _conversationContext.rememberMission(mission);
       final clarifications = _clarifications(mission);
 
       if (clarifications.isNotEmpty) {
@@ -593,7 +679,7 @@ class _HomeScreenState extends State<HomeScreen> {
               isUser: false,
               text: _reply(mission),
               mission: mission,
-              requestContext: requestText,
+              requestContext: contextualRequest,
             ),
           );
         });
@@ -606,7 +692,7 @@ class _HomeScreenState extends State<HomeScreen> {
               isUser: false,
               text: _reply(mission),
               mission: mission,
-              requestContext: requestText,
+              requestContext: contextualRequest,
             ),
           );
         });
@@ -637,6 +723,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _researchTipTimer?.cancel();
     _liveVoice?.stop(force: true);
     _controller.dispose();
     _scroll.dispose();
@@ -741,6 +828,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
                 ),
+                if (_researching && _researchTips.isNotEmpty)
+                  _ResearchTipPopup(
+                    stage: _researchStage,
+                    tip: _currentResearchTip,
+                  ),
                 if (_liveConnecting || _liveActive)
                   _LivePanel(
                     status: _liveStatus,
@@ -750,7 +842,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller: _controller,
                   focusNode: _focus,
                   listening: _liveActive,
-                  sending: _sending || _liveConnecting,
+                  sending:
+                      _sending || _liveConnecting || _researching,
                   onMic: _toggleLiveVoice,
                   onSend: _send,
                 ),
@@ -1415,6 +1508,90 @@ class _ThinkingBubble extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ResearchTipPopup extends StatelessWidget {
+  final String stage;
+  final String tip;
+
+  const _ResearchTipPopup({
+    required this.stage,
+    required this.tip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F5FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFB7CCFF),
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A3157D5),
+            blurRadius: 14,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.4,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  stage,
+                  style: const TextStyle(
+                    color: Color(0xFF1939A6),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '기다리는 동안 알아두면 좋아요',
+                  style: TextStyle(
+                    color: Color(0xFF667085),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                AnimatedSwitcher(
+                  duration: Duration(milliseconds: 250),
+                  child: Text(
+                    tip,
+                    key: ValueKey(tip),
+                    style: const TextStyle(
+                      color: Color(0xFF344054),
+                      fontSize: 12.5,
+                      height: 1.4,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
