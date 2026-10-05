@@ -464,6 +464,30 @@ def voice_test_call(request):
             auth_token=auth_token,
             from_number=from_number or None,
             api_key=_request_api_key(request),
+            voice_gender=str(
+                request.data.get(
+                    "voice_gender",
+                    "female",
+                )
+            ),
+            voice_speed=str(
+                request.data.get(
+                    "voice_speed",
+                    "medium",
+                )
+            ),
+            training_mode=bool(
+                request.data.get(
+                    "training_mode",
+                    False,
+                )
+            ),
+            training_category=str(
+                request.data.get(
+                    "training_category",
+                    "",
+                )
+            ),
         )
 
         return Response(
