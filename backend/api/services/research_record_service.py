@@ -55,6 +55,11 @@ def _serialize_record(record):
             if isinstance(record.businesses, list)
             else 0
         ),
+        "businesses": (
+            record.businesses
+            if isinstance(record.businesses, list)
+            else []
+        ),
         "recommendation": recommendation,
         "basis": record.basis,
     }
