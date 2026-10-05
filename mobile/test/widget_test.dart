@@ -40,6 +40,13 @@ void main() {
 
     expect(find.text('관리자 API 설정'), findsOneWidget);
     expect(find.text('OpenAI API'), findsOneWidget);
+
+    await tester.drag(
+      find.byType(ListView),
+      const Offset(0, -700),
+    );
+    await tester.pumpAndSettle();
+
     expect(find.text('Kakao Local API'), findsOneWidget);
   });
 }
