@@ -3,6 +3,7 @@ import logging
 import httpx
 
 from .openai_service import get_api_key
+from .training_service import active_rules_text
 
 
 OPENAI_LIVE_SESSIONS_URL = "https://api.openai.com/v1/live/sessions"
@@ -34,7 +35,13 @@ class LiveConfigurationError(ValueError):
     pass
 
 
-def create_live_session(offer_sdp, api_key=None):
+def create_live_session(
+    offer_sdp,
+    api_key=None,
+    *,
+    voice_gender="female",
+    voice_speed="medium",
+):
     offer_sdp = "" if offer_sdp is None else str(offer_sdp)
 
     if not offer_sdp.strip():
@@ -68,13 +75,49 @@ def create_live_session(offer_sdp, api_key=None):
             "OpenAI API Key가 설정되지 않았습니다."
         )
 
+    gender = str(
+        voice_gender or "female"
+    ).strip().lower()
+    speed = str(
+        voice_speed or "medium"
+    ).strip().lower()
+
+    voice = (
+        "cedar"
+        if gender == "male"
+        else "marin"
+    )
+
+    speed_instruction = {
+        "slow": "평소보다 조금 느리고 또렷하게 말한다.",
+        "fast": "핵심이 잘 들리는 범위에서 조금 빠르게 말한다.",
+    }.get(
+        speed,
+        "자연스러운 보통 속도로 말한다.",
+    )
+
+    learned_rules = active_rules_text(
+        limit=30,
+    )
+    instructions = (
+        LIVE_SYSTEM_PROMPT
+        + "\n- 음성속도 지침: "
+        + speed_instruction
+    )
+
+    if learned_rules:
+        instructions += (
+            "\n\n누적된 재발방지 학습규칙:\n"
+            + learned_rules
+        )
+
     payload = {
         "session": {
             "model": "gpt-live-1",
-            "instructions": LIVE_SYSTEM_PROMPT,
+            "instructions": instructions,
             "audio": {
                 "output": {
-                    "voice": "marin",
+                    "voice": voice,
                 },
             },
             "delegation": {
