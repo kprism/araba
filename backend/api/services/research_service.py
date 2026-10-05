@@ -704,8 +704,6 @@ def search_real_businesses(
             search_mission["location"] = canonical_location
 
     for query in _search_queries(search_mission):
-        selected_query = query
-
         try:
             response = httpx.get(
                 KAKAO_LOCAL_SEARCH_URL,
