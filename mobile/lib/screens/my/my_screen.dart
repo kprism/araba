@@ -447,6 +447,8 @@ class _MyScreenState extends State<MyScreen> {
         twilioAccountSid: twilio.accountSid,
         twilioAuthToken: twilio.authToken,
         twilioFromNumber: twilio.fromNumber,
+        voiceGender: _voiceGender,
+        voiceSpeed: _voiceSpeed,
       );
 
       if (!mounted) {
