@@ -30,9 +30,12 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _liveConnecting = false;
   bool _liveActive = false;
   bool _sending = false;
+  bool _researching = false;
   String _liveStatus = '';
   String _liveUserTranscript = '';
   String _liveAssistantTranscript = '';
+  String? _liveTranscriptSpeaker;
+  int? _liveTranscriptMessageIndex;
 
   Future<void> _toggleLiveVoice() async {
     final current = _liveVoice;
@@ -99,22 +102,34 @@ class _HomeScreenState extends State<HomeScreen> {
             } else {
               _liveAssistantTranscript += delta;
             }
-          });
-          _toBottom();
-        },
-        onMission: (mission) {
-          if (!mounted || _liveVoice != liveVoice) return;
-
-          setState(() {
-            _messages.add(
-              _Message(
-                isUser: false,
-                text: _reply(mission),
-                mission: mission,
-              ),
+            _appendLiveTranscript(
+              isUser: isUser,
+              delta: delta,
             );
           });
           _toBottom();
+        },
+        onMission: (mission, requestContext) {
+          if (!mounted || _liveVoice != liveVoice) return;
+
+          final clarifications = _clarifications(mission);
+
+          if (clarifications.isNotEmpty) {
+            setState(() {
+              _messages.add(
+                _Message(
+                  isUser: false,
+                  text: _reply(mission),
+                  mission: mission,
+                  requestContext: requestContext,
+                ),
+              );
+            });
+            _toBottom();
+            return;
+          }
+
+          unawaited(_runResearchSimulation(mission));
         },
         onError: (message) {
           if (!mounted || _liveVoice != liveVoice) return;
@@ -152,6 +167,254 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(content: Text(message)),
       );
     }
+  }
+
+  void _appendLiveTranscript({
+    required bool isUser,
+    required String delta,
+  }) {
+    if (delta.isEmpty) return;
+
+    final speaker = isUser ? 'user' : 'assistant';
+    final existingIndex = _liveTranscriptMessageIndex;
+
+    if (_liveTranscriptSpeaker != speaker ||
+        existingIndex == null ||
+        existingIndex < 0 ||
+        existingIndex >= _messages.length) {
+      _messages.add(
+        _Message(
+          isUser: isUser,
+          text: delta,
+          isLiveTranscript: true,
+        ),
+      );
+      _liveTranscriptSpeaker = speaker;
+      _liveTranscriptMessageIndex = _messages.length - 1;
+      return;
+    }
+
+    _messages[existingIndex].text += delta;
+  }
+
+  void _addAssistantMessage({
+    required String text,
+    String? badge,
+    List<Map<String, dynamic>>? businesses,
+    String? actionQuestion,
+    List<String>? actions,
+  }) {
+    if (!mounted) return;
+
+    setState(() {
+      _messages.add(
+        _Message(
+          isUser: false,
+          text: text,
+          badge: badge,
+          businesses: businesses,
+          actionQuestion: actionQuestion,
+          actions: actions,
+        ),
+      );
+    });
+    _toBottom();
+  }
+
+  void _speakProgress(String text) {
+    _liveVoice?.speakCommentary(text);
+  }
+
+  List<Map<String, dynamic>> _businessesFrom(
+    Map<String, dynamic> result,
+  ) {
+    final value = result['businesses'];
+    if (value is! List) return const [];
+
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  Future<void> _runResearchSimulation(
+    Map<String, dynamic> mission,
+  ) async {
+    if (_researching) return;
+
+    setState(() => _researching = true);
+
+    const startText = '조건 정리가 끝났어요. 업체를 찾고 있어요. 현재 0곳 찾았어요.';
+    _addAssistantMessage(
+      text: startText,
+      badge: '조사 중',
+    );
+    _speakProgress('조건 정리가 끝났어요. 바로 업체를 찾아볼게요.');
+
+    try {
+      final result = await _api.simulateResearch(mission);
+      final businesses = _businessesFrom(result);
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 650),
+      );
+
+      _addAssistantMessage(
+        text: '${businesses.length}곳 찾았어요. 비교할 후보를 카드로 보여드릴게요.',
+        badge: '가상 테스트',
+        businesses: businesses,
+      );
+      _speakProgress(
+        '${businesses.length}곳을 찾았어요. 조건을 비교하고 있습니다.',
+      );
+
+      final lifeInfo = result['life_info'];
+      if (lifeInfo is List) {
+        for (final item in lifeInfo.take(2)) {
+          final tip = item.toString().trim();
+          if (tip.isEmpty) continue;
+
+          await Future<void>.delayed(
+            const Duration(milliseconds: 750),
+          );
+          _addAssistantMessage(
+            text: tip,
+            badge: '알아두면 좋아요',
+          );
+        }
+      }
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 700),
+      );
+
+      const callText =
+          '이 업체들에 전화해서 가격, 가능 여부 같은 최신 정보를 확인할게요. '
+          '지금은 실제 전화 대신 가상 통화로 테스트합니다.';
+      _addAssistantMessage(
+        text: callText,
+        badge: '전화 확인',
+      );
+      _speakProgress(callText);
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 1200),
+      );
+
+      _addAssistantMessage(
+        text: '가상 전화 확인을 마쳤어요. 각 업체 카드에 통화 확인 결과를 표시했어요.',
+        badge: '통화 결과',
+        businesses: businesses,
+      );
+      _speakProgress('가상 전화 확인을 마쳤어요. 이제 가장 적합한 곳을 추천할게요.');
+
+      final recommendation = result['recommendation'];
+      final recommendationMap = recommendation is Map
+          ? Map<String, dynamic>.from(recommendation)
+          : <String, dynamic>{};
+      final summary =
+          recommendationMap['summary']?.toString().trim() ??
+          '비교가 끝났어요.';
+      final finalQuestion =
+          result['final_question']?.toString().trim() ??
+          '이 업체로 진행할까요?';
+      final rawActions = result['actions'];
+      final actions = rawActions is List
+          ? rawActions
+                .map((item) => item.toString())
+                .where((item) => item.trim().isNotEmpty)
+                .toList()
+          : <String>[];
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 650),
+      );
+
+      _addAssistantMessage(
+        text: summary,
+        badge: '추천',
+        businesses: businesses.take(1).toList(),
+        actionQuestion: finalQuestion,
+        actions: actions,
+      );
+      _speakProgress('$summary $finalQuestion');
+    } catch (error) {
+      final message = error is ArabaApiException
+          ? error.message
+          : '조사 시뮬레이션 중 문제가 생겼어요.';
+
+      _addAssistantMessage(
+        text: message,
+        badge: '오류',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _researching = false);
+      }
+    }
+  }
+
+  Future<void> _handleResearchAction(
+    String action,
+    _Message source,
+  ) async {
+    if (_researching) return;
+
+    setState(() {
+      _messages.add(
+        _Message(
+          isUser: true,
+          text: action,
+        ),
+      );
+    });
+    _toBottom();
+
+    if (action == '예약하기') {
+      setState(() => _researching = true);
+
+      const calling =
+          '추천 업체에 예약 전화를 걸고 있어요. 지금은 가상 통화로 진행합니다.';
+      _addAssistantMessage(
+        text: calling,
+        badge: '가상 예약',
+      );
+      _speakProgress(calling);
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 1400),
+      );
+
+      const done =
+          '가상 예약 시뮬레이션이 완료됐어요. 실제 예약은 아직 이루어지지 않았습니다. '
+          '다음 단계에서 실제 예약 성공 시 ARABA 일정에 자동 등록하고 사전 알림까지 연결할게요.';
+      _addAssistantMessage(
+        text: done,
+        badge: '가상 예약 완료',
+      );
+      _speakProgress(done);
+
+      if (mounted) {
+        setState(() => _researching = false);
+      }
+      return;
+    }
+
+    if (action == '다른 후보 보기') {
+      final businesses = source.businesses ?? const [];
+      _addAssistantMessage(
+        text: '다른 후보도 함께 비교해볼게요. 현재는 가상 테스트 결과입니다.',
+        badge: '다른 후보',
+        businesses: businesses,
+      );
+      _speakProgress('다른 후보도 함께 비교해서 보여드릴게요.');
+      return;
+    }
+
+    _addAssistantMessage(
+      text: '알겠어요. 여기까지 정리해둘게요.',
+    );
+    _speakProgress('알겠어요. 여기까지 정리해둘게요.');
   }
 
   void _toBottom() {
