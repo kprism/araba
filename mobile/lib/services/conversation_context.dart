@@ -17,8 +17,13 @@ class ConversationContext {
       return text;
     }
 
+    final knownLocation =
+        _known['location']?.toString().trim() ?? '';
+
     return [
       '[대화 문맥]',
+      if (knownLocation.isNotEmpty)
+        '[대화 문맥] 이미 확인된 지역: $knownLocation',
       jsonEncode(_known),
       '이미 확인된 정보는 사용자가 바꾸지 않는 한 유지하고 다시 묻지 마세요.',
       '후속 명령이면 현재 주제와 대상을 유지하세요.',
