@@ -211,6 +211,18 @@ def live_session_create(request):
         result = create_live_session(
             offer_sdp,
             api_key,
+            voice_gender=str(
+                request.data.get(
+                    "voice_gender",
+                    "female",
+                )
+            ),
+            voice_speed=str(
+                request.data.get(
+                    "voice_speed",
+                    "medium",
+                )
+            ),
         )
 
         return Response(
