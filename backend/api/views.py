@@ -288,6 +288,7 @@ def research_search(request):
 @api_view(["POST"])
 def mock_call_compare(request):
     from .services.mock_call_service import simulate_mock_calls
+    from .services.research_record_service import save_research_record
 
     mission = request.data.get("mission")
     businesses = request.data.get("businesses")
@@ -297,9 +298,14 @@ def mock_call_compare(request):
             mission,
             businesses,
         )
+        record = save_research_record(
+            mission,
+            result,
+        )
         return Response(
             {
                 "ok": True,
+                "record_id": record.id,
                 **result,
             }
         )
@@ -311,6 +317,29 @@ def mock_call_compare(request):
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+
+@api_view(["GET"])
+def research_history(request):
+    from .services.research_record_service import (
+        list_research_records_grouped,
+    )
+
+    try:
+        limit = int(
+            request.query_params.get("limit", "50")
+        )
+    except ValueError:
+        limit = 50
+
+    return Response(
+        {
+            "ok": True,
+            **list_research_records_grouped(
+                limit=limit,
+            ),
+        }
+    )
 
 
 @api_view(["POST"])
