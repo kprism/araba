@@ -50,6 +50,11 @@ urlpatterns = [
         name="research-history",
     ),
     path(
+        "images/analyze/",
+        views.image_analyze,
+        name="image-analyze",
+    ),
+    path(
         "notifications/register/",
         views.notification_register,
         name="notification-register",
