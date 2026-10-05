@@ -1,4 +1,5 @@
 import os
+import re
 
 import httpx
 
@@ -151,37 +152,55 @@ def _search_queries(mission):
     location = str(
         mission.get("location") or ""
     ).strip()
+
+    raw_terms = mission.get("search_terms")
+    search_terms = (
+        [
+            str(item).strip()
+            for item in raw_terms
+            if str(item).strip()
+        ]
+        if isinstance(raw_terms, list)
+        else []
+    )
+
+    raw_subcategories = mission.get("subcategories")
+    subcategories = (
+        [
+            str(item).strip()
+            for item in raw_subcategories
+            if str(item).strip()
+        ]
+        if isinstance(raw_subcategories, list)
+        else []
+    )
+
     subject = str(
         mission.get("subject") or ""
     ).strip()
     category = str(
-        mission.get("category") or "기타"
+        mission.get("category") or ""
     ).strip()
 
-    subject_lower = subject.lower()
-    generic_subject = subject
-
-    if category == "자동차":
-        if "타이어" in subject_lower:
-            generic_subject = "타이어"
-        elif any(
-            token in subject_lower
-            for token in ("정비", "수리", "카센터")
-        ):
-            generic_subject = "자동차정비"
+    terms = []
+    for item in [
+        *search_terms,
+        *subcategories,
+        subject,
+        category,
+    ]:
+        if item and item not in terms:
+            terms.append(item)
 
     queries = []
 
-    # 카카오 장소검색은 자연어 조건 전체보다
-    # "지역 + 업종" 형태가 훨씬 안정적이다.
-    # 가장 성공률 높은 짧은 검색어를 먼저 보낸다.
     for location_variant in _location_variants(location):
-        for candidate_subject in (generic_subject, subject):
+        for term in terms:
             query = " ".join(
                 part
                 for part in (
                     location_variant,
-                    candidate_subject,
+                    term,
                 )
                 if part
             ).strip()
@@ -194,44 +213,60 @@ def _search_queries(mission):
             "실제 업체 검색에 사용할 지역 또는 대상 정보가 부족합니다."
         )
 
-    return queries[:6]
+    return queries[:8]
+
+
+def _mission_keywords(mission):
+    values = []
+
+    for key in ("search_terms", "subcategories"):
+        raw = mission.get(key)
+        if isinstance(raw, list):
+            values.extend(
+                str(item).lower().strip()
+                for item in raw
+                if str(item).strip()
+            )
+
+    if not values:
+        values.append(
+            str(
+                mission.get("subject") or ""
+            ).lower().strip()
+        )
+
+    keywords = []
+    for value in values:
+        for token in re.findall(
+            r"[0-9a-zA-Z가-힣]{2,}",
+            value,
+        ):
+            if token not in keywords:
+                keywords.append(token)
+
+    return keywords[:12]
+
 
 def _matches_mission(document, mission):
-    category = str(
-        mission.get("category") or "기타"
-    ).strip()
-    subject = str(
-        mission.get("subject") or ""
-    ).lower()
-    place_name = str(
-        document.get("place_name") or ""
-    ).lower()
-    place_category = str(
-        document.get("category_name") or ""
-    ).lower()
+    keywords = _mission_keywords(mission)
+    if not keywords:
+        return True
 
-    if category == "자동차":
-        allowed_tokens = (
-            "자동차",
-            "타이어",
-            "정비",
-            "카센터",
-            "휠",
-        )
-        if not any(
-            token in place_category or token in place_name
-            for token in allowed_tokens
-        ):
-            return False
+    haystack = " ".join(
+        [
+            str(
+                document.get("place_name") or ""
+            ).lower(),
+            str(
+                document.get("category_name") or ""
+            ).lower(),
+        ]
+    )
 
-        if "타이어" in subject and not any(
-            token in place_category or token in place_name
-            for token in ("타이어", "휠", "자동차정비", "카센터")
-        ):
-            return False
-
-    return True
-
+    return any(
+        keyword in haystack
+        for keyword in keywords
+    )
 
 def _normalize_business(document):
     road_address = str(
