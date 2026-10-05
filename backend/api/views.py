@@ -232,9 +232,11 @@ def live_session_create(request):
 
 
 @api_view(["POST"])
-def research_simulate(request):
-    from .services.research_simulation_service import (
-        build_research_simulation,
+def research_search(request):
+    from .services.research_service import (
+        ResearchConfigurationError,
+        ResearchProviderError,
+        search_real_businesses,
     )
 
     mission = request.data.get("mission")
@@ -248,12 +250,30 @@ def research_simulate(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    return Response(
-        {
-            "ok": True,
-            **build_research_simulation(mission),
-        }
-    )
+    try:
+        result = search_real_businesses(mission)
+        return Response(
+            {
+                "ok": True,
+                **result,
+            }
+        )
+    except ResearchConfigurationError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    except ResearchProviderError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
 
 @api_view(["POST"])
