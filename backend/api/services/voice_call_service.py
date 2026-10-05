@@ -177,11 +177,41 @@ def _validate_session_token(token):
     return data
 
 
-def _say(response_or_gather, text):
-    response_or_gather.say(
-        text,
+def _say(
+    response_or_gather,
+    text,
+    *,
+    voice_gender="female",
+    voice_speed="medium",
+):
+    gender = str(
+        voice_gender or "female"
+    ).strip().lower()
+    speed = str(
+        voice_speed or "medium"
+    ).strip().lower()
+
+    voice = (
+        "Google.ko-KR-Wavenet-D"
+        if gender == "male"
+        else "Polly.Seoyeon-Neural"
+    )
+    rate = {
+        "slow": "85%",
+        "fast": "115%",
+    }.get(
+        speed,
+        "100%",
+    )
+
+    say = response_or_gather.say(
+        "",
         language="ko-KR",
-        voice="Polly.Seoyeon-Neural",
+        voice=voice,
+    )
+    say.prosody(
+        str(text),
+        rate=rate,
     )
 
 
@@ -369,12 +399,24 @@ def build_answer_twiml(session_token):
     _say(
         gather,
         greeting,
+        voice_gender=session.get(
+            "voice_gender"
+        ),
+        voice_speed=session.get(
+            "voice_speed"
+        ),
     )
     response.append(gather)
 
     _say(
         response,
         "말씀이 들리지 않았어요. 테스트 통화를 종료할게요.",
+        voice_gender=session.get(
+            "voice_gender"
+        ),
+        voice_speed=session.get(
+            "voice_speed"
+        ),
     )
     response.hangup()
 
@@ -467,6 +509,12 @@ def build_response_twiml(
         _say(
             response,
             "말씀을 잘 듣지 못했어요. 다시 한 번 전화 테스트를 해주세요.",
+            voice_gender=session.get(
+                "voice_gender"
+            ),
+            voice_speed=session.get(
+                "voice_speed"
+            ),
         )
         response.hangup()
         return str(response)
@@ -475,6 +523,12 @@ def build_response_twiml(
         _say(
             response,
             "네, 음성통화 테스트를 마칠게요. 감사합니다.",
+            voice_gender=session.get(
+                "voice_gender"
+            ),
+            voice_speed=session.get(
+                "voice_speed"
+            ),
         )
         response.hangup()
         return str(response)
@@ -537,12 +591,27 @@ def build_response_twiml(
         action_on_empty_result=True,
     )
 
-    _say(gather, ai["reply"])
+    _say(
+        gather,
+        ai["reply"],
+        voice_gender=session.get(
+            "voice_gender"
+        ),
+        voice_speed=session.get(
+            "voice_speed"
+        ),
+    )
     response.append(gather)
 
     _say(
         response,
         "추가 말씀이 없어 테스트 통화를 종료할게요.",
+        voice_gender=session.get(
+            "voice_gender"
+        ),
+        voice_speed=session.get(
+            "voice_speed"
+        ),
     )
     response.hangup()
 
