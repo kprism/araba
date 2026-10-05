@@ -35,9 +35,9 @@ urlpatterns = [
         name="notify-update",
     ),
     path(
-        "research/simulate/",
-        views.research_simulate,
-        name="research-simulate",
+        "research/search/",
+        views.research_search,
+        name="research-search",
     ),
     path(
         "notifications/register/",
