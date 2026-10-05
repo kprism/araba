@@ -78,16 +78,6 @@ class LiveVoiceService {
         }
       };
 
-      final iceGathered = Completer<void>();
-
-      peerConnection.onIceGatheringState = (state) {
-        if (
-            state == RTCIceGatheringState.RTCIceGatheringStateComplete &&
-            !iceGathered.isCompleted) {
-          iceGathered.complete();
-        }
-      };
-
       peerConnection.onConnectionState = (state) {
         if (
             state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
@@ -105,22 +95,28 @@ class LiveVoiceService {
       );
       await peerConnection.setLocalDescription(offer);
 
-      if (
-          peerConnection.iceGatheringState !=
-          RTCIceGatheringState.RTCIceGatheringStateComplete) {
-        await iceGathered.future.timeout(
-          const Duration(seconds: 8),
-          onTimeout: () {},
+      // SDP는 마지막 CRLF까지 WebRTC 원문 그대로 OpenAI에 전달해야 한다.
+      // trim()을 사용하면 SDP 파서가 EOF로 실패할 수 있다.
+      final offerSdp = offer.sdp ?? '';
+
+      if (offerSdp.trim().isEmpty) {
+        throw const ArabaApiException(
+          '실시간 음성 연결 정보를 만들지 못했어요.',
         );
       }
 
-      final localDescription =
-          await peerConnection.getLocalDescription();
-      final offerSdp = localDescription?.sdp?.trim() ?? '';
+      final requiredSdpParts = <String>[
+        'v=0',
+        'm=audio',
+        'a=ice-ufrag:',
+        'a=ice-pwd:',
+      ];
 
-      if (offerSdp.isEmpty) {
+      if (requiredSdpParts.any(
+        (part) => !offerSdp.contains(part),
+      )) {
         throw const ArabaApiException(
-          '실시간 음성 연결 정보를 만들지 못했어요.',
+          '실시간 음성 연결 정보가 완전하지 않아요. 다시 시도해주세요.',
         );
       }
 
@@ -128,9 +124,9 @@ class LiveVoiceService {
         offerSdp,
         apiKey: apiKey,
       );
-      final answerSdp = session['sdp']?.toString().trim() ?? '';
+      final answerSdp = session['sdp']?.toString() ?? '';
 
-      if (answerSdp.isEmpty) {
+      if (answerSdp.trim().isEmpty) {
         throw const ArabaApiException(
           'GPT-Live 연결 응답이 올바르지 않아요.',
         );
