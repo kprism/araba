@@ -1720,7 +1720,11 @@ class _BusinessCards extends StatelessWidget {
                               child: Text(
                                 imageSource == 'kakao_place'
                                     ? '카카오 등록사진'
-                                    : '업체 사진',
+                                    : (
+                                        imageSource == 'naver_place'
+                                            ? '네이버 플레이스 사진'
+                                            : '업체 사진'
+                                      ),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,
