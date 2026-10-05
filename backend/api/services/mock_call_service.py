@@ -64,7 +64,25 @@ def _haversine_km(lat1, lon1, lat2, lon2):
     )
 
 
-def _reference_origin(businesses):
+def _reference_origin(businesses, origin=None):
+    if isinstance(origin, dict):
+        lat = _float(origin.get("latitude"))
+        lon = _float(origin.get("longitude"))
+        if lat is not None and lon is not None:
+            return {
+                "latitude": lat,
+                "longitude": lon,
+                "label": str(
+                    origin.get("label") or ""
+                ).strip(),
+                "source": str(
+                    origin.get("source") or "user"
+                ).strip(),
+                "accuracy": str(
+                    origin.get("accuracy") or ""
+                ).strip(),
+            }
+
     coordinates = []
 
     for business in businesses:
@@ -82,6 +100,9 @@ def _reference_origin(businesses):
         / len(coordinates),
         "longitude": sum(item[1] for item in coordinates)
         / len(coordinates),
+        "label": "검색 후보군 중심",
+        "source": "candidate_centroid",
+        "accuracy": "fallback",
     }
 
 
@@ -222,7 +243,7 @@ def _mock_tire_call(mission, business, origin):
     return result
 
 
-def simulate_mock_calls(mission, businesses):
+def simulate_mock_calls(mission, businesses, origin=None):
     if not isinstance(mission, dict):
         raise ValueError("조사 Mission 정보가 필요합니다.")
     if not isinstance(businesses, list) or not businesses:
@@ -246,13 +267,16 @@ def simulate_mock_calls(mission, businesses):
         if isinstance(item, dict)
     ][:8]
 
-    origin = _reference_origin(safe_businesses)
+    resolved_origin = _reference_origin(
+        safe_businesses,
+        origin=origin,
+    )
 
     called = [
         _mock_tire_call(
             mission,
             business,
-            origin,
+            resolved_origin,
         )
         for business in safe_businesses
     ]
@@ -280,12 +304,33 @@ def simulate_mock_calls(mission, businesses):
         else "이동시간 계산 불가"
     )
 
+    origin_label = (
+        resolved_origin.get("label")
+        if isinstance(resolved_origin, dict)
+        else None
+    )
+    origin_source = (
+        resolved_origin.get("source")
+        if isinstance(resolved_origin, dict)
+        else None
+    )
+
+    if origin_source == "user_search_region":
+        basis = (
+            "실제 업체 위치 + 가상 전화 견적을 이용한 POC 비교입니다. "
+            f"거리와 이동시간은 사용자가 지정한 검색 지역 "
+            f"{origin_label or ''} 기준의 대략적인 추정치입니다."
+        )
+    else:
+        basis = (
+            "실제 업체 위치 + 가상 전화 견적을 이용한 POC 비교입니다. "
+            "정확한 사용자 출발 좌표가 없어 후보군 중심을 임시 기준으로 사용했습니다."
+        )
+
     return {
         "mock": True,
-        "basis": (
-            "실제 업체 위치 + 가상 전화 견적을 이용한 POC 비교입니다. "
-            "거리와 이동시간은 검색된 후보군의 지리적 중심을 기준으로 한 추정치입니다."
-        ),
+        "basis": basis,
+        "reference_origin": resolved_origin,
         "businesses": called,
         "recommendation": {
             "business_id": best.get("id"),
