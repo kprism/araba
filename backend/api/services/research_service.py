@@ -3,6 +3,8 @@ import re
 
 import httpx
 
+from .naver_place_service import enrich_businesses_with_naver
+
 
 KAKAO_LOCAL_SEARCH_URL = (
     "https://dapi.kakao.com/v2/local/search/keyword.json"
@@ -478,7 +480,13 @@ def _normalize_business(document):
     }
 
 
-def search_real_businesses(mission, api_key=None):
+def search_real_businesses(
+    mission,
+    api_key=None,
+    *,
+    naver_client_id=None,
+    naver_client_secret=None,
+):
     resolved_api_key = str(api_key or "").strip()
     if not resolved_api_key:
         resolved_api_key = _kakao_rest_api_key()
@@ -552,7 +560,7 @@ def search_real_businesses(mission, api_key=None):
             "카카오 장소검색 서버에 연결하지 못했습니다."
         ) from last_error
 
-    businesses = [
+    kakao_businesses = [
         business
         for business in (
             _normalize_business(item)
@@ -562,14 +570,37 @@ def search_real_businesses(mission, api_key=None):
         if business["name"]
     ]
 
+    businesses = enrich_businesses_with_naver(
+        kakao_businesses,
+        client_id=naver_client_id,
+        client_secret=naver_client_secret,
+    )
+
+    naver_matched_count = sum(
+        1
+        for item in businesses
+        if isinstance(item.get("naver"), dict)
+        and item["naver"].get("matched") is True
+    )
+    naver_page_checked_count = sum(
+        1
+        for item in businesses
+        if isinstance(item.get("naver"), dict)
+        and item["naver"].get("page_checked") is True
+    )
+
     category = str(
         mission.get("category") or "기타"
     ).strip()
 
     return {
-        "source": "kakao",
+        "source": "kakao+naver",
+        "primary_source": "kakao",
+        "secondary_source": "naver_place",
         "search_query": selected_query,
         "businesses": businesses,
+        "naver_matched_count": naver_matched_count,
+        "naver_page_checked_count": naver_page_checked_count,
         "reference_origin": reference_origin,
         "life_info": _life_info_for(category),
         "phone_call_mock": True,
