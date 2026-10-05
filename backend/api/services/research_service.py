@@ -182,20 +182,58 @@ def _search_queries(mission):
         mission.get("category") or ""
     ).strip()
 
-    terms = []
+    primary_terms = []
+
     for item in [
         *search_terms,
         *subcategories,
+    ]:
+        if item and item not in primary_terms:
+            primary_terms.append(item)
+
+    fallback_terms = []
+
+    for item in [
         subject,
         category,
     ]:
-        if item and item not in terms:
-            terms.append(item)
+        if (
+            item
+            and item not in primary_terms
+            and item not in fallback_terms
+        ):
+            fallback_terms.append(item)
+
+    if not primary_terms:
+        primary_terms = fallback_terms[:1]
+        fallback_terms = fallback_terms[1:]
 
     queries = []
+    location_variants = _location_variants(
+        location
+    )
 
-    for location_variant in _location_variants(location):
-        for term in terms:
+    # 짧고 정확한 업종·서비스 검색어를
+    # 세부지역 → 상위지역 순으로 먼저 시도한다.
+    # 그래야 세부지역 결과가 없을 때 즉시 범위를 넓힐 수 있다.
+    for term in primary_terms:
+        for location_variant in location_variants:
+            query = " ".join(
+                part
+                for part in (
+                    location_variant,
+                    term,
+                )
+                if part
+            ).strip()
+
+            if query and query not in queries:
+                queries.append(query)
+
+    # 짧은 검색어가 실패했을 때만
+    # 긴 subject나 넓은 category를 뒤에서 사용한다.
+    for term in fallback_terms:
+        for location_variant in location_variants:
             query = " ".join(
                 part
                 for part in (
@@ -214,7 +252,6 @@ def _search_queries(mission):
         )
 
     return queries[:8]
-
 
 def _mission_keywords(mission):
     values = []
