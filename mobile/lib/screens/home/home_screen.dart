@@ -8,6 +8,7 @@ import '../../services/araba_api.dart';
 import '../../services/conversation_context.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
+import '../../services/voice_preference_store.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _api = ArabaApi();
   final _keyStore = ApiKeyStore();
   final _kakaoStore = KakaoCredentialStore();
+  final _voicePreferenceStore = VoicePreferenceStore();
   final _conversationContext = ConversationContext();
 
   LiveVoiceService? _liveVoice;
@@ -76,6 +78,9 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
 
+      final voicePreferences =
+          await _voicePreferenceStore.read();
+
       if (!mounted) return;
 
       setState(() {
@@ -89,6 +94,8 @@ class _HomeScreenState extends State<HomeScreen> {
         api: _api,
         apiKey: apiKey,
         conversationContext: _conversationContext,
+        voiceGender: voicePreferences.gender,
+        voiceSpeed: voicePreferences.speed,
         onStatus: (status) {
           if (!mounted || _liveVoice != liveVoice) return;
 
