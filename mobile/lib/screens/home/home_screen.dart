@@ -19,7 +19,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _scroll = ScrollController();
   final _focus = FocusNode();
@@ -32,6 +33,11 @@ class _HomeScreenState extends State<HomeScreen> {
   final _conversationContext = ConversationContext();
 
   LiveVoiceService? _liveVoice;
+  bool _keepLiveVoice = false;
+  bool _liveNeedsReconnect = false;
+  bool _appInForeground = true;
+  bool _autoReconnectingLive = false;
+  List<Map<String, dynamic>> _lastBusinesses = const [];
 
   final List<_Message> _messages = [
     _Message(
@@ -50,10 +56,69 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _liveTranscriptSpeaker;
   int? _liveTranscriptMessageIndex;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(
+    AppLifecycleState state,
+  ) {
+    _appInForeground =
+        state == AppLifecycleState.resumed;
+
+    if (_appInForeground &&
+        _keepLiveVoice &&
+        (_liveNeedsReconnect ||
+            _liveVoice == null ||
+            !(_liveVoice?.isStarted ?? false))) {
+      unawaited(_reconnectLiveVoice());
+    }
+  }
+
+  Future<void> _reconnectLiveVoice() async {
+    if (_autoReconnectingLive ||
+        !_appInForeground ||
+        !_keepLiveVoice) {
+      return;
+    }
+
+    _autoReconnectingLive = true;
+    _liveNeedsReconnect = false;
+
+    final existing = _liveVoice;
+    _liveVoice = null;
+
+    try {
+      await existing?.stop(force: true);
+    } catch (_) {}
+
+    if (!mounted || !_keepLiveVoice) {
+      _autoReconnectingLive = false;
+      return;
+    }
+
+    try {
+      await _startLiveVoice(
+        automatic: true,
+      );
+    } finally {
+      _autoReconnectingLive = false;
+    }
+  }
+
   Future<void> _toggleLiveVoice() async {
     final current = _liveVoice;
 
-    if (current != null) {
+    if (current != null &&
+        (_liveActive ||
+            _liveConnecting ||
+            current.isStarted)) {
+      _keepLiveVoice = false;
+      _liveNeedsReconnect = false;
+
       setState(() {
         _liveConnecting = false;
         _liveActive = false;
@@ -68,6 +133,15 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       return;
     }
+
+    _keepLiveVoice = true;
+    await _startLiveVoice();
+  }
+
+  Future<void> _startLiveVoice({
+    bool automatic = false,
+  }) async {
+    if (_liveConnecting) return;
 
     try {
       final apiKey = await _keyStore.read();
@@ -86,7 +160,9 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _liveConnecting = true;
         _liveActive = false;
-        _liveStatus = 'GPT-Live 연결 중';
+        _liveStatus = automatic
+            ? '음성 자동 재연결 중'
+            : 'GPT-Live 연결 중';
       });
 
       late final LiveVoiceService liveVoice;
@@ -146,15 +222,23 @@ class _HomeScreenState extends State<HomeScreen> {
         onError: (message) {
           if (!mounted || _liveVoice != liveVoice) return;
 
+          _liveNeedsReconnect = _keepLiveVoice;
+
           setState(() {
             _liveConnecting = false;
             _liveActive = false;
-            _liveStatus = '연결 오류';
+            _liveStatus = _keepLiveVoice
+                ? '재연결 대기'
+                : '연결 오류';
           });
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(message)),
-          );
+          if (_appInForeground && _keepLiveVoice) {
+            unawaited(_reconnectLiveVoice());
+          } else if (!_keepLiveVoice) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(message)),
+            );
+          }
         },
       );
 
@@ -169,15 +253,21 @@ class _HomeScreenState extends State<HomeScreen> {
           ? caught.message
           : 'GPT-Live 음성 대화를 시작하지 못했어요.';
 
+      _liveNeedsReconnect = _keepLiveVoice;
+
       setState(() {
         _liveConnecting = false;
         _liveActive = false;
-        _liveStatus = '연결 실패';
+        _liveStatus = _keepLiveVoice
+            ? '재연결 대기'
+            : '연결 실패';
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      if (!automatic) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
     }
   }
 
