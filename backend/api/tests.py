@@ -750,6 +750,64 @@ class ResearchSearchApiTests(TestCase):
             "경남 창원시 의창구 중동 타이어",
         )
 
+    def test_relevance_filter_rejects_same_neighborhood_apartment(self):
+        from api.services.research_service import (
+            _matches_mission,
+        )
+
+        mission = {
+            "category": "자동차",
+            "location": "경남 창원시 의창구 중동",
+            "subject": "타이어 수리점",
+            "search_terms": ["중동 타이어 수리점"],
+            "subcategories": ["타이어"],
+        }
+
+        apartment = {
+            "place_name": "창원중동유니시티1단지아파트",
+            "category_name": "부동산 > 주거 > 아파트",
+        }
+        tire_shop = {
+            "place_name": "중동타이어",
+            "category_name": "자동차 > 자동차정비 > 타이어",
+        }
+
+        self.assertFalse(
+            _matches_mission(apartment, mission)
+        )
+        self.assertTrue(
+            _matches_mission(tire_shop, mission)
+        )
+
+    def test_relevance_filter_is_generic_for_hair_salon(self):
+        from api.services.research_service import (
+            _matches_mission,
+        )
+
+        mission = {
+            "category": "뷰티",
+            "location": "경남 창원시 의창구 중동",
+            "subject": "미용실",
+            "search_terms": ["중동 미용실"],
+            "subcategories": ["미용실"],
+        }
+
+        apartment = {
+            "place_name": "중동센트럴아파트",
+            "category_name": "부동산 > 주거 > 아파트",
+        }
+        salon = {
+            "place_name": "헤어봄",
+            "category_name": "가정,생활 > 미용 > 미용실",
+        }
+
+        self.assertFalse(
+            _matches_mission(apartment, mission)
+        )
+        self.assertTrue(
+            _matches_mission(salon, mission)
+        )
+
     def test_search_queries_keep_parent_region_fallbacks(self):
         from api.services.research_service import (
             _search_queries,
