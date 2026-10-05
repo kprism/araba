@@ -8,6 +8,7 @@ from cryptography.fernet import Fernet
 from django.conf import settings
 from django.core import signing
 from openai import OpenAI
+from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
 from twilio.twiml.voice_response import Gather, VoiceResponse
 
@@ -21,6 +22,10 @@ VOICE_SESSION_SALT = "araba.voice.test-call"
 DEFAULT_PUBLIC_BASE_URL = (
     "https://araba-api-dev-908580697493."
     "asia-northeast3.run.app"
+)
+TRIAL_SPEECH_RECOGNITION_URL = (
+    "https://webhooks.twilio.com/v1/Voice/Template/"
+    "voice_speech_recognition"
 )
 VOICE_SYSTEM_PROMPT = """
 당신은 ARABA의 전화 통화용 한국어 AI다.
@@ -344,21 +349,52 @@ def start_test_call(
             client
         )
 
-    call = client.calls.create(
-        to=to_number,
-        from_=caller_number,
-        url=_voice_url(
-            "/api/voice/answer/",
-            session=session,
-        ),
-        method="POST",
-    )
+    try:
+        call = client.calls.create(
+            to=to_number,
+            from_=caller_number,
+            url=_voice_url(
+                "/api/voice/answer/",
+                session=session,
+            ),
+            method="POST",
+        )
 
-    return {
-        "call_sid": call.sid,
-        "to": to_number,
-        "status": getattr(call, "status", None),
-    }
+        return {
+            "call_sid": call.sid,
+            "to": to_number,
+            "status": getattr(call, "status", None),
+            "voice_mode": "araba",
+            "trial_fallback": False,
+        }
+    except TwilioRestException as exc:
+        is_trial_parameter_limit = (
+            getattr(exc, "status", None) == 400
+            and (
+                "trial accounts have limited parameter access"
+                in str(exc).lower()
+            )
+        )
+
+        if not is_trial_parameter_limit:
+            raise
+
+        trial_call = client.calls.create(
+            to=to_number,
+            url=TRIAL_SPEECH_RECOGNITION_URL,
+        )
+
+        return {
+            "call_sid": trial_call.sid,
+            "to": to_number,
+            "status": getattr(
+                trial_call,
+                "status",
+                None,
+            ),
+            "voice_mode": "twilio_trial_template",
+            "trial_fallback": True,
+        }
 
 
 def build_answer_twiml(session_token):
