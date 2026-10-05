@@ -251,10 +251,18 @@ class _HomeScreenState extends State<HomeScreen> {
         const Duration(milliseconds: 650),
       );
 
+      final discoveryBusinesses = businesses
+          .map((business) {
+            final item = Map<String, dynamic>.from(business);
+            item.remove('mock_call_result');
+            return item;
+          })
+          .toList();
+
       _addAssistantMessage(
         text: '${businesses.length}곳 찾았어요. 비교할 후보를 카드로 보여드릴게요.',
         badge: '가상 테스트',
-        businesses: businesses,
+        businesses: discoveryBusinesses,
       );
       _speakProgress(
         '${businesses.length}곳을 찾았어요. 조건을 비교하고 있습니다.',
@@ -325,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _addAssistantMessage(
         text: summary,
         badge: '추천',
-        businesses: businesses.take(1).toList(),
+        businesses: businesses,
         actionQuestion: finalQuestion,
         actions: actions,
       );
