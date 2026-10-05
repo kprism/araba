@@ -471,13 +471,46 @@ class LiveServiceTests(TestCase):
         mocked_post.assert_not_called()
 
 
-class ResearchSimulationApiTests(TestCase):
+class ResearchSearchApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-    def test_research_simulation_returns_mock_businesses(self):
+    @patch(
+        "api.services.research_service._kakao_rest_api_key",
+        return_value="kakao-test-key",
+    )
+    @patch(
+        "api.services.research_service.httpx.get"
+    )
+    def test_research_search_returns_real_kakao_businesses(
+        self,
+        mocked_get,
+        mocked_key,
+    ):
+        kakao_response = Mock()
+        kakao_response.status_code = 200
+        kakao_response.json.return_value = {
+            "meta": {
+                "total_count": 1,
+            },
+            "documents": [
+                {
+                    "id": "12345",
+                    "place_name": "창원타이어 실제업체",
+                    "category_name": "자동차 > 자동차정비 > 타이어",
+                    "phone": "055-123-4567",
+                    "address_name": "경남 창원시 성산구 테스트동 1",
+                    "road_address_name": "경남 창원시 성산구 테스트로 1",
+                    "x": "128.681",
+                    "y": "35.228",
+                    "place_url": "http://place.map.kakao.com/12345",
+                }
+            ],
+        }
+        mocked_get.return_value = kakao_response
+
         response = self.client.post(
-            "/api/research/simulate/",
+            "/api/research/search/",
             {
                 "mission": {
                     "category": "자동차",
@@ -490,17 +523,66 @@ class ResearchSimulationApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["ok"])
-        self.assertTrue(response.data["mock"])
-        self.assertEqual(len(response.data["businesses"]), 3)
-        self.assertTrue(response.data["life_info"])
+        self.assertEqual(response.data["source"], "kakao")
+        self.assertEqual(len(response.data["businesses"]), 1)
         self.assertEqual(
-            response.data["actions"],
-            ["예약하기", "다른 후보 보기", "여기까지"],
+            response.data["businesses"][0]["name"],
+            "창원타이어 실제업체",
+        )
+        self.assertEqual(
+            response.data["businesses"][0]["phone"],
+            "055-123-4567",
+        )
+        self.assertEqual(
+            response.data["businesses"][0]["source"],
+            "kakao",
+        )
+        self.assertTrue(response.data["phone_call_mock"])
+        self.assertTrue(response.data["life_info"])
+
+        mocked_key.assert_called_once_with()
+        mocked_get.assert_called_once()
+        request_kwargs = mocked_get.call_args.kwargs
+        self.assertEqual(
+            request_kwargs["headers"]["Authorization"],
+            "KakaoAK kakao-test-key",
+        )
+        self.assertEqual(
+            request_kwargs["params"]["query"],
+            "창원 BMW S6 타이어 교체",
         )
 
-    def test_research_simulation_requires_mission(self):
+    @patch(
+        "api.services.research_service._kakao_rest_api_key",
+        return_value="",
+    )
+    def test_research_search_requires_kakao_key(
+        self,
+        mocked_key,
+    ):
         response = self.client.post(
-            "/api/research/simulate/",
+            "/api/research/search/",
+            {
+                "mission": {
+                    "category": "자동차",
+                    "location": "창원",
+                    "subject": "타이어",
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.data["ok"])
+        self.assertIn(
+            "카카오 장소검색 키",
+            response.data["message"],
+        )
+        mocked_key.assert_called_once_with()
+
+    def test_research_search_requires_mission(self):
+        response = self.client.post(
+            "/api/research/search/",
             {},
             format="json",
         )
