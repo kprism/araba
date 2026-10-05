@@ -1355,7 +1355,7 @@ class _BusinessCards extends StatelessWidget {
     );
 
     return SizedBox(
-      height: hasMock ? 430 : 306,
+      height: hasMock ? 430 : 410,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: businesses.length,
@@ -1382,6 +1382,32 @@ class _BusinessCards extends StatelessWidget {
           final workMinutes = business['mock_work_minutes'];
           final effectiveCost = business['effective_cost'];
           final stock = business['mock_stock'];
+          final naverValue = business['naver'];
+          final naver = naverValue is Map
+              ? Map<String, dynamic>.from(naverValue)
+              : <String, dynamic>{};
+          final naverMatched = naver['matched'] == true;
+          final naverPageChecked =
+              naver['page_checked'] == true;
+          final naverPageUrl =
+              (naver['page_url'] ?? naver['link'])
+                      ?.toString()
+                      .trim() ??
+                  '';
+          final rawOpeningHours = naver['opening_hours'];
+          final openingHours = rawOpeningHours is List
+              ? rawOpeningHours
+                    .map((item) => item.toString().trim())
+                    .where((item) => item.isNotEmpty)
+                    .toList()
+              : <String>[];
+          final rawPrices = naver['prices'];
+          final naverPrices = rawPrices is List
+              ? rawPrices
+                    .whereType<Map>()
+                    .map((item) => Map<String, dynamic>.from(item))
+                    .toList()
+              : <Map<String, dynamic>>[];
 
           return Container(
             width: hasMock ? 286 : 258,
@@ -1441,7 +1467,11 @@ class _BusinessCards extends StatelessWidget {
                                           ? '경제성 ${rank.round()}위'
                                           : '추천 ${rank.round()}위'
                                     )
-                                  : '실제 업체',
+                                  : (
+                                      naverMatched
+                                          ? '카카오+네이버'
+                                          : '카카오 확인'
+                                    ),
                               style: TextStyle(
                                 color: rank == 1
                                     ? const Color(0xFF1939A6)
@@ -1554,6 +1584,93 @@ class _BusinessCards extends StatelessWidget {
                             ),
                           ],
                         ],
+                        if (naverMatched) ...[
+                          const SizedBox(height: 7),
+                          Row(
+                            children: [
+                              Icon(
+                                naverPageChecked
+                                    ? Icons.verified_outlined
+                                    : Icons.sync_alt_rounded,
+                                size: 15,
+                                color: const Color(0xFF3157D5),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  naverPageChecked
+                                      ? '네이버 플레이스 상세페이지 확인'
+                                      : '네이버 지역검색 동일 업체 확인',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Color(0xFF3157D5),
+                                    fontSize: 11.2,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (openingHours.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.schedule_outlined,
+                                size: 15,
+                                color: Color(0xFF667085),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  '영업시간: ${openingHours.take(2).join(' · ')}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Color(0xFF344054),
+                                    fontSize: 11.3,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (naverPrices.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.sell_outlined,
+                                size: 15,
+                                color: Color(0xFF667085),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  '가격: ${naverPrices.take(2).map((item) {
+                                    final name = item['name']?.toString().trim() ?? '';
+                                    final price = item['price']?.toString().trim() ?? '';
+                                    return name.isEmpty ? price : '$name $price';
+                                  }).where((item) => item.isNotEmpty).join(' · ')}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Color(0xFF344054),
+                                    fontSize: 11.3,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                         if (address.isNotEmpty) ...[
                           const SizedBox(height: 7),
                           Row(
@@ -1624,16 +1741,36 @@ class _BusinessCards extends StatelessWidget {
                         const Spacer(),
                         Row(
                           children: [
-                            const Expanded(
+                            Expanded(
                               child: Text(
-                                '카카오맵 장소검색',
-                                style: TextStyle(
+                                naverMatched
+                                    ? '카카오 후보 · 네이버 교차확인'
+                                    : '카카오맵 장소검색',
+                                style: const TextStyle(
                                   color: Color(0xFF667085),
                                   fontSize: 10.5,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ),
+                            if (naverPageUrl.isNotEmpty)
+                              TextButton(
+                                onPressed: () =>
+                                    _openPlace(naverPageUrl),
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                  ),
+                                ),
+                                child: const Text(
+                                  '네이버',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
                             TextButton(
                               onPressed: placeUrl.isEmpty
                                   ? null
@@ -1641,13 +1778,13 @@ class _BusinessCards extends StatelessWidget {
                               style: TextButton.styleFrom(
                                 visualDensity: VisualDensity.compact,
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
+                                  horizontal: 5,
                                 ),
                               ),
                               child: const Text(
-                                '지도 보기',
+                                '카카오',
                                 style: TextStyle(
-                                  fontSize: 11.5,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
