@@ -45,6 +45,11 @@ urlpatterns = [
         name="mock-call-compare",
     ),
     path(
+        "research/history/",
+        views.research_history,
+        name="research-history",
+    ),
+    path(
         "notifications/register/",
         views.notification_register,
         name="notification-register",
