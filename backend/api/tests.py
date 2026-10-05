@@ -182,6 +182,7 @@ class NotificationRegistrationApiTests(TestCase):
             "/api/notifications/register/",
             {"token": token},
             format="json",
+            HTTP_X_KAKAO_REST_API_KEY="device-kakao-key",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -477,15 +478,15 @@ class ResearchSearchApiTests(TestCase):
 
     @patch(
         "api.services.research_service._kakao_rest_api_key",
-        return_value="kakao-test-key",
+        return_value="server-fallback-key",
     )
     @patch(
         "api.services.research_service.httpx.get"
     )
-    def test_research_search_returns_real_kakao_businesses(
+    def test_research_search_uses_request_kakao_key(
         self,
         mocked_get,
-        mocked_key,
+        mocked_server_key,
     ):
         kakao_response = Mock()
         kakao_response.status_code = 200
@@ -540,12 +541,12 @@ class ResearchSearchApiTests(TestCase):
         self.assertTrue(response.data["phone_call_mock"])
         self.assertTrue(response.data["life_info"])
 
-        mocked_key.assert_called_once_with()
+        mocked_server_key.assert_not_called()
         mocked_get.assert_called_once()
         request_kwargs = mocked_get.call_args.kwargs
         self.assertEqual(
             request_kwargs["headers"]["Authorization"],
-            "KakaoAK kakao-test-key",
+            "KakaoAK device-kakao-key",
         )
         self.assertEqual(
             request_kwargs["params"]["query"],
@@ -575,7 +576,7 @@ class ResearchSearchApiTests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertFalse(response.data["ok"])
         self.assertIn(
-            "카카오 장소검색 키",
+            "Kakao REST API Key",
             response.data["message"],
         )
         mocked_key.assert_called_once_with()
