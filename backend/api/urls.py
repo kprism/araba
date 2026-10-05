@@ -85,6 +85,16 @@ urlpatterns = [
         name="live-session-create",
     ),
     path(
+        "live/telephony/status/",
+        views.live_telephony_status_view,
+        name="live-telephony-status",
+    ),
+    path(
+        "live/outbound-call/",
+        views.live_outbound_call,
+        name="live-outbound-call",
+    ),
+    path(
         "voice/status/",
         views.voice_status,
         name="voice-status",
