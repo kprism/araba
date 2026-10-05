@@ -136,7 +136,7 @@ class ArabaApi {
         body: jsonEncode({
           'mission': mission,
           'businesses': businesses,
-          if (origin != null) 'origin': origin,
+          'origin': ?origin,
         }),
       ),
       timeout: const Duration(seconds: 10),
