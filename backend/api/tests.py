@@ -614,7 +614,6 @@ class ResearchSearchApiTests(TestCase):
 
         mocked_get.side_effect = [
             empty_response,
-            empty_response,
             city_response,
             origin_response,
         ]
