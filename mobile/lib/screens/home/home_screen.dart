@@ -9,6 +9,7 @@ import '../../services/araba_api.dart';
 import '../../services/conversation_context.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
+import '../../services/naver_credential_store.dart';
 import '../../services/voice_preference_store.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -26,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _imagePicker = ImagePicker();
   final _keyStore = ApiKeyStore();
   final _kakaoStore = KakaoCredentialStore();
+  final _naverStore = NaverCredentialStore();
   final _voicePreferenceStore = VoicePreferenceStore();
   final _conversationContext = ConversationContext();
 
@@ -371,11 +373,19 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
 
-      _updateResearchStage('카카오맵에서 관련 업체만 검색 중');
+      final naverCredentials = await _naverStore.read();
+
+      _updateResearchStage(
+        naverCredentials == null
+            ? '카카오맵에서 정확한 업체를 검색 중'
+            : '카카오맵 후보 검색 · 네이버 플레이스 교차 확인 중',
+      );
 
       final result = await _api.searchBusinesses(
         mission,
         kakaoRestApiKey: kakaoRestApiKey,
+        naverClientId: naverCredentials?.clientId,
+        naverClientSecret: naverCredentials?.clientSecret,
       );
       final businesses = _businessesFrom(result);
       final searchQuery =
@@ -392,155 +402,48 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      _updateResearchStage(
-        '${businesses.length}곳 확인 · 가상 통화 준비 중',
-      );
-
-      _addAssistantMessage(
-        text: searchQuery.isEmpty
-            ? '${businesses.length}곳의 실제 관련 업체를 찾았어요.'
-            : '카카오맵에서 “$searchQuery”로 관련 업체 '
-                '${businesses.length}곳을 찾았어요.',
-        badge: '실제 관련 업체',
-        businesses: businesses,
-      );
+      final naverMatched =
+          result['naver_matched_count'] is num
+              ? (result['naver_matched_count'] as num).round()
+              : 0;
+      final naverPageChecked =
+          result['naver_page_checked_count'] is num
+              ? (result['naver_page_checked_count'] as num).round()
+              : 0;
+      final naverConfigured =
+          naverCredentials != null;
 
       _updateResearchStage(
-        '가상 통화로 가격·재고·대기시간 확인 중',
+        naverConfigured
+            ? '네이버 플레이스 상세페이지 확인 완료'
+            : '카카오맵 업체 확인 완료',
       );
 
-      const callText =
-          '이제 실제 업체 목록을 대상으로 가상 통화를 돌려서 '
-          '최종 결제금액, 재고, 대기시간, 작업시간을 같은 기준으로 비교할게요.';
-      _speakProgress(callText);
+      final sourceSummary = naverConfigured
+          ? '카카오맵에서 관련 업체 ${businesses.length}곳을 찾고, '
+              '네이버에서 ${naverMatched}곳을 같은 업체로 교차확인했어요. '
+              '그중 ${naverPageChecked}곳은 네이버 상세페이지까지 확인했습니다.'
+          : '카카오맵에서 관련 업체 ${businesses.length}곳을 찾았어요. '
+              'MY에 Naver Search API 정보를 등록하면 '
+              '네이버 플레이스까지 2차 교차확인합니다.';
 
-      final originValue = result['reference_origin'];
-      final origin = originValue is Map
-          ? Map<String, dynamic>.from(originValue)
-          : null;
-
-      final mockResult = await _api.simulateMockCalls(
-        mission,
-        businesses,
-        origin: origin,
-      );
-      final calledBusinesses = _businessesFrom(mockResult);
-      final recommendation = mockResult['recommendation'];
-
-      if (calledBusinesses.isEmpty ||
-          recommendation is! Map) {
-        throw const ArabaApiException(
-          '가상 통화 비교 결과 형식이 올바르지 않아요.',
-        );
-      }
-
-      _updateResearchStage(
-        '가격·거리·시간까지 경제성 비교 중',
-      );
-
-      _addAssistantMessage(
-        text: '가상 통화를 마쳤어요. 실제 업체별로 같은 질문을 했다고 가정해 '
-            '가격, 재고, 대기시간과 작업시간을 비교했습니다.',
-        badge: '가상 통화 비교',
-        businesses: calledBusinesses,
-      );
-
-      final name =
-          recommendation['name']?.toString().trim() ?? '1순위 업체';
-      final price =
-          recommendation['mock_total_price'];
-      final distance =
-          recommendation['distance_km'];
-      final driveMinutes =
-          recommendation['drive_minutes'];
-      final totalTimeMinutes =
-          recommendation['total_time_minutes'];
-      final effective =
-          recommendation['effective_cost'];
-      final reason =
-          recommendation['reason']?.toString().trim() ?? '';
-      final basis =
-          mockResult['basis']?.toString().trim() ?? '';
-      final rawSlots =
-          recommendation['available_slots'];
-      final availableSlots = rawSlots is List
-          ? rawSlots
-                .map((item) => item.toString().trim())
-                .where((item) => item.isNotEmpty)
-                .toList()
-          : <String>[];
-      final intent =
-          mission['intent']?.toString().trim() ?? '';
-
-      String won(dynamic value) {
-        if (value is! num) return '-';
-        final digits = value.round().toString();
-        final buffer = StringBuffer();
-        for (var i = 0; i < digits.length; i++) {
-          if (i > 0 && (digits.length - i) % 3 == 0) {
-            buffer.write(',');
-          }
-          buffer.write(digits[i]);
-        }
-        return '${buffer.toString()}원';
-      }
-
-      final distanceText = distance is num
-          ? '${distance.toStringAsFixed(1)}km'
-          : '거리 추정 없음';
-      final driveText = driveMinutes is num
-          ? '약 ${driveMinutes.round()}분'
-          : '이동시간 추정 없음';
-      final totalTimeText = totalTimeMinutes is num
-          ? '왕복 이동·대기·작업 포함 약 ${totalTimeMinutes.round()}분'
-          : '총 소요시간 추정 없음';
-
-      final priceText = price is num
-          ? '총 결제금액 ${won(price)}, '
-          : '';
-      final effectiveText = effective is num
-          ? '경제성 비용은 ${won(effective)}입니다.'
-          : '거리·시간·가능조건을 함께 반영한 1순위입니다.';
-      final slotText = availableSlots.isEmpty
+      final searchDetail = searchQuery.isEmpty
           ? ''
-          : '\n\n업체가 제시한 가능 시간: ${availableSlots.join(' · ')}';
-
-      final summary =
-          '가상 통화 기준 현재 목표에 가장 효율적인 1순위는 $name입니다. '
-          '$priceText'
-          '이동거리 $distanceText, 편도 차량 이동 $driveText, '
-          '$totalTimeText이며, $effectiveText'
-          '${reason.isEmpty ? '' : '\n\n$reason'}'
-          '$slotText'
-          '${basis.isEmpty ? '' : '\n\n기준: $basis'}';
-
-      final wantsReservation =
-          intent == '예약' ||
-          mission['summary']
-                  ?.toString()
-                  .contains('예약') ==
-              true;
-
-      final actions = <String>[
-        if (wantsReservation)
-          for (final slot in availableSlots.take(3))
-            '예약: $slot',
-        '다른 후보 보기',
-        '여기까지',
-      ];
+          : '\n\n검색 기준: $searchQuery';
 
       _addAssistantMessage(
-        text: summary,
-        badge: '목표 효율 1순위 · 가상 테스트',
-        businesses: calledBusinesses,
-        actionQuestion: wantsReservation
-            ? (availableSlots.isEmpty
-                ? '예약 가능한 시간을 더 확인할까요?'
-                : '원하는 가능 시간대를 선택해주세요.')
-            : '이 비교에서 다른 후보의 상세 조건도 볼까요?',
-        actions: actions,
+        text: '$sourceSummary$searchDetail',
+        badge: naverConfigured
+            ? '카카오 + 네이버 검증'
+            : '카카오 검증',
+        businesses: businesses,
+        actionQuestion: '확인된 업체 중에서 더 알아볼까요?',
+        actions: const [
+          '다른 후보 보기',
+          '여기까지',
+        ],
       );
-      _speakProgress(summary);
+      _speakProgress(sourceSummary);
     } catch (error) {
       final message = error is ArabaApiException
           ? error.message
