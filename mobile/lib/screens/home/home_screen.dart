@@ -421,8 +421,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final sourceSummary = naverConfigured
           ? '카카오맵에서 관련 업체 ${businesses.length}곳을 찾고, '
-              '네이버에서 ${naverMatched}곳을 같은 업체로 교차확인했어요. '
-              '그중 ${naverPageChecked}곳은 네이버 상세페이지까지 확인했습니다.'
+              '네이버에서 $naverMatched곳을 같은 업체로 교차확인했어요. '
+              '그중 $naverPageChecked곳은 네이버 상세페이지까지 확인했습니다.'
           : '카카오맵에서 관련 업체 ${businesses.length}곳을 찾았어요. '
               'MY에 Naver Search API 정보를 등록하면 '
               '네이버 플레이스까지 2차 교차확인합니다.';
