@@ -69,13 +69,21 @@ class _HomeScreenState extends State<HomeScreen>
     _appInForeground =
         state == AppLifecycleState.resumed;
 
-    if (_appInForeground &&
-        _keepLiveVoice &&
-        (_liveNeedsReconnect ||
-            _liveVoice == null ||
-            !(_liveVoice?.isStarted ?? false))) {
-      unawaited(_reconnectLiveVoice());
+    if (!_appInForeground ||
+        !_keepLiveVoice) {
+      return;
     }
+
+    final live = _liveVoice;
+
+    if (live != null &&
+        live.isStarted &&
+        !_liveNeedsReconnect) {
+      unawaited(live.resumeAudio());
+      return;
+    }
+
+    unawaited(_reconnectLiveVoice());
   }
 
   Future<void> _reconnectLiveVoice() async {
@@ -132,6 +140,13 @@ class _HomeScreenState extends State<HomeScreen>
         setState(() => _liveStatus = '종료됨');
       }
       return;
+    }
+
+    if (current != null) {
+      try {
+        await current.stop(force: true);
+      } catch (_) {}
+      _liveVoice = null;
     }
 
     _keepLiveVoice = true;
