@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
+import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -20,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _focus = FocusNode();
   final _api = ArabaApi();
   final _keyStore = ApiKeyStore();
+  final _kakaoStore = KakaoCredentialStore();
 
   LiveVoiceService? _liveVoice;
 
@@ -246,7 +248,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _speakProgress('조건 정리가 끝났어요. 실제 업체를 바로 찾아볼게요.');
 
     try {
-      final result = await _api.searchBusinesses(mission);
+      final kakaoRestApiKey = await _kakaoStore.read();
+
+      if (kakaoRestApiKey == null) {
+        throw const ArabaApiException(
+          'MY의 관리자 API 설정에서 Kakao REST API Key를 먼저 등록해주세요.',
+        );
+      }
+
+      final result = await _api.searchBusinesses(
+        mission,
+        kakaoRestApiKey: kakaoRestApiKey,
+      );
       final businesses = _businessesFrom(result);
       final searchQuery =
           result['search_query']?.toString().trim() ?? '';
