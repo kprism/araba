@@ -579,9 +579,23 @@ class ResearchSearchApiTests(TestCase):
         mocked_get,
         mocked_server_key,
     ):
-        kakao_response = Mock()
-        kakao_response.status_code = 200
-        kakao_response.json.return_value = {
+        origin_response = Mock()
+        origin_response.status_code = 200
+        origin_response.json.return_value = {
+            "documents": [
+                {
+                    "x": "128.681",
+                    "y": "35.228",
+                    "address": {
+                        "address_name": "경남 창원시",
+                    },
+                }
+            ],
+        }
+
+        search_response = Mock()
+        search_response.status_code = 200
+        search_response.json.return_value = {
             "meta": {
                 "total_count": 1,
             },
@@ -599,7 +613,10 @@ class ResearchSearchApiTests(TestCase):
                 }
             ],
         }
-        mocked_get.return_value = kakao_response
+        mocked_get.side_effect = [
+            origin_response,
+            search_response,
+        ]
 
         response = self.client.post(
             "/api/research/search/",
@@ -640,74 +657,67 @@ class ResearchSearchApiTests(TestCase):
             mocked_get.call_count,
             2,
         )
-        search_kwargs = mocked_get.call_args_list[0].kwargs
+        origin_kwargs = mocked_get.call_args_list[0].kwargs
         self.assertEqual(
-            search_kwargs["headers"]["Authorization"],
+            origin_kwargs["headers"]["Authorization"],
             "KakaoAK device-kakao-key",
         )
         self.assertEqual(
+            origin_kwargs["params"]["query"],
+            "창원시",
+        )
+        search_kwargs = mocked_get.call_args_list[1].kwargs
+        self.assertEqual(
             search_kwargs["params"]["query"],
-            "창원 타이어",
+            "경남 창원시 타이어",
         )
         self.assertEqual(
             search_kwargs["params"]["size"],
             8,
         )
-        origin_kwargs = mocked_get.call_args_list[1].kwargs
-        self.assertEqual(
-            origin_kwargs["params"]["query"],
-            "창원시",
-        )
 
     @patch(
         "api.services.research_service.httpx.get"
     )
-    def test_research_search_broadens_district_to_city(
+    def test_research_search_canonicalizes_neighborhood_and_compacts_term(
         self,
         mocked_get,
     ):
-        empty_response = Mock()
-        empty_response.status_code = 200
-        empty_response.json.return_value = {
-            "documents": [],
-        }
-
-        city_response = Mock()
-        city_response.status_code = 200
-        city_response.json.return_value = {
-            "documents": [
-                {
-                    "id": "54321",
-                    "place_name": "창원시 타이어",
-                    "category_name": "자동차 > 자동차정비 > 타이어",
-                    "phone": "055-555-5555",
-                    "address_name": "경남 창원시 성산구",
-                    "road_address_name": "경남 창원시 성산구 중앙대로 1",
-                    "x": "128.68",
-                    "y": "35.22",
-                    "place_url": "http://place.map.kakao.com/54321",
-                }
-            ],
-        }
-
         origin_response = Mock()
         origin_response.status_code = 200
         origin_response.json.return_value = {
             "documents": [
                 {
-                    "x": "128.6818",
-                    "y": "35.2285",
+                    "x": "128.6500",
+                    "y": "35.2600",
                     "address": {
-                        "address_name": "경남 창원시",
+                        "address_name": "경남 창원시 의창구 중동",
                     },
                 }
             ],
         }
 
+        search_response = Mock()
+        search_response.status_code = 200
+        search_response.json.return_value = {
+            "documents": [
+                {
+                    "id": "54321",
+                    "place_name": "중동 타이어",
+                    "category_name": "자동차 > 자동차정비 > 타이어",
+                    "phone": "055-555-5555",
+                    "address_name": "경남 창원시 의창구 중동",
+                    "road_address_name": "경남 창원시 의창구 중동로 1",
+                    "x": "128.65",
+                    "y": "35.26",
+                    "place_url": "http://place.map.kakao.com/54321",
+                }
+            ],
+        }
+
         mocked_get.side_effect = [
-            empty_response,
-            city_response,
             origin_response,
+            search_response,
         ]
 
         response = self.client.post(
@@ -715,9 +725,9 @@ class ResearchSearchApiTests(TestCase):
             {
                 "mission": {
                     "category": "자동차",
-                    "location": "창원시 의창구",
-                    "subject": "BMW X6 타이어 교체",
-                    "search_terms": ["타이어"],
+                    "location": "의창구 중동",
+                    "subject": "타이어 수리점",
+                    "search_terms": ["타이어 수리점"],
                     "subcategories": ["타이어"],
                 }
             },
@@ -728,12 +738,47 @@ class ResearchSearchApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.data["search_query"],
-            "창원시 타이어",
+            "경남 창원시 의창구 중동 타이어",
         )
         self.assertEqual(
             response.data["businesses"][0]["name"],
-            "창원시 타이어",
+            "중동 타이어",
         )
+        search_kwargs = mocked_get.call_args_list[1].kwargs
+        self.assertEqual(
+            search_kwargs["params"]["query"],
+            "경남 창원시 의창구 중동 타이어",
+        )
+
+    def test_search_queries_keep_parent_region_fallbacks(self):
+        from api.services.research_service import (
+            _search_queries,
+        )
+
+        queries = _search_queries(
+            {
+                "category": "자동차",
+                "location": "경남 창원시 의창구 중동",
+                "subject": "타이어 수리점",
+                "search_terms": [
+                    "타이어 수리점",
+                    "타이어 교체",
+                    "자동차 타이어 정비",
+                    "타이어 전문점",
+                ],
+                "subcategories": ["타이어"],
+            }
+        )
+
+        self.assertIn(
+            "경남 창원시 의창구 중동 타이어",
+            queries,
+        )
+        self.assertIn(
+            "경남 창원시 의창구 타이어",
+            queries,
+        )
+        self.assertLessEqual(len(queries), 8)
 
     @patch(
         "api.services.research_service._kakao_rest_api_key",
