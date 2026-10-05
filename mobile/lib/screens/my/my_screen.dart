@@ -721,19 +721,6 @@ class _MyScreenState extends State<MyScreen> {
                           border: OutlineInputBorder(),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _twilioCallerIdController,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                          labelText: '실서비스 발신번호 (사용자 본인번호)',
-                          hintText: '010-1234-5678',
-                          helperText:
-                              'Twilio에서 본인 소유가 인증된 번호만 사용합니다. '
-                              '실제 업체 통화 시 이 번호를 발신번호로 요청합니다.',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
                       const SizedBox(height: 14),
                       SizedBox(
                         width: double.infinity,
@@ -934,6 +921,19 @@ class _MyScreenState extends State<MyScreen> {
                           labelText: 'Twilio Trial 테스트 번호',
                           hintText: '+1... / Try out Voice의 From 번호',
                           helperText: '개발용 Trial 통화에서만 사용합니다.',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _twilioCallerIdController,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: '실서비스 발신번호 (사용자 본인번호)',
+                          hintText: '010-1234-5678',
+                          helperText:
+                              'Twilio에서 본인 소유가 인증된 번호만 사용합니다. '
+                              '실제 업체 통화 시 이 번호를 발신번호로 요청합니다.',
                           border: OutlineInputBorder(),
                         ),
                       ),
