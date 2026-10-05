@@ -126,8 +126,9 @@ class ArabaApi {
 
   Future<Map<String, dynamic>> simulateMockCalls(
     Map<String, dynamic> mission,
-    List<Map<String, dynamic>> businesses,
-  ) async {
+    List<Map<String, dynamic>> businesses, {
+    Map<String, dynamic>? origin,
+  }) async {
     final response = await _request(
       () => http.post(
         _uri('/api/research/mock-call/'),
@@ -135,7 +136,23 @@ class ArabaApi {
         body: jsonEncode({
           'mission': mission,
           'businesses': businesses,
+          if (origin != null) 'origin': origin,
         }),
+      ),
+      timeout: const Duration(seconds: 10),
+    );
+
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> researchHistory({
+    int limit = 50,
+  }) async {
+    final safeLimit = limit.clamp(1, 100);
+    final response = await _request(
+      () => http.get(
+        _uri('/api/research/history/?limit=$safeLimit'),
+        headers: _headers(),
       ),
       timeout: const Duration(seconds: 10),
     );
