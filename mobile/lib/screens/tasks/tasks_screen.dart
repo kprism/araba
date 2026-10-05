@@ -970,10 +970,11 @@ class _StoredBusinessDetail extends StatelessWidget {
                 label: '최종금액',
                 value: _won(totalPrice),
               ),
-              _MetricChip(
-                label: '재고',
-                value: stock == true ? '있음' : '없음',
-              ),
+              if (stock is bool)
+                _MetricChip(
+                  label: '재고',
+                  value: stock ? '있음' : '없음',
+                ),
               if (distance is num)
                 _MetricChip(
                   label: '거리',
