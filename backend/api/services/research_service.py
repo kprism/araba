@@ -6,6 +6,9 @@ import httpx
 KAKAO_LOCAL_SEARCH_URL = (
     "https://dapi.kakao.com/v2/local/search/keyword.json"
 )
+KAKAO_ADDRESS_SEARCH_URL = (
+    "https://dapi.kakao.com/v2/local/search/address.json"
+)
 
 
 class ResearchConfigurationError(ValueError):
@@ -45,6 +48,82 @@ def _life_info_for(category):
         "표시 가격만 보지 말고 추가비용과 당일 이용 가능 여부를 같이 확인하면 실제 선택이 쉬워집니다.",
         "후기보다 현재 재고, 운영시간, 예약 가능 여부처럼 변할 수 있는 정보는 직접 확인하는 게 안전합니다.",
     ]
+
+
+def _location_address_query(location):
+    normalized = " ".join(
+        str(location or "").split()
+    ).strip()
+
+    if (
+        normalized
+        and " " not in normalized
+        and not normalized.endswith(
+            ("시", "군", "구", "도")
+        )
+    ):
+        return f"{normalized}시"
+
+    return normalized
+
+
+def _resolve_location_origin(location, api_key):
+    query = _location_address_query(location)
+    if not query:
+        return None
+
+    try:
+        response = httpx.get(
+            KAKAO_ADDRESS_SEARCH_URL,
+            headers={
+                "Authorization": f"KakaoAK {api_key}",
+            },
+            params={
+                "query": query,
+                "size": 1,
+            },
+            timeout=httpx.Timeout(
+                2.0,
+                connect=1.0,
+            ),
+        )
+    except httpx.HTTPError:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    payload = response.json()
+    documents = payload.get("documents", [])
+    if not isinstance(documents, list) or not documents:
+        return None
+
+    document = documents[0]
+    if not isinstance(document, dict):
+        return None
+
+    latitude = str(document.get("y") or "").strip()
+    longitude = str(document.get("x") or "").strip()
+
+    if not latitude or not longitude:
+        return None
+
+    address = document.get("address")
+    label = query
+    if isinstance(address, dict):
+        address_name = str(
+            address.get("address_name") or ""
+        ).strip()
+        if address_name:
+            label = address_name
+
+    return {
+        "label": label,
+        "latitude": latitude,
+        "longitude": longitude,
+        "source": "user_search_region",
+        "accuracy": "region_reference",
+    }
 
 
 def _location_variants(location):
@@ -272,10 +351,16 @@ def search_real_businesses(mission, api_key=None):
         mission.get("category") or "기타"
     ).strip()
 
+    reference_origin = _resolve_location_origin(
+        mission.get("location"),
+        resolved_api_key,
+    )
+
     return {
         "source": "kakao",
         "search_query": selected_query,
         "businesses": businesses,
+        "reference_origin": reference_origin,
         "life_info": _life_info_for(category),
         "phone_call_mock": True,
         "final_question": (
