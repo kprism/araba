@@ -234,6 +234,50 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> analyzeResearchImage({
+    required List<int> bytes,
+    required String filename,
+    required String mimeType,
+    required String context,
+    required String apiKey,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      _uri('/api/images/analyze/'),
+    );
+
+    request.headers['X-OpenAI-API-Key'] = apiKey;
+    request.fields['context'] = context;
+    request.fields['mime_type'] = mimeType;
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'image',
+        bytes,
+        filename: filename,
+      ),
+    );
+
+    try {
+      final streamed = await request
+          .send()
+          .timeout(
+            const Duration(seconds: 50),
+          );
+      final response =
+          await http.Response.fromStream(streamed);
+
+      return _decode(response);
+    } on TimeoutException {
+      throw const ArabaApiException(
+        '사진 판독이 늦어지고 있어요. 잠시 후 다시 시도해주세요.',
+      );
+    } on http.ClientException {
+      throw const ArabaApiException(
+        '사진 전송 중 네트워크 연결이 끊겼어요.',
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> registerNotificationToken(
     String token,
   ) async {
