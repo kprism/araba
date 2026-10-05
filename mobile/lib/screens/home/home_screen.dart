@@ -444,6 +444,8 @@ class _HomeScreenState extends State<HomeScreen> {
           recommendation['distance_km'];
       final driveMinutes =
           recommendation['drive_minutes'];
+      final totalTimeMinutes =
+          recommendation['total_time_minutes'];
       final effective =
           recommendation['effective_cost'];
       final reason =
@@ -470,12 +472,16 @@ class _HomeScreenState extends State<HomeScreen> {
       final driveText = driveMinutes is num
           ? '약 ${driveMinutes.round()}분'
           : '이동시간 추정 없음';
+      final totalTimeText = totalTimeMinutes is num
+          ? '왕복 이동·대기·작업 포함 약 ${totalTimeMinutes.round()}분'
+          : '총 소요시간 추정 없음';
 
       final summary =
           '가상 통화 기준 경제성 1순위는 $name입니다. '
           '총 결제금액 ${won(price)}, 이동거리 $distanceText, '
-          '차량 이동 $driveText이며, 시간·이동비용까지 반영한 '
-          '경제성 비용은 ${won(effective)}입니다.'
+          '편도 차량 이동 $driveText, $totalTimeText이며, '
+          '실제 지출과 시간비용까지 반영한 경제성 비용은 '
+          '${won(effective)}입니다.'
           '${reason.isEmpty ? '' : '\n\n$reason'}'
           '${basis.isEmpty ? '' : '\n\n기준: $basis'}';
 
