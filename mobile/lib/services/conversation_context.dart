@@ -21,15 +21,20 @@ class ConversationContext {
         _known['location']?.toString().trim() ?? '';
 
     return [
-      '[대화 문맥]',
-      if (knownLocation.isNotEmpty)
-        '[대화 문맥] 이미 확인된 지역: $knownLocation',
-      jsonEncode(_known),
-      '이미 확인된 정보는 사용자가 바꾸지 않는 한 유지하고 다시 묻지 마세요.',
-      '후속 명령이면 현재 주제와 대상을 유지하세요.',
-      '',
       '[현재 요청]',
       text,
+      '',
+      '[대화 문맥 - 참고용]',
+      if (knownLocation.isNotEmpty)
+        '이전에 확인된 지역: $knownLocation',
+      jsonEncode(_known),
+      '',
+      '판단 규칙:',
+      '1. 현재 요청의 의미와 검색범위를 먼저 독립적으로 해석하세요.',
+      '2. 대화 문맥은 현재 요청과 충돌하지 않는 정보만 재사용하세요.',
+      '3. 현재 요청이 업종 전체/지역 전체 후보를 요구하면 과거 특정 업체를 버리세요.',
+      '4. "그곳", "아까 그 치과", "거기"처럼 명백한 후속표현일 때만 특정 대상을 이어가세요.',
+      '5. 현재 요청에 새 대상이나 새 범위가 나오면 그것이 최우선입니다.',
     ].join('\n');
   }
 
