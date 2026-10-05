@@ -694,6 +694,187 @@ class _HomeScreenState extends State<HomeScreen> {
     return summary.isEmpty ? '요청을 이해했어요.' : summary;
   }
 
+  Future<void> _pickResearchImage(
+    ImageSource source,
+  ) async {
+    if (_sending || _researching) return;
+
+    try {
+      final image = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 88,
+        maxWidth: 2200,
+      );
+
+      if (image == null) return;
+
+      final apiKey = await _keyStore.read();
+
+      if (apiKey == null) {
+        throw const ArabaApiException(
+          'MY에서 OpenAI API Key를 먼저 저장해주세요.',
+        );
+      }
+
+      final bytes = await image.readAsBytes();
+
+      setState(() {
+        _sending = true;
+        _messages.add(
+          _Message(
+            isUser: true,
+            text: '사진 첨부 · ${image.name}',
+          ),
+        );
+      });
+      _toBottom();
+
+      final result = await _api.analyzeResearchImage(
+        bytes: bytes,
+        filename: image.name,
+        mimeType: image.mimeType ?? 'image/jpeg',
+        context:
+            _conversationContext.enrichRequest(
+          '사진에서 현재 조사에 필요한 정보를 확인해줘.',
+        ),
+        apiKey: apiKey,
+      );
+
+      final summary =
+          result['summary']?.toString().trim() ?? '';
+      final rawAttributes = result['attributes'];
+      final attributes = rawAttributes is Map
+          ? Map<String, dynamic>.from(rawAttributes)
+          : <String, dynamic>{};
+      final rawWarnings = result['warnings'];
+      final warnings = rawWarnings is List
+          ? rawWarnings
+                .map((item) => item.toString().trim())
+                .where((item) => item.isNotEmpty)
+                .toList()
+          : <String>[];
+
+      if (attributes.isNotEmpty) {
+        _conversationContext.rememberAttributes(
+          attributes,
+        );
+      }
+
+      if (!mounted) return;
+
+      final parts = <String>[
+        if (summary.isNotEmpty) summary,
+        if (attributes.isNotEmpty)
+          '확인한 정보: ' +
+              attributes.entries
+                  .map(
+                    (entry) =>
+                        '${entry.key} ${entry.value}',
+                  )
+                  .join(' · '),
+        if (warnings.isNotEmpty)
+          '확인이 더 필요한 부분: ${warnings.join(' · ')}',
+      ];
+
+      setState(() {
+        _messages.add(
+          _Message(
+            isUser: false,
+            text: parts.isEmpty
+                ? '사진은 확인했지만 현재 조사에 추가할 정보를 찾지 못했어요.'
+                : '${parts.join('\n\n')}\n\n이 정보는 다음 조사와 대화에 반영할게요.',
+            badge: '사진 판독',
+          ),
+        );
+      });
+      _toBottom();
+    } catch (error) {
+      if (!mounted) return;
+
+      final message = error is ArabaApiException
+          ? error.message
+          : '사진을 확인하는 중 문제가 생겼어요.';
+
+      setState(() {
+        _messages.add(
+          _Message(
+            isUser: false,
+            text: message,
+            isError: true,
+            badge: '사진 오류',
+          ),
+        );
+      });
+      _toBottom();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sending = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _showImageSourcePicker() async {
+    if (_sending || _researching) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              16,
+              8,
+              16,
+              20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(
+                    Icons.photo_camera_outlined,
+                  ),
+                  title: const Text('사진 촬영'),
+                  subtitle: const Text(
+                    '지금 필요한 정보를 카메라로 찍어서 판독',
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    unawaited(
+                      _pickResearchImage(
+                        ImageSource.camera,
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.photo_library_outlined,
+                  ),
+                  title: const Text('갤러리에서 선택'),
+                  subtitle: const Text(
+                    '이미 찍어둔 사진·견적서·라벨 등을 판독',
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    unawaited(
+                      _pickResearchImage(
+                        ImageSource.gallery,
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _send() async {
     if (_researching) {
       ScaffoldMessenger.of(context).showSnackBar(
