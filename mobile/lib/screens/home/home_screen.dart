@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
+import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -17,11 +21,12 @@ class _HomeScreenState extends State<HomeScreen> {
   final _focus = FocusNode();
   final _api = ArabaApi();
   final _keyStore = ApiKeyStore();
+  final _kakaoStore = KakaoCredentialStore();
 
   LiveVoiceService? _liveVoice;
 
   final List<_Message> _messages = [
-    const _Message(
+    _Message(
       isUser: false,
       text: '무엇을 알아볼까요? 말하듯이 편하게 적어주세요.',
     ),
@@ -30,9 +35,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _liveConnecting = false;
   bool _liveActive = false;
   bool _sending = false;
+  bool _researching = false;
   String _liveStatus = '';
-  String _liveUserTranscript = '';
-  String _liveAssistantTranscript = '';
+  String? _liveTranscriptSpeaker;
+  int? _liveTranscriptMessageIndex;
 
   Future<void> _toggleLiveVoice() async {
     final current = _liveVoice;
@@ -68,8 +74,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _liveConnecting = true;
         _liveActive = false;
         _liveStatus = 'GPT-Live 연결 중';
-        _liveUserTranscript = '';
-        _liveAssistantTranscript = '';
       });
 
       late final LiveVoiceService liveVoice;
@@ -94,27 +98,34 @@ class _HomeScreenState extends State<HomeScreen> {
           if (!mounted || _liveVoice != liveVoice) return;
 
           setState(() {
-            if (isUser) {
-              _liveUserTranscript += delta;
-            } else {
-              _liveAssistantTranscript += delta;
-            }
-          });
-          _toBottom();
-        },
-        onMission: (mission) {
-          if (!mounted || _liveVoice != liveVoice) return;
-
-          setState(() {
-            _messages.add(
-              _Message(
-                isUser: false,
-                text: _reply(mission),
-                mission: mission,
-              ),
+            _appendLiveTranscript(
+              isUser: isUser,
+              delta: delta,
             );
           });
           _toBottom();
+        },
+        onMission: (mission, requestContext) {
+          if (!mounted || _liveVoice != liveVoice) return;
+
+          final clarifications = _clarifications(mission);
+
+          if (clarifications.isNotEmpty) {
+            setState(() {
+              _messages.add(
+                _Message(
+                  isUser: false,
+                  text: _reply(mission),
+                  mission: mission,
+                  requestContext: requestContext,
+                ),
+              );
+            });
+            _toBottom();
+            return;
+          }
+
+          unawaited(_runRealResearch(mission));
         },
         onError: (message) {
           if (!mounted || _liveVoice != liveVoice) return;
@@ -152,6 +163,298 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(content: Text(message)),
       );
     }
+  }
+
+  void _appendLiveTranscript({
+    required bool isUser,
+    required String delta,
+  }) {
+    if (delta.isEmpty) return;
+
+    final speaker = isUser ? 'user' : 'assistant';
+    final existingIndex = _liveTranscriptMessageIndex;
+
+    if (_liveTranscriptSpeaker != speaker ||
+        existingIndex == null ||
+        existingIndex < 0 ||
+        existingIndex >= _messages.length) {
+      _messages.add(
+        _Message(
+          isUser: isUser,
+          text: delta,
+        ),
+      );
+      _liveTranscriptSpeaker = speaker;
+      _liveTranscriptMessageIndex = _messages.length - 1;
+      return;
+    }
+
+    _messages[existingIndex].text += delta;
+  }
+
+  void _addAssistantMessage({
+    required String text,
+    String? badge,
+    List<Map<String, dynamic>>? businesses,
+    String? actionQuestion,
+    List<String>? actions,
+  }) {
+    if (!mounted) return;
+
+    setState(() {
+      _messages.add(
+        _Message(
+          isUser: false,
+          text: text,
+          badge: badge,
+          businesses: businesses,
+          actionQuestion: actionQuestion,
+          actions: actions,
+        ),
+      );
+    });
+    _toBottom();
+  }
+
+  void _speakProgress(String text) {
+    _liveVoice?.speakCommentary(text);
+  }
+
+  List<Map<String, dynamic>> _businessesFrom(
+    Map<String, dynamic> result,
+  ) {
+    final value = result['businesses'];
+    if (value is! List) return const [];
+
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  Future<void> _runRealResearch(
+    Map<String, dynamic> mission,
+  ) async {
+    if (_researching) return;
+
+    setState(() => _researching = true);
+
+    const startText =
+        '조건 정리가 끝났어요. 실제 업체를 찾고 있어요. 현재 0곳 찾았어요.';
+    _addAssistantMessage(
+      text: startText,
+      badge: '실제 검색 중',
+    );
+    _speakProgress('조건 정리가 끝났어요. 실제 업체를 바로 찾아볼게요.');
+
+    try {
+      final kakaoRestApiKey = await _kakaoStore.read();
+
+      if (kakaoRestApiKey == null) {
+        throw const ArabaApiException(
+          'MY의 관리자 API 설정에서 Kakao REST API Key를 먼저 등록해주세요.',
+        );
+      }
+
+      final result = await _api.searchBusinesses(
+        mission,
+        kakaoRestApiKey: kakaoRestApiKey,
+      );
+      final businesses = _businessesFrom(result);
+      final searchQuery =
+          result['search_query']?.toString().trim() ?? '';
+
+      if (businesses.isEmpty) {
+        const noResult =
+            '실제 장소검색 결과에서 조건에 맞는 업체를 찾지 못했어요. '
+            '검색 조건을 조금 넓혀 다시 시도해 주세요.';
+        _addAssistantMessage(
+          text: noResult,
+          badge: '검색 결과 없음',
+        );
+        _speakProgress(noResult);
+        return;
+      }
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 450),
+      );
+
+      _addAssistantMessage(
+        text: searchQuery.isEmpty
+            ? '${businesses.length}곳의 실제 업체를 찾았어요.'
+            : '카카오맵에서 “$searchQuery”로 실제 업체 '
+                '${businesses.length}곳을 찾았어요.',
+        badge: '실제 업체',
+        businesses: businesses,
+      );
+      _speakProgress(
+        '${businesses.length}곳의 실제 업체를 찾았어요. '
+        '카드에서 상호명과 주소, 전화번호를 확인할 수 있어요.',
+      );
+
+      final lifeInfo = result['life_info'];
+      if (lifeInfo is List) {
+        for (final item in lifeInfo.take(2)) {
+          final tip = item.toString().trim();
+          if (tip.isEmpty) continue;
+
+          await Future<void>.delayed(
+            const Duration(milliseconds: 650),
+          );
+          _addAssistantMessage(
+            text: tip,
+            badge: '알아두면 좋아요',
+          );
+        }
+      }
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 650),
+      );
+
+      const callText =
+          '이 실제 업체들에 전화해서 가격, 재고, 가능 시간 같은 최신 정보를 '
+          '확인해야 해요. 지금은 전화망이 연결되지 않아 통화 구간만 '
+          '가상으로 진행할게요.';
+      _addAssistantMessage(
+        text: callText,
+        badge: '전화 확인',
+      );
+      _speakProgress(callText);
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 1100),
+      );
+
+      final calledBusinesses = businesses
+          .map((business) {
+            final item = Map<String, dynamic>.from(business);
+            final phone = item['phone']?.toString().trim() ?? '';
+            item['mock_call_result'] = phone.isEmpty
+                ? '가상 통화 테스트: 공개 전화번호가 없어 실제 통화 전 번호 확인이 필요합니다.'
+                : '가상 통화 테스트: 이 실제 전화번호로 가격·재고·가능 시간을 확인한다고 가정했습니다.';
+            return item;
+          })
+          .toList();
+
+      _addAssistantMessage(
+        text: '실제 업체 목록을 대상으로 가상 전화 확인 구간을 마쳤어요. '
+            '통화 내용 자체는 아직 실제 결과가 아닙니다.',
+        badge: '가상 통화 결과',
+        businesses: calledBusinesses,
+      );
+      _speakProgress(
+        '업체 목록은 실제 정보이고, 전화 확인 부분만 가상으로 테스트했어요.',
+      );
+
+      final firstBusiness = calledBusinesses.first;
+      final firstName =
+          firstBusiness['name']?.toString().trim() ?? '첫 번째 업체';
+      final summary =
+          '가상 통화 흐름 테스트에서는 $firstName을 임시 1순위로 보여드릴게요. '
+          '다만 가격, 재고, 예약 가능 여부는 실제 통화를 하지 않았기 때문에 '
+          '아직 확정된 추천은 아니에요.';
+      final finalQuestion =
+          result['final_question']?.toString().trim() ??
+          '실제 통화 기능이 연결되면 이 업체에 예약을 진행할까요?';
+      final rawActions = result['actions'];
+      final actions = rawActions is List
+          ? rawActions
+                .map((item) => item.toString())
+                .where((item) => item.trim().isNotEmpty)
+                .toList()
+          : <String>[];
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 550),
+      );
+
+      _addAssistantMessage(
+        text: summary,
+        badge: '임시 추천',
+        businesses: calledBusinesses,
+        actionQuestion: finalQuestion,
+        actions: actions,
+      );
+      _speakProgress('$summary $finalQuestion');
+    } catch (error) {
+      final message = error is ArabaApiException
+          ? error.message
+          : '실제 업체 검색 중 문제가 생겼어요.';
+
+      _addAssistantMessage(
+        text: message,
+        badge: '검색 오류',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _researching = false);
+      }
+    }
+  }
+
+  Future<void> _handleResearchAction(
+    String action,
+    _Message source,
+  ) async {
+    if (_researching) return;
+
+    setState(() {
+      _messages.add(
+        _Message(
+          isUser: true,
+          text: action,
+        ),
+      );
+    });
+    _toBottom();
+
+    if (action == '예약하기') {
+      setState(() => _researching = true);
+
+      const calling =
+          '추천 업체에 예약 전화를 걸고 있어요. 지금은 가상 통화로 진행합니다.';
+      _addAssistantMessage(
+        text: calling,
+        badge: '가상 예약',
+      );
+      _speakProgress(calling);
+
+      await Future<void>.delayed(
+        const Duration(milliseconds: 1400),
+      );
+
+      const done =
+          '가상 예약 시뮬레이션이 완료됐어요. 실제 예약은 아직 이루어지지 않았습니다. '
+          '다음 단계에서 실제 예약 성공 시 ARABA 일정에 자동 등록하고 사전 알림까지 연결할게요.';
+      _addAssistantMessage(
+        text: done,
+        badge: '가상 예약 완료',
+      );
+      _speakProgress(done);
+
+      if (mounted) {
+        setState(() => _researching = false);
+      }
+      return;
+    }
+
+    if (action == '다른 후보 보기') {
+      final businesses = source.businesses ?? const [];
+      _addAssistantMessage(
+        text: '다른 후보도 함께 비교해볼게요. 현재는 가상 테스트 결과입니다.',
+        badge: '다른 후보',
+        businesses: businesses,
+      );
+      _speakProgress('다른 후보도 함께 비교해서 보여드릴게요.');
+      return;
+    }
+
+    _addAssistantMessage(
+      text: '알겠어요. 여기까지 정리해둘게요.',
+    );
+    _speakProgress('알겠어요. 여기까지 정리해둘게요.');
   }
 
   void _toBottom() {
@@ -196,6 +499,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _send() async {
+    if (_researching) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('현재 알아보는 작업을 진행하고 있어요.'),
+        ),
+      );
+      return;
+    }
+
     final text = _controller.text.trim();
 
     if (text.isEmpty) {
@@ -217,6 +529,8 @@ class _HomeScreenState extends State<HomeScreen> {
     required String option,
     required String requestContext,
   }) async {
+    _liveVoice?.resetPendingMissionContext();
+
     final combinedRequest = [
       requestContext,
       '',
@@ -234,7 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String displayText,
     required String requestText,
   }) async {
-    if (_sending) return;
+    if (_sending || _researching) return;
 
     setState(() {
       _messages.add(
@@ -270,16 +584,33 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
 
-      setState(() {
-        _messages.add(
-          _Message(
-            isUser: false,
-            text: _reply(mission),
-            mission: mission,
-            requestContext: requestText,
-          ),
-        );
-      });
+      final clarifications = _clarifications(mission);
+
+      if (clarifications.isNotEmpty) {
+        setState(() {
+          _messages.add(
+            _Message(
+              isUser: false,
+              text: _reply(mission),
+              mission: mission,
+              requestContext: requestText,
+            ),
+          );
+        });
+      } else if (mission['ready_to_research'] == true) {
+        unawaited(_runRealResearch(mission));
+      } else {
+        setState(() {
+          _messages.add(
+            _Message(
+              isUser: false,
+              text: _reply(mission),
+              mission: mission,
+              requestContext: requestText,
+            ),
+          );
+        });
+      }
     } catch (error) {
       if (!mounted) return;
 
@@ -400,19 +731,20 @@ class _HomeScreenState extends State<HomeScreen> {
                             requestContext: requestContext,
                           );
                         },
+                        onAction: (action) {
+                          _handleResearchAction(
+                            action,
+                            message,
+                          );
+                        },
                       );
                     },
                   ),
                 ),
-                if (_liveConnecting ||
-                    _liveActive ||
-                    _liveUserTranscript.isNotEmpty ||
-                    _liveAssistantTranscript.isNotEmpty)
+                if (_liveConnecting || _liveActive)
                   _LivePanel(
                     status: _liveStatus,
                     active: _liveActive,
-                    userTranscript: _liveUserTranscript,
-                    assistantTranscript: _liveAssistantTranscript,
                   ),
                 _Composer(
                   controller: _controller,
@@ -433,17 +765,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _Message {
   final bool isUser;
-  final String text;
+  String text;
   final Map<String, dynamic>? mission;
   final String? requestContext;
   final bool isError;
+  final String? badge;
+  final List<Map<String, dynamic>>? businesses;
+  final String? actionQuestion;
+  final List<String>? actions;
 
-  const _Message({
+  _Message({
     required this.isUser,
     required this.text,
     this.mission,
     this.requestContext,
     this.isError = false,
+    this.badge,
+    this.businesses,
+    this.actionQuestion,
+    this.actions,
   });
 }
 
@@ -494,10 +834,12 @@ class _AssistantBubble extends StatelessWidget {
     required String option,
     required String requestContext,
   }) onClarification;
+  final ValueChanged<String> onAction;
 
   const _AssistantBubble({
     required this.message,
     required this.onClarification,
+    required this.onAction,
   });
 
   List<Map<String, dynamic>> _clarifications() {
@@ -578,6 +920,10 @@ class _AssistantBubble extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (message.badge != null) ...[
+                    const SizedBox(height: 8),
+                    _StatusBadge(text: message.badge!),
+                  ],
                   if (message.requestContext != null &&
                       clarifications.isNotEmpty) ...[
                     const SizedBox(height: 10),
@@ -599,11 +945,362 @@ class _AssistantBubble extends StatelessWidget {
                         },
                       ),
                   ],
+                  if (message.businesses != null &&
+                      message.businesses!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _BusinessCards(
+                      businesses: message.businesses!,
+                    ),
+                  ],
+                  if (message.actionQuestion != null &&
+                      message.actions != null &&
+                      message.actions!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _ActionCard(
+                      question: message.actionQuestion!,
+                      actions: message.actions!,
+                      onSelected: onAction,
+                    ),
+                  ],
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  final String text;
+
+  const _StatusBadge({
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F4F7),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFE4E7EC),
+        ),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFF475467),
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _BusinessCards extends StatelessWidget {
+  final List<Map<String, dynamic>> businesses;
+
+  const _BusinessCards({
+    required this.businesses,
+  });
+
+  Future<void> _openPlace(String placeUrl) async {
+    final uri = Uri.tryParse(placeUrl);
+    if (uri == null) return;
+
+    await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 306,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: businesses.length,
+        separatorBuilder: (context, index) =>
+            const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final business = businesses[index];
+          final name = business['name']?.toString() ?? '업체';
+          final description =
+              business['description']?.toString() ?? '';
+          final address =
+              business['address']?.toString().trim() ?? '';
+          final phone =
+              business['phone']?.toString().trim() ?? '';
+          final placeUrl =
+              business['place_url']?.toString().trim() ?? '';
+          final callResult =
+              business['mock_call_result']?.toString().trim() ?? '';
+
+          return Container(
+            width: 258,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFFE4E7EC),
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x0D101828),
+                  blurRadius: 8,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  height: 74,
+                  width: double.infinity,
+                  color: const Color(0xFFEEF4FF),
+                  child: const Stack(
+                    children: [
+                      Center(
+                        child: Icon(
+                          Icons.storefront_rounded,
+                          size: 36,
+                          color: Color(0xFF3157D5),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.all(
+                              Radius.circular(20),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            child: Text(
+                              '실제 업체',
+                              style: TextStyle(
+                                color: Color(0xFF3157D5),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      12,
+                      11,
+                      12,
+                      10,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF101828),
+                          ),
+                        ),
+                        if (description.isNotEmpty) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            description,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF667085),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        if (address.isNotEmpty) ...[
+                          const SizedBox(height: 7),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.location_on_outlined,
+                                size: 15,
+                                color: Color(0xFF667085),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  address,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Color(0xFF475467),
+                                    fontSize: 11.5,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 5),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.phone_outlined,
+                              size: 15,
+                              color: Color(0xFF667085),
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                phone.isEmpty
+                                    ? '공개 전화번호 없음'
+                                    : phone,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: phone.isEmpty
+                                      ? const Color(0xFF98A2B3)
+                                      : const Color(0xFF344054),
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (callResult.isNotEmpty) ...[
+                          const SizedBox(height: 7),
+                          Text(
+                            callResult,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF344054),
+                              fontSize: 11,
+                              height: 1.3,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        const Spacer(),
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                '카카오맵 장소검색',
+                                style: TextStyle(
+                                  color: Color(0xFF667085),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: placeUrl.isEmpty
+                                  ? null
+                                  : () => _openPlace(placeUrl),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                ),
+                              ),
+                              child: const Text(
+                                '지도 보기',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  final String question;
+  final List<String> actions;
+  final ValueChanged<String> onSelected;
+
+  const _ActionCard({
+    required this.question,
+    required this.actions,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFE4E7EC),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            question,
+            style: const TextStyle(
+              color: Color(0xFF101828),
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final action in actions)
+                FilledButton.tonal(
+                  onPressed: () => onSelected(action),
+                  child: Text(action),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -726,14 +1423,10 @@ class _ThinkingBubble extends StatelessWidget {
 class _LivePanel extends StatelessWidget {
   final String status;
   final bool active;
-  final String userTranscript;
-  final String assistantTranscript;
 
   const _LivePanel({
     required this.status,
     required this.active,
-    required this.userTranscript,
-    required this.assistantTranscript,
   });
 
   @override
@@ -746,51 +1439,34 @@ class _LivePanel extends StatelessWidget {
         color: const Color(0xFF101828),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(
-                active
-                    ? Icons.graphic_eq_rounded
-                    : Icons.sync_rounded,
-                size: 18,
-                color: Colors.white,
-              ),
-              const SizedBox(width: 7),
-              Text(
-                'GPT-Live · $status',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
+          Icon(
+            active
+                ? Icons.graphic_eq_rounded
+                : Icons.sync_rounded,
+            size: 18,
+            color: Colors.white,
           ),
-          if (userTranscript.trim().isNotEmpty) ...[
-            const SizedBox(height: 9),
-            Text(
-              '나  $userTranscript',
-              style: const TextStyle(
-                color: Color(0xFFD0D5DD),
-                fontSize: 13,
-                height: 1.35,
-              ),
-            ),
-          ],
-          if (assistantTranscript.trim().isNotEmpty) ...[
-            const SizedBox(height: 5),
-            Text(
-              'ARABA  $assistantTranscript',
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              'GPT-Live · $status',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 13,
-                height: 1.35,
+                fontWeight: FontWeight.w800,
               ),
             ),
-          ],
+          ),
+          const Text(
+            '대화는 채팅에 기록',
+            style: TextStyle(
+              color: Color(0xFF98A2B3),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );

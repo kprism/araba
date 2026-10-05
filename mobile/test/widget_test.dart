@@ -31,14 +31,22 @@ void main() {
     expect(find.text('알아볼 내용을 입력해주세요.'), findsOneWidget);
   });
 
-  testWidgets('MY tab opens developer settings', (tester) async {
+  testWidgets('MY tab opens administrator API settings', (tester) async {
     await tester.pumpWidget(const ArabaApp());
     await tester.pump();
 
     await tester.tap(find.text('MY').last);
     await tester.pump();
 
-    expect(find.text('개발 설정'), findsOneWidget);
+    expect(find.text('관리자 API 설정'), findsOneWidget);
     expect(find.text('OpenAI API'), findsOneWidget);
+
+    await tester.drag(
+      find.byType(ListView),
+      const Offset(0, -700),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Kakao Local API'), findsOneWidget);
   });
 }

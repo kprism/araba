@@ -10,7 +10,10 @@ typedef LiveTranscriptCallback = void Function({
   required bool isUser,
   required String delta,
 });
-typedef LiveMissionCallback = void Function(Map<String, dynamic> mission);
+typedef LiveMissionCallback = void Function(
+  Map<String, dynamic> mission,
+  String requestContext,
+);
 
 class LiveVoiceService {
   final ArabaApi api;
@@ -28,6 +31,7 @@ class LiveVoiceService {
   String? _pendingRequestContext;
   bool _started = false;
   bool _closing = false;
+  int _clientEventSequence = 0;
 
   LiveVoiceService({
     required this.api,
@@ -230,6 +234,7 @@ class LiveVoiceService {
 
       _sendEvent({
         'type': 'session.thinking.append',
+        'event_id': _nextClientEventId('mission_thinking'),
         'delegation_id': delegationId,
         'content': 'ARABA 조사 엔진이 요청을 구조화하고 있습니다.',
       });
@@ -246,7 +251,7 @@ class LiveVoiceService {
         );
       }
 
-      onMission(mission);
+      onMission(mission, requestText);
 
       final summary = mission['summary']?.toString().trim() ?? '';
       final ready = mission['ready_to_research'] == true;
@@ -280,10 +285,11 @@ class LiveVoiceService {
 
       _sendEvent({
         'type': 'session.commentary.append',
+        'event_id': _nextClientEventId('mission_ready'),
         'delegation_id': delegationId,
         'content': summary.isEmpty
-            ? '요청을 이해했습니다. ARABA 조사 작업으로 넘길 수 있습니다.'
-            : '$summary. 요청을 이해했고 ARABA 조사 작업으로 넘길 수 있습니다.',
+            ? '조건 정리가 끝났습니다. 바로 알아볼게요.'
+            : '$summary. 조건 정리가 끝났습니다. 바로 알아볼게요.',
       });
     } catch (error) {
       final message = error is ArabaApiException
@@ -296,6 +302,27 @@ class LiveVoiceService {
         'content': '조사 엔진을 호출했지만 오류가 발생했습니다. $message',
       });
     }
+  }
+
+  void resetPendingMissionContext() {
+    _pendingRequestContext = null;
+  }
+
+  void speakCommentary(String content) {
+    final text = content.trim();
+    if (!_started || text.isEmpty) return;
+
+    _sendEvent({
+      'type': 'session.commentary.append',
+      'event_id': _nextClientEventId('progress'),
+      'delegation_id': null,
+      'content': text,
+    });
+  }
+
+  String _nextClientEventId(String prefix) {
+    _clientEventSequence += 1;
+    return 'araba_${prefix}_$_clientEventSequence';
   }
 
   void _sendEvent(Map<String, dynamic> event) {

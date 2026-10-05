@@ -15,6 +15,12 @@ def _request_api_key(request):
     ).strip()
 
 
+def _request_kakao_rest_api_key(request):
+    return str(
+        request.headers.get("X-Kakao-REST-API-Key", "")
+    ).strip()
+
+
 @api_view(["GET"])
 def health(request):
     return Response(
@@ -226,6 +232,54 @@ def live_session_create(request):
             {
                 "ok": False,
                 "message": "GPT-Live 연결 중 서버 오류가 발생했습니다.",
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+@api_view(["POST"])
+def research_search(request):
+    from .services.research_service import (
+        ResearchConfigurationError,
+        ResearchProviderError,
+        search_real_businesses,
+    )
+
+    mission = request.data.get("mission")
+
+    if not isinstance(mission, dict):
+        return Response(
+            {
+                "ok": False,
+                "message": "조사 Mission 정보가 필요합니다.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        result = search_real_businesses(
+            mission,
+            api_key=_request_kakao_rest_api_key(request),
+        )
+        return Response(
+            {
+                "ok": True,
+                **result,
+            }
+        )
+    except ResearchConfigurationError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    except ResearchProviderError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
             },
             status=status.HTTP_502_BAD_GATEWAY,
         )

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
+import '../../services/kakao_credential_store.dart';
 import '../../services/twilio_credential_store.dart';
 
 class MyScreen extends StatefulWidget {
@@ -14,8 +15,10 @@ class MyScreen extends StatefulWidget {
 class _MyScreenState extends State<MyScreen> {
   final ArabaApi _api = ArabaApi();
   final ApiKeyStore _apiKeyStore = ApiKeyStore();
+  final KakaoCredentialStore _kakaoStore = KakaoCredentialStore();
   final TwilioCredentialStore _twilioStore = TwilioCredentialStore();
   final TextEditingController _apiKeyController = TextEditingController();
+  final TextEditingController _kakaoKeyController = TextEditingController();
   final TextEditingController _twilioSidController = TextEditingController();
   final TextEditingController _twilioTokenController = TextEditingController();
   final TextEditingController _twilioFromController = TextEditingController();
@@ -25,8 +28,10 @@ class _MyScreenState extends State<MyScreen> {
   bool _saving = false;
   bool _testing = false;
   bool _voiceTesting = false;
+  bool _kakaoSaving = false;
   bool _twilioSaving = false;
   bool _voiceReady = false;
+  bool _kakaoConfigured = false;
   bool _twilioConfigured = false;
 
   bool _serverConnected = false;
@@ -34,6 +39,7 @@ class _MyScreenState extends State<MyScreen> {
   bool _openAiConnected = false;
 
   String? _maskedKey;
+  String? _maskedKakaoKey;
   String? _maskedTwilioSid;
   String? _twilioFromNumber;
   String? _message;
@@ -47,6 +53,7 @@ class _MyScreenState extends State<MyScreen> {
   @override
   void dispose() {
     _apiKeyController.dispose();
+    _kakaoKeyController.dispose();
     _twilioSidController.dispose();
     _twilioTokenController.dispose();
     _twilioFromController.dispose();
@@ -80,12 +87,15 @@ class _MyScreenState extends State<MyScreen> {
 
     try {
       savedKey = await _apiKeyStore.read();
+      final kakaoKey = await _kakaoStore.read();
       final twilioCredentials = await _twilioStore.read();
 
       if (mounted) {
         setState(() {
           _openAiConfigured = savedKey != null;
           _maskedKey = _maskKey(savedKey);
+          _kakaoConfigured = kakaoKey != null;
+          _maskedKakaoKey = _maskKey(kakaoKey);
           _twilioConfigured = twilioCredentials != null;
           _maskedTwilioSid = _maskKey(
             twilioCredentials?.accountSid,
@@ -226,6 +236,87 @@ class _MyScreenState extends State<MyScreen> {
       if (mounted) {
         setState(() {
           _testing = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _saveKakaoKey() async {
+    final key = _kakaoKeyController.text.trim();
+
+    if (key.isEmpty) {
+      _showMessage('Kakao REST API Key를 입력해주세요.');
+      return;
+    }
+
+    setState(() {
+      _kakaoSaving = true;
+      _message = null;
+    });
+
+    try {
+      await _kakaoStore.write(key);
+
+      if (!mounted) {
+        return;
+      }
+
+      _kakaoKeyController.clear();
+
+      setState(() {
+        _kakaoConfigured = true;
+        _maskedKakaoKey = _maskKey(key);
+        _message = 'Kakao REST API Key가 이 기기에 안전하게 저장되었습니다.';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _message = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _kakaoSaving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _deleteKakaoKey() async {
+    setState(() {
+      _kakaoSaving = true;
+      _message = null;
+    });
+
+    try {
+      await _kakaoStore.delete();
+
+      if (!mounted) {
+        return;
+      }
+
+      _kakaoKeyController.clear();
+
+      setState(() {
+        _kakaoConfigured = false;
+        _maskedKakaoKey = null;
+        _message = 'Kakao REST API Key 등록을 해제했습니다.';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _message = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _kakaoSaving = false;
         });
       }
     }
@@ -378,7 +469,7 @@ class _MyScreenState extends State<MyScreen> {
               padding: const EdgeInsets.fromLTRB(22, 24, 22, 120),
               children: [
                 const Text(
-                  '개발 설정',
+                  '관리자 API 설정',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w900,
@@ -387,7 +478,7 @@ class _MyScreenState extends State<MyScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'POC 단계에서만 사용하는 개발자 설정입니다.',
+                  'ARABA 운영에 필요한 외부 API 키를 이 기기에서 관리합니다.',
                   style: TextStyle(color: Color(0xFF667085)),
                 ),
                 const SizedBox(height: 24),
@@ -396,6 +487,7 @@ class _MyScreenState extends State<MyScreen> {
                   serverConnected: _serverConnected,
                   openAiConfigured: _openAiConfigured,
                   openAiConnected: _openAiConnected,
+                  kakaoConfigured: _kakaoConfigured,
                   twilioConfigured: _twilioConfigured,
                   voiceReady: _voiceReady,
                 ),
@@ -474,6 +566,99 @@ class _MyScreenState extends State<MyScreen> {
                           label: const Text('OpenAI 연결 테스트'),
                         ),
                       ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFEAECF0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Kakao Local API',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _maskedKakaoKey == null
+                            ? '등록된 Kakao REST API Key가 없습니다.'
+                            : '등록된 Key: $_maskedKakaoKey',
+                        style: const TextStyle(
+                          color: Color(0xFF667085),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        '실제 업체 검색에 사용합니다. 키는 서버에 저장하지 않고 검색 요청 시에만 전달합니다.',
+                        style: TextStyle(
+                          color: Color(0xFF98A2B3),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _kakaoKeyController,
+                        obscureText: true,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Kakao REST API Key',
+                          hintText: 'Kakao Developers의 REST API 키',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _kakaoSaving
+                              ? null
+                              : _saveKakaoKey,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 13,
+                            ),
+                            child: _kakaoSaving
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    _kakaoConfigured
+                                        ? 'Kakao Key 교체'
+                                        : 'Kakao Key 저장',
+                                  ),
+                          ),
+                        ),
+                      ),
+                      if (_kakaoConfigured) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _kakaoSaving
+                                ? null
+                                : _deleteKakaoKey,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            label: const Text('Kakao Key 등록 해제'),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -679,6 +864,7 @@ class _StatusCard extends StatelessWidget {
   final bool serverConnected;
   final bool openAiConfigured;
   final bool openAiConnected;
+  final bool kakaoConfigured;
   final bool twilioConfigured;
   final bool voiceReady;
 
@@ -687,6 +873,7 @@ class _StatusCard extends StatelessWidget {
     required this.serverConnected,
     required this.openAiConfigured,
     required this.openAiConnected,
+    required this.kakaoConfigured,
     required this.twilioConfigured,
     required this.voiceReady,
   });
@@ -721,6 +908,12 @@ class _StatusCard extends StatelessWidget {
             name: 'OpenAI',
             value: openAiConnected ? 'CONNECTED' : 'NOT TESTED',
             active: openAiConnected,
+          ),
+          const SizedBox(height: 10),
+          _StatusRow(
+            name: 'Kakao Local',
+            value: kakaoConfigured ? 'CONFIGURED' : 'NOT SET',
+            active: kakaoConfigured,
           ),
           const SizedBox(height: 10),
           _StatusRow(

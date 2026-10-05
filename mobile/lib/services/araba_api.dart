@@ -26,6 +26,7 @@ class ArabaApi {
 
   Map<String, String> _headers({
     String? apiKey,
+    String? kakaoRestApiKey,
     String? twilioAccountSid,
     String? twilioAuthToken,
     String? twilioFromNumber,
@@ -38,6 +39,12 @@ class ArabaApi {
 
     if (key != null && key.isNotEmpty) {
       headers['X-OpenAI-API-Key'] = key;
+    }
+
+    final kakaoKey = kakaoRestApiKey?.trim();
+
+    if (kakaoKey != null && kakaoKey.isNotEmpty) {
+      headers['X-Kakao-REST-API-Key'] = kakaoKey;
     }
 
     final sid = twilioAccountSid?.trim();
@@ -95,6 +102,24 @@ class ArabaApi {
       ),
       timeout: const Duration(seconds: 90),
       retries: 1,
+    );
+
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> searchBusinesses(
+    Map<String, dynamic> mission, {
+    required String kakaoRestApiKey,
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/research/search/'),
+        headers: _headers(
+          kakaoRestApiKey: kakaoRestApiKey,
+        ),
+        body: jsonEncode({'mission': mission}),
+      ),
+      timeout: const Duration(seconds: 20),
     );
 
     return _decode(response);
