@@ -1192,6 +1192,48 @@ class _MyScreenState extends State<MyScreen> {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 14),
+                      const Divider(),
+                      const SizedBox(height: 10),
+                      const Text(
+                        '관리자 실전 통화 훈련',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        '관리자가 업체 담당자 역할로 응답합니다. 통화 중 “지침:” 또는 “교정:” 뒤에 개선점을 말하면 다음 대화부터 학습규칙으로 반영합니다.',
+                        style: TextStyle(
+                          color: Color(0xFF667085),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _trainingCategoryController,
+                        decoration: const InputDecoration(
+                          labelText: '훈련 카테고리 (선택)',
+                          hintText: '예: 예약, 미용실, 정비, 범용',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _voiceTesting
+                              ? null
+                              : _startAdminTrainingCall,
+                          icon: const Icon(
+                            Icons.support_agent_rounded,
+                          ),
+                          label: const Text(
+                            '내 휴대폰으로 실전 훈련 전화',
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
