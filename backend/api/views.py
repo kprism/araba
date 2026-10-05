@@ -458,37 +458,56 @@ def voice_test_call(request):
     ).strip()
 
     try:
-        result = start_test_call(
-            phone_number,
-            account_sid=account_sid,
-            auth_token=auth_token,
-            from_number=from_number or None,
-            api_key=_request_api_key(request),
-            voice_gender=str(
-                request.data.get(
-                    "voice_gender",
-                    "female",
-                )
-            ),
-            voice_speed=str(
-                request.data.get(
-                    "voice_speed",
-                    "medium",
-                )
-            ),
-            training_mode=bool(
-                request.data.get(
-                    "training_mode",
-                    False,
-                )
-            ),
-            training_category=str(
-                request.data.get(
-                    "training_category",
-                    "",
-                )
-            ),
+        extra_voice_fields = any(
+            key in request.data
+            for key in (
+                "voice_gender",
+                "voice_speed",
+                "training_mode",
+                "training_category",
+            )
         )
+
+        if not extra_voice_fields:
+            result = start_test_call(
+                phone_number,
+                account_sid=account_sid,
+                auth_token=auth_token,
+                from_number=from_number or None,
+                api_key=_request_api_key(request),
+            )
+        else:
+            result = start_test_call(
+                phone_number,
+                account_sid=account_sid,
+                auth_token=auth_token,
+                from_number=from_number or None,
+                api_key=_request_api_key(request),
+                voice_gender=str(
+                    request.data.get(
+                        "voice_gender",
+                        "female",
+                    )
+                ),
+                voice_speed=str(
+                    request.data.get(
+                        "voice_speed",
+                        "medium",
+                    )
+                ),
+                training_mode=bool(
+                    request.data.get(
+                        "training_mode",
+                        False,
+                    )
+                ),
+                training_category=str(
+                    request.data.get(
+                        "training_category",
+                        "",
+                    )
+                ),
+            )
 
         return Response(
             {
