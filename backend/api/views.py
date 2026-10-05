@@ -259,6 +259,119 @@ def live_session_create(request):
         )
 
 
+@api_view(["GET"])
+def live_telephony_status_view(request):
+    from .services.live_service import (
+        live_telephony_status,
+    )
+
+    return Response(
+        {
+            "ok": True,
+            **live_telephony_status(),
+        }
+    )
+
+
+@api_view(["POST"])
+def live_outbound_call(request):
+    from .services.live_service import (
+        LiveConfigurationError,
+        create_outbound_live_call,
+    )
+
+    api_key = _request_api_key(request)
+    if not api_key:
+        return Response(
+            {
+                "ok": False,
+                "message": "OpenAI API Key가 필요합니다.",
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    try:
+        result = create_outbound_live_call(
+            str(
+                request.data.get(
+                    "phone_number",
+                    "",
+                )
+            ).strip(),
+            api_key=api_key,
+            purpose=str(
+                request.data.get(
+                    "purpose",
+                    "",
+                )
+            ).strip(),
+            business_name=str(
+                request.data.get(
+                    "business_name",
+                    "",
+                )
+            ).strip(),
+            requested_time=str(
+                request.data.get(
+                    "requested_time",
+                    "",
+                )
+            ).strip(),
+            reservation_name=str(
+                request.data.get(
+                    "reservation_name",
+                    "",
+                )
+            ).strip(),
+            notes=str(
+                request.data.get(
+                    "notes",
+                    "",
+                )
+            ).strip(),
+            voice_gender=str(
+                request.data.get(
+                    "voice_gender",
+                    "female",
+                )
+            ),
+            voice_speed=str(
+                request.data.get(
+                    "voice_speed",
+                    "medium",
+                )
+            ),
+        )
+
+        return Response(
+            {
+                "ok": True,
+                **result,
+                "message": (
+                    "GPT-Live 실전화 세션을 시작했습니다."
+                ),
+            }
+        )
+    except LiveConfigurationError as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "GPT-Live 실전화 시작 중 서버 오류가 발생했습니다."
+                ),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
 @api_view(["POST"])
 def research_search(request):
     from .services.research_service import (
