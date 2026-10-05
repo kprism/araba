@@ -356,6 +356,7 @@ def start_test_call(
     account_sid,
     auth_token,
     from_number=None,
+    caller_id_number=None,
     api_key,
     voice_gender="female",
     voice_speed="medium",
@@ -393,11 +394,18 @@ def start_test_call(
         auth_token,
     )
 
+    explicit_caller_id = str(
+        caller_id_number or ""
+    ).strip()
     explicit_from_number = str(
         from_number or ""
     ).strip()
 
-    if explicit_from_number:
+    if explicit_caller_id:
+        caller_number = normalize_phone_number(
+            explicit_caller_id
+        )
+    elif explicit_from_number:
         caller_number = normalize_twilio_from_number(
             explicit_from_number
         )
@@ -423,6 +431,7 @@ def start_test_call(
             "status": getattr(call, "status", None),
             "voice_mode": "araba",
             "trial_fallback": False,
+            "caller_id": caller_number,
         }
     except TwilioRestException as exc:
         is_trial_parameter_limit = (
