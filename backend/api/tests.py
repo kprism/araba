@@ -556,7 +556,7 @@ class LiveSessionApiTests(TestCase):
             "session_id": "live_test",
             "sdp": "v=0\r\na=answer",
             "model": "gpt-live-1",
-            "delegation": "client",
+            "routing": "gpt_core",
         },
     )
     def test_live_session_returns_webrtc_answer(
@@ -774,6 +774,18 @@ class LiveServiceTests(TestCase):
         )
         self.assertTrue(
             request_json["transport"]["sdp"].endswith("\r\n")
+        )
+        self.assertNotIn(
+            "delegation",
+            request_json["session"],
+        )
+        self.assertIn(
+            "GPT Core 하나뿐",
+            request_json["session"]["instructions"],
+        )
+        self.assertEqual(
+            result["routing"],
+            "gpt_core",
         )
         mocked_key.assert_called_once_with("sk-test")
 
