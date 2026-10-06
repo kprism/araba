@@ -2661,3 +2661,90 @@ class CoreTrainingCurriculumTests(TestCase):
             "여러 업체·기관·사람",
             rules,
         )
+
+
+class FastFirstResearchResponseTests(TestCase):
+    @patch(
+        "api.services.research_service.enrich_businesses_with_naver",
+        side_effect=lambda businesses, **kwargs: businesses,
+    )
+    @patch(
+        "api.services.research_service.enrich_businesses_with_kakao_pages",
+        side_effect=lambda businesses: businesses,
+    )
+    @patch(
+        "api.services.research_service.httpx.get"
+    )
+    def test_deep_enrichment_is_limited_but_all_candidates_are_returned(
+        self,
+        mocked_get,
+        mocked_kakao_enrich,
+        mocked_naver_enrich,
+    ):
+        from api.services.research_service import (
+            FAST_DETAIL_ENRICH_LIMIT,
+            search_real_businesses,
+        )
+
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            "meta": {"total_count": 8},
+            "documents": [
+                {
+                    "id": str(index),
+                    "place_name": f"타이어{index}",
+                    "category_name": "자동차 > 자동차정비 > 타이어",
+                    "phone": f"055-000-{index:04d}",
+                    "address_name": f"경남 창원시 성산구 {index}",
+                    "road_address_name": f"경남 창원시 성산구 중앙대로 {index}",
+                    "x": f"128.68{index}",
+                    "y": f"35.22{index}",
+                    "place_url": f"http://place.map.kakao.com/{index}",
+                }
+                for index in range(1, 9)
+            ],
+        }
+        mocked_get.return_value = response
+
+        result = search_real_businesses(
+            {
+                "search_mode": "category_discovery",
+                "category": "",
+                "subcategories": [],
+                "location": "",
+                "subject": "",
+                "search_terms": ["타이어"],
+                "required_facts": ["후보 업체"],
+            },
+            api_key="device-kakao-key",
+        )
+
+        self.assertEqual(
+            len(result["businesses"]),
+            8,
+        )
+        self.assertEqual(
+            FAST_DETAIL_ENRICH_LIMIT,
+            4,
+        )
+        self.assertEqual(
+            len(
+                mocked_kakao_enrich.call_args.args[0]
+            ),
+            4,
+        )
+        self.assertEqual(
+            len(
+                mocked_naver_enrich.call_args.args[0]
+            ),
+            4,
+        )
+        self.assertEqual(
+            result["detail_deferred_count"],
+            4,
+        )
+        self.assertEqual(
+            result["businesses"][4]["naver"]["status"],
+            "deferred_fast_response",
+        )
