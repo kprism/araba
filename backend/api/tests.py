@@ -2480,3 +2480,191 @@ class ResearchEvidenceEvaluationTests(TestCase):
             result["missing_facts"],
             [],
         )
+
+
+class CoreTrainingCurriculumTests(TestCase):
+    def test_core_curriculum_persists_ten_scenarios_and_rules_idempotently(
+        self,
+    ):
+        from api.models import (
+            TrainingRule,
+            TrainingScenario,
+        )
+        from api.services.training_service import (
+            CORE_CURRICULUM,
+            ensure_core_curriculum,
+        )
+
+        first = ensure_core_curriculum()
+        second = ensure_core_curriculum()
+
+        self.assertEqual(
+            len(CORE_CURRICULUM),
+            10,
+        )
+        self.assertEqual(
+            len(first),
+            10,
+        )
+        self.assertEqual(
+            len(second),
+            10,
+        )
+        self.assertEqual(
+            TrainingScenario.objects.filter(
+                category="범용",
+                context__provider_profile__isnull=True,
+            ).count(),
+            0,
+        )
+        self.assertEqual(
+            TrainingScenario.objects.filter(
+                category="범용",
+            ).count(),
+            10,
+        )
+        self.assertEqual(
+            TrainingRule.objects.filter(
+                source="core_curriculum",
+                active=True,
+            ).count(),
+            10,
+        )
+
+    def test_core_curriculum_contains_five_historical_and_five_future_cases(
+        self,
+    ):
+        from api.services.training_service import (
+            CORE_CURRICULUM,
+        )
+
+        historical = [
+            item
+            for item in CORE_CURRICULUM
+            if item["group"]
+            == "historical_failure"
+        ]
+        future = [
+            item
+            for item in CORE_CURRICULUM
+            if item["group"]
+            == "future_complex"
+        ]
+
+        self.assertEqual(
+            len(historical),
+            5,
+        )
+        self.assertEqual(
+            len(future),
+            5,
+        )
+
+    def test_all_ten_curriculum_cases_run_as_training_and_pass_current_guards(
+        self,
+    ):
+        from api.models import TrainingRun
+        from api.services.training_service import (
+            run_core_curriculum_diagnostics,
+        )
+
+        runs = run_core_curriculum_diagnostics()
+
+        self.assertEqual(
+            len(runs),
+            10,
+        )
+        self.assertTrue(
+            all(
+                run.mode
+                == "curriculum_regression"
+                for run in runs
+            )
+        )
+        self.assertTrue(
+            all(
+                run.score == 100
+                for run in runs
+            )
+        )
+        self.assertEqual(
+            TrainingRun.objects.filter(
+                mode="curriculum_regression",
+            ).count(),
+            10,
+        )
+        self.assertTrue(
+            all(
+                run.learned_rules
+                for run in runs
+            )
+        )
+
+    def test_core_curriculum_endpoint_records_training_runs(
+        self,
+    ):
+        from api.models import TrainingRun
+
+        response = self.client.post(
+            "/api/training/core-curriculum/run/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+        self.assertTrue(
+            response.data["ok"],
+        )
+        self.assertEqual(
+            response.data["trained"],
+            10,
+        )
+        self.assertEqual(
+            response.data["historical_count"],
+            5,
+        )
+        self.assertEqual(
+            response.data["future_complex_count"],
+            5,
+        )
+        self.assertEqual(
+            response.data["passed"],
+            10,
+        )
+        self.assertEqual(
+            response.data["failed"],
+            0,
+        )
+        self.assertEqual(
+            TrainingRun.objects.filter(
+                mode="curriculum_regression",
+            ).count(),
+            10,
+        )
+
+    def test_core_curriculum_rules_are_injected_into_runtime_prompt_memory(
+        self,
+    ):
+        from api.services.training_service import (
+            active_rules_text,
+        )
+
+        rules = active_rules_text(
+            limit=30,
+        )
+
+        self.assertIn(
+            "기준점 좌표",
+            rules,
+        )
+        self.assertIn(
+            "expected_answer",
+            rules,
+        )
+        self.assertIn(
+            "여러 업체·기관·사람",
+            rules,
+        )
