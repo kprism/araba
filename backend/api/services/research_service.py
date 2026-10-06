@@ -987,14 +987,10 @@ def search_real_businesses(
 
         filtered = []
         if isinstance(raw_documents, list):
-            filtered = [
+            scoped_documents = [
                 item
                 for item in raw_documents
                 if isinstance(item, dict)
-                and _matches_mission(
-                    item,
-                    mission,
-                )
                 and (
                     True
                     if (
@@ -1018,6 +1014,38 @@ def search_real_businesses(
                     mission,
                 )
             ]
+
+            filtered = [
+                item
+                for item in scoped_documents
+                if _matches_mission(
+                    item,
+                    mission,
+                )
+            ]
+
+            # 제공자 검색어 자체가 사용자의 핵심 서비스어를 포함하면
+            # 카카오가 그 검색어로 반환한 후보를 2차 안전망으로 쓴다.
+            # 예: "임플란트" 검색 결과의 카테고리가 단순 "치과"라서
+            # 문자열 필터만으로 전부 버리는 문제를 막는다.
+            if (
+                not filtered
+                and scoped_documents
+            ):
+                query_lower = query.lower()
+                mission_keywords = _mission_keywords(
+                    mission
+                )
+                provider_query_is_relevant = (
+                    not mission_keywords
+                    or any(
+                        keyword in query_lower
+                        for keyword in mission_keywords
+                    )
+                )
+
+                if provider_query_is_relevant:
+                    filtered = scoped_documents
 
         if filtered and selected_query is None:
             selected_query = query
