@@ -318,6 +318,70 @@ def _normalize_search_scope(
     return mission
 
 
+def _parse_mission_json(raw):
+    text = str(raw or "").strip()
+
+    if text.startswith("```"):
+        text = (
+            text.removeprefix("```json")
+            .removeprefix("```")
+            .removesuffix("```")
+            .strip()
+        )
+
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            raise
+
+        value = json.loads(
+            text[start : end + 1]
+        )
+
+    if not isinstance(value, dict):
+        raise ValueError(
+            "Mission 응답이 객체 형식이 아닙니다."
+        )
+
+    return value
+
+
+def _create_mission_response(
+    client,
+    *,
+    instructions,
+    request_text,
+):
+    last_error = None
+
+    for attempt in range(2):
+        try:
+            return client.responses.create(
+                model="gpt-5-mini",
+                instructions=instructions,
+                input=request_text,
+            )
+        except Exception as exc:
+            last_error = exc
+            error_name = type(exc).__name__
+
+            if error_name in {
+                "AuthenticationError",
+                "PermissionDeniedError",
+                "BadRequestError",
+            }:
+                raise
+
+            if attempt == 0:
+                continue
+            raise
+
+    raise last_error
+
+
 def create_mission(user_request, api_key=None):
     request_text = str(user_request).strip()
 
@@ -333,7 +397,7 @@ def create_mission(user_request, api_key=None):
 
     client = OpenAI(
         api_key=api_key,
-        timeout=25.0,
+        timeout=12.0,
         max_retries=0,
     )
 
@@ -348,22 +412,17 @@ def create_mission(user_request, api_key=None):
             + learned_rules
         )
 
-    response = client.responses.create(
-        model="gpt-5-mini",
+    response = _create_mission_response(
+        client,
         instructions=instructions,
-        input=request_text,
+        request_text=request_text,
     )
 
     raw = response.output_text.strip()
 
-    if raw.startswith("```"):
-        raw = raw.removeprefix("```json")
-        raw = raw.removeprefix("```")
-        raw = raw.removesuffix("```").strip()
-
     try:
-        mission = json.loads(raw)
-    except json.JSONDecodeError as exc:
+        mission = _parse_mission_json(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
         raise ValueError(
             "OpenAI가 Mission JSON을 올바르게 반환하지 않았습니다."
         ) from exc
