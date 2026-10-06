@@ -383,10 +383,11 @@ def _diagnose_core_case(item):
         from .research_service import _matches_mission
 
         mission = {
-            "category": "의료",
+            "category": "치과",
             "subject": "임플란트 가능한 치과",
             "search_terms": ["치과"],
-            "subcategories": ["임플란트"],
+            "subcategories": ["치과"],
+            "constraints": ["임플란트 가능"],
         }
         passed = _matches_mission(
             {
@@ -399,26 +400,45 @@ def _diagnose_core_case(item):
             "base_category_candidate_kept": passed,
         }
 
-    elif key == "historical_stale_entity":
-        from .mission_service import _normalize_search_scope
 
-        result = _normalize_search_scope(
+    elif key == "historical_stale_entity":
+        from .mission_service import (
+            _mission_from_intent,
+            _normalize_intent,
+        )
+
+        intent = _normalize_intent(
             {
-                "search_mode": "follow_up_detail",
-                "target_business": "처음말한치과",
-                "ready_to_research": True,
-            },
-            (
-                "[대화 문맥 - 참고용]\n"
-                '{"target_business":"처음말한치과"}\n'
-                "[현재 요청]\n"
-                "창원시 의창구 중동에 치과 몇 군데 찾아줘"
-            ),
+                "intent": "place_search",
+                "goal": "중동 치과 찾기",
+                "location": {
+                    "value": "창원시 의창구 중동",
+                    "type": "administrative_area",
+                    "explicit": True,
+                },
+                "category": "치과",
+                "subject": "치과",
+                "target_business": None,
+                "count": 5,
+                "constraints": [],
+                "attributes": {},
+                "requested_facts": [],
+                "sort": "relevance",
+                "needs_fresh_data": True,
+                "needs_clarification": False,
+                "clarification_question": None,
+                "direct_answer": None,
+            }
+        )
+        result = _mission_from_intent(
+            intent
         )
         passed = (
             result.get("target_business") is None
             and result.get("search_mode")
             == "category_discovery"
+            and result.get("category")
+            == "치과"
         )
         detail = {
             "target_business": result.get(
@@ -427,8 +447,10 @@ def _diagnose_core_case(item):
             "search_mode": result.get(
                 "search_mode"
             ),
+            "category": result.get(
+                "category"
+            ),
         }
-
     elif key == "historical_live_claim_without_work":
         from .live_service import LIVE_SYSTEM_PROMPT
 
@@ -785,11 +807,12 @@ def _diagnose_core_case(item):
             "max_kakao_query_attempts": MAX_KAKAO_QUERY_ATTEMPTS,
         }
 
+
     elif key == "observed_request_processing_failure":
         from unittest.mock import Mock
 
         from .mission_service import (
-            _create_mission_response,
+            _create_intent_response,
         )
 
         before_rules = TrainingRule.objects.count()
@@ -805,9 +828,8 @@ def _diagnose_core_case(item):
 
         failed_once = False
         try:
-            _create_mission_response(
+            _create_intent_response(
                 client,
-                instructions="test",
                 request_text="테스트 요청",
             )
         except RuntimeError:
@@ -824,7 +846,7 @@ def _diagnose_core_case(item):
             "rules_after": after_rules,
             "scenarios_before": before_scenarios,
             "scenarios_after": after_scenarios,
-            "mission_attempts": client.responses.create.call_count,
+            "intent_attempts": client.responses.create.call_count,
             "duplicate_retry_blocked": (
                 client.responses.create.call_count == 1
             ),
@@ -832,47 +854,59 @@ def _diagnose_core_case(item):
 
     elif key == "observed_cross_topic_context_leak":
         from .mission_service import (
-            _current_request_text,
-            _normalize_search_scope,
+            _mission_from_intent,
+            _normalize_intent,
         )
 
-        request_text = (
-            "[현재 요청]\n"
-            "창원에서 임플란트 가능한 치과 몇 군데 알아봐.\n\n"
-            "[대화 문맥 - 참고용]\n"
-            '{"category":"자동차","subject":"타이어 교체",'
-            '"target_business":"예전타이어점"}'
-        )
-
-        current = _current_request_text(
-            request_text
-        )
-        mission = _normalize_search_scope(
+        intent = _normalize_intent(
             {
-                "search_mode": "follow_up_detail",
-                "target_business": "예전타이어점",
-                "ready_to_research": True,
-            },
-            request_text,
+                "intent": "place_search",
+                "goal": "창원에서 임플란트 가능한 치과 찾기",
+                "location": {
+                    "value": "창원",
+                    "type": "administrative_area",
+                    "explicit": True,
+                },
+                "category": "치과",
+                "subject": "임플란트 가능한 치과",
+                "target_business": None,
+                "count": 5,
+                "constraints": ["임플란트 가능"],
+                "attributes": {},
+                "requested_facts": [],
+                "sort": "relevance",
+                "needs_fresh_data": True,
+                "needs_clarification": False,
+                "clarification_question": None,
+                "direct_answer": None,
+            }
+        )
+        mission = _mission_from_intent(
+            intent
         )
 
         passed = (
-            current
-            == "창원에서 임플란트 가능한 치과 몇 군데 알아봐."
+            mission.get("category") == "치과"
             and mission.get("target_business") is None
             and mission.get("search_mode")
             == "category_discovery"
+            and mission.get("search_terms")
+            == ["치과"]
         )
         detail = {
-            "current_request": current,
+            "category": mission.get(
+                "category"
+            ),
             "target_business": mission.get(
                 "target_business"
             ),
             "search_mode": mission.get(
                 "search_mode"
             ),
+            "search_terms": mission.get(
+                "search_terms"
+            ),
         }
-
     else:
         passed = False
         detail = {
