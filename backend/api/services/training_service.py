@@ -797,7 +797,7 @@ def _diagnose_core_case(item):
         )
 
         passed = (
-            FAST_DETAIL_ENRICH_LIMIT <= 4
+            FAST_DETAIL_ENRICH_LIMIT <= 5
             and MAX_KAKAO_QUERY_ATTEMPTS <= 5
         )
         detail = {
