@@ -40,8 +40,6 @@ class LiveVoiceService {
   RTCPeerConnectionState? _connectionState;
   int _clientEventSequence = 0;
   bool _missionInFlight = false;
-  int _missionFailureCount = 0;
-  String _missionFailureTranscript = '';
 
   LiveVoiceService({
     required this.api,
@@ -351,8 +349,6 @@ class LiveVoiceService {
 
       conversationContext.rememberMission(mission);
       _consumeProcessedTranscript(latestUserText);
-      _missionFailureCount = 0;
-      _missionFailureTranscript = '';
       onMission(mission, requestText);
 
       final ready =
@@ -375,8 +371,6 @@ class LiveVoiceService {
           : 'ARABA 조사 엔진 처리 중 오류가 발생했습니다.';
 
       _consumeProcessedTranscript(latestUserText);
-      _missionFailureCount = 0;
-      _missionFailureTranscript = '';
 
       speakCommentary(
         '이번 요청을 완료하지 못했어요. $message',
@@ -461,8 +455,6 @@ class LiveVoiceService {
     _missionFallbackTimer?.cancel();
     _missionFallbackTimer = null;
     _missionInFlight = false;
-    _missionFailureCount = 0;
-    _missionFailureTranscript = '';
     _connectionState = null;
 
     try {
