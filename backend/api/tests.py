@@ -2953,26 +2953,26 @@ class FastFirstResearchResponseTests(TestCase):
         )
         self.assertEqual(
             FAST_DETAIL_ENRICH_LIMIT,
-            4,
+            2,
         )
         self.assertEqual(
             len(
                 mocked_kakao_enrich.call_args.args[0]
             ),
-            4,
+            2,
         )
         self.assertEqual(
             len(
                 mocked_naver_enrich.call_args.args[0]
             ),
-            4,
+            2,
         )
         self.assertEqual(
             result["detail_deferred_count"],
-            4,
+            6,
         )
         self.assertEqual(
-            result["businesses"][4]["naver"]["status"],
+            result["businesses"][2]["naver"]["status"],
             "deferred_fast_response",
         )
 
