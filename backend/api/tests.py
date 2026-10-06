@@ -2068,3 +2068,159 @@ class DynamicResearchFilterTests(TestCase):
         self.assertIn("지역", labels)
         self.assertIn("목적", labels)
         self.assertIn("스타일", labels)
+
+
+class GoalFirstIntentBrainTests(TestCase):
+    def test_enhance_mission_adds_answer_blueprint_without_breaking_legacy_fields(
+        self,
+    ):
+        from api.services.intent_brain_service import (
+            enhance_mission,
+        )
+
+        mission = {
+            "title": "타이어 교체 후보 조사",
+            "summary": "창원시청 주변에서 타이어 교체할 곳을 결정한다.",
+            "category": "자동차",
+            "subcategories": ["타이어"],
+            "intent": "비교",
+            "response_mode": "research",
+            "search_mode": "area_discovery",
+            "location": "창원시청",
+            "subject": "타이어 교체",
+            "constraints": [],
+            "comparison": "접근성과 실제 작업 가능성",
+            "required_facts": [
+                "후보 업체",
+                "거리",
+                "현재 작업 가능 여부",
+            ],
+            "needs_fresh_data": True,
+            "may_need_phone_call": True,
+            "missing_information": [],
+            "clarification_questions": [],
+            "ready_to_research": True,
+            "search_terms": ["타이어 교체"],
+        }
+
+        result = enhance_mission(
+            mission,
+            "창원시청 주변에 타이어 교체할 곳 알아봐",
+        )
+
+        self.assertEqual(
+            result["category"],
+            "자동차",
+        )
+        self.assertEqual(
+            result["search_terms"],
+            ["타이어 교체"],
+        )
+        self.assertTrue(
+            result["user_goal"],
+        )
+        self.assertEqual(
+            result["expected_answer"]["type"],
+            "comparison",
+        )
+        self.assertIn(
+            "거리",
+            result["expected_answer"]["must_include"],
+        )
+        self.assertTrue(
+            result["evidence_needed"],
+        )
+        self.assertTrue(
+            result["research_plan"],
+        )
+        self.assertEqual(
+            result["brain_version"],
+            "goal-first-v1",
+        )
+
+    def test_reference_point_location_is_preserved_as_reference_point(
+        self,
+    ):
+        from api.services.intent_brain_service import (
+            enhance_mission,
+        )
+
+        result = enhance_mission(
+            {
+                "summary": "기준 장소 주변 후보 조사",
+                "intent": "조사",
+                "response_mode": "research",
+                "location": "창원시청",
+                "location_context": {
+                    "value": "창원시청",
+                    "type": "reference_point",
+                    "radius_hint_km": 3,
+                },
+                "required_facts": ["주변 후보"],
+                "may_need_phone_call": False,
+            },
+            "창원시청 주변에 알아봐",
+        )
+
+        self.assertEqual(
+            result["location_context"]["type"],
+            "reference_point",
+        )
+        self.assertEqual(
+            result["location_context"]["value"],
+            "창원시청",
+        )
+        self.assertEqual(
+            result["location_context"]["radius_hint_km"],
+            3.0,
+        )
+
+    def test_non_place_goal_can_plan_without_place_search(
+        self,
+    ):
+        from api.services.intent_brain_service import (
+            enhance_mission,
+        )
+
+        result = enhance_mission(
+            {
+                "summary": "계약서에서 위험 조항을 설명한다.",
+                "intent": "조사",
+                "response_mode": "research",
+                "subject": "계약서 위험조항",
+                "required_facts": [
+                    "불리한 조항",
+                    "확인할 사항",
+                ],
+                "may_need_phone_call": False,
+                "research_plan": [
+                    {
+                        "step": 1,
+                        "goal": "첨부 계약서 내용을 확인한다.",
+                        "tool": "image",
+                        "when": "계약서 사진 또는 파일이 있을 때",
+                    },
+                    {
+                        "step": 2,
+                        "goal": "위험조항의 의미를 분석한다.",
+                        "tool": "direct_reasoning",
+                        "when": "문서 내용이 추출된 뒤",
+                    },
+                ],
+            },
+            "이 계약서 괜찮은지 봐줘",
+        )
+
+        tools_used = [
+            step["tool"]
+            for step in result["research_plan"]
+        ]
+
+        self.assertEqual(
+            tools_used,
+            ["image", "direct_reasoning"],
+        )
+        self.assertNotIn(
+            "place_search",
+            tools_used,
+        )
