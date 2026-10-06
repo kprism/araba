@@ -40,8 +40,6 @@ class LiveVoiceService {
   RTCPeerConnectionState? _connectionState;
   int _clientEventSequence = 0;
   bool _missionInFlight = false;
-  String _lastMissionTranscript = '';
-  DateTime? _lastMissionStartedAt;
   int _missionFailureCount = 0;
   String _missionFailureTranscript = '';
 
@@ -243,20 +241,19 @@ class LiveVoiceService {
       case 'session.output_transcript.delta':
         final delta = event['delta']?.toString() ?? '';
         if (delta.isNotEmpty) {
+          if (_userTranscript.trim().isNotEmpty &&
+              !_missionInFlight) {
+            _missionFallbackTimer?.cancel();
+            _missionFallbackTimer = null;
+            unawaited(_handleTranscriptFallback());
+          }
           onTranscript(isUser: false, delta: delta);
         }
         break;
       case 'session.delegation.created':
-        final delegation = event['delegation'];
-        if (delegation is Map) {
-          final delegationId =
-              delegation['id']?.toString().trim() ?? '';
-          if (delegationId.isNotEmpty) {
-            _missionFallbackTimer?.cancel();
-            _missionFallbackTimer = null;
-            unawaited(_handleDelegation(delegationId));
-          }
-        }
+        // 구버전 서버가 delegation 이벤트를 보내더라도
+        // 판단 경로로 사용하지 않는다. 모든 실질 판단은
+        // 확정된 사용자 발화를 GPT Core로 보내 처리한다.
         break;
       case 'session.closed':
         _started = false;
@@ -287,69 +284,6 @@ class LiveVoiceService {
     );
   }
 
-  bool _isRecentMissionTurn() {
-    final startedAt = _lastMissionStartedAt;
-    if (startedAt == null ||
-        _lastMissionTranscript.isEmpty) {
-      return false;
-    }
-
-    return DateTime.now().difference(startedAt) <
-        const Duration(seconds: 12);
-  }
-
-  Future<void> _handleTranscriptFallback() async {
-    if (_missionInFlight) {
-      if (_userTranscript.trim().isNotEmpty) {
-        _scheduleMissionFallback();
-      }
-      return;
-    }
-
-    final latestUserText = _userTranscript.trim();
-    if (latestUserText.isEmpty) return;
-
-    await _processMission(
-      latestUserText: latestUserText,
-    );
-  }
-
-  Future<void> _handleDelegation(String delegationId) async {
-    final latestUserText = _userTranscript.trim();
-
-    if (latestUserText.isEmpty) {
-      if (_missionInFlight || _isRecentMissionTurn()) {
-        _sendEvent({
-          'type': 'session.commentary.append',
-          'delegation_id': delegationId,
-          'content': 'ARABA 조사 엔진에서 이미 요청을 처리하고 있습니다.',
-        });
-        return;
-      }
-
-      _sendEvent({
-        'type': 'session.commentary.append',
-        'delegation_id': delegationId,
-        'content': '사용자 요청을 정확히 듣지 못했습니다. 짧게 다시 물어봐 주세요.',
-      });
-      return;
-    }
-
-    if (_missionInFlight) {
-      _sendEvent({
-        'type': 'session.commentary.append',
-        'delegation_id': delegationId,
-        'content': 'ARABA 조사 엔진에서 이미 요청을 처리하고 있습니다.',
-      });
-      return;
-    }
-
-    await _processMission(
-      latestUserText: latestUserText,
-      delegationId: delegationId,
-    );
-  }
-
   void _consumeProcessedTranscript(String processedText) {
     final current = _userTranscript;
     final processed = processedText.trim();
@@ -371,11 +305,8 @@ class LiveVoiceService {
 
   Future<void> _processMission({
     required String latestUserText,
-    String? delegationId,
   }) async {
     _missionInFlight = true;
-    _lastMissionTranscript = latestUserText;
-    _lastMissionStartedAt = DateTime.now();
 
     try {
       final rawRequestText = _pendingRequestContext == null
@@ -389,15 +320,6 @@ class LiveVoiceService {
       final requestText = conversationContext.enrichRequest(
         rawRequestText,
       );
-
-      if (delegationId != null) {
-        _sendEvent({
-          'type': 'session.thinking.append',
-          'event_id': _nextClientEventId('mission_thinking'),
-          'delegation_id': delegationId,
-          'content': 'ARABA 조사 엔진이 요청을 구조화하고 있습니다.',
-        });
-      }
 
       final result = await api.createMission(
         requestText,
@@ -440,35 +362,13 @@ class LiveVoiceService {
 
           _pendingRequestContext = requestText;
 
-          if (delegationId != null) {
-            _sendEvent({
-              'type': 'session.commentary.append',
-              'delegation_id': delegationId,
-              'content': [
-                if (summary.isNotEmpty) summary,
-                if (question.isNotEmpty) question,
-                if (optionText.isNotEmpty)
-                  '선택 가능: $optionText',
-              ].join(' '),
-            });
-          }
           return;
         }
       }
 
       _pendingRequestContext = null;
 
-      if (delegationId != null) {
-        _sendEvent({
-          'type': 'session.commentary.append',
-          'event_id':
-              _nextClientEventId('mission_ready'),
-          'delegation_id': delegationId,
-          'content': summary.isEmpty
-              ? '조건 정리가 끝났습니다. 바로 알아볼게요.'
-              : '$summary. 조건 정리가 끝났습니다. 바로 알아볼게요.',
-        });
-      }
+
     } catch (error) {
       final message = error is ArabaApiException
           ? error.message
@@ -485,32 +385,17 @@ class LiveVoiceService {
 
       if (willRetry) {
         onStatus('요청 자동 재시도 중');
-
-        if (delegationId != null) {
-          _sendEvent({
-            'type': 'session.commentary.append',
-            'delegation_id': delegationId,
-            'content': '요청을 보존했습니다. 자동으로 다시 처리하고 있습니다.',
-          });
-        }
+        speakCommentary(
+          '잠시만요. 같은 요청을 다시 확인하고 있어요.',
+        );
       } else {
         _consumeProcessedTranscript(latestUserText);
         _missionFailureCount = 0;
         _missionFailureTranscript = '';
 
-        if (delegationId != null) {
-          _sendEvent({
-            'type': 'session.commentary.append',
-            'delegation_id': delegationId,
-            'content': '요청 처리를 여러 번 시도했지만 완료하지 못했습니다. $message',
-          });
-        } else {
-          onTranscript(
-            isUser: false,
-            delta: '요청 처리를 여러 번 시도했지만 완료하지 못했어요. $message',
-          );
-        }
-
+        speakCommentary(
+          '요청 처리를 여러 번 시도했지만 완료하지 못했어요. $message',
+        );
         onStatus('듣고 있어요');
       }
     } finally {
