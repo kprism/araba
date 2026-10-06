@@ -82,10 +82,8 @@ void main() {
 
     expect(twice, once);
   });
-}
 
-
-test('place result sets are remembered with rank and detail facts', () {
+  test('place result sets are remembered with rank and detail facts', () {
   final context = ConversationContext();
 
   context.rememberBusinessResults(
@@ -169,3 +167,4 @@ test('place search history keeps recent categories for later follow-up', () {
     '치과',
   );
 });
+}
