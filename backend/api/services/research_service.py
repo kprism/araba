@@ -144,6 +144,36 @@ def _resolve_reference_point_origin(
     }
 
 
+REFERENCE_POINT_SUFFIXES = (
+    "시청",
+    "군청",
+    "구청",
+    "청사",
+    "주민센터",
+    "행정복지센터",
+    "역",
+    "공항",
+    "터미널",
+    "병원",
+    "학교",
+    "대학교",
+    "공원",
+    "시장",
+    "호텔",
+    "아파트",
+    "백화점",
+    "마트",
+    "도서관",
+    "경찰서",
+    "소방서",
+    "법원",
+    "체육관",
+    "경기장",
+    "항",
+    "항구",
+)
+
+
 def _location_address_candidates(location):
     normalized = " ".join(
         str(location or "").split()
@@ -151,11 +181,22 @@ def _location_address_candidates(location):
     if not normalized:
         return []
 
-    candidates = [normalized]
-    fallback = _location_address_query(normalized)
+    # 명백한 시설/기준장소 이름에는 행정구역 접미사를 붙이지 않는다.
+    # 예: 창원시청 -> 창원시청시(X), 서울역 -> 서울역시(X)
+    if normalized.endswith(
+        REFERENCE_POINT_SUFFIXES
+    ):
+        return [normalized]
 
-    if fallback and fallback not in candidates:
+    fallback = _location_address_query(normalized)
+    candidates = []
+
+    # "창원"처럼 기존에 정상 동작하던 짧은 행정구역 입력은
+    # "창원시"를 먼저 시도해 호환성을 유지한다.
+    if fallback:
         candidates.append(fallback)
+    if normalized not in candidates:
+        candidates.append(normalized)
 
     return candidates
 
