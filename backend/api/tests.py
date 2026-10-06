@@ -2285,7 +2285,7 @@ class ReferencePointResearchTests(TestCase):
 
         mocked_get.side_effect = [
             reference_response,
-            search_response,
+            *[search_response for _ in range(8)],
         ]
 
         result = search_real_businesses(
