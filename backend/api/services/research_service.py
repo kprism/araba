@@ -816,6 +816,15 @@ def _normalize_business(document):
     }
 
 
+def _requested_result_count(mission):
+    raw = mission.get("requested_count")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 5
+
+    return max(1, min(value, 10))
+
 def search_real_businesses(
     mission,
     api_key=None,
@@ -836,6 +845,9 @@ def search_real_businesses(
     selected_query = None
     documents = []
     broad_search = _is_broad_search(
+        mission
+    )
+    requested_count = _requested_result_count(
         mission
     )
     collected = {}
@@ -1024,29 +1036,6 @@ def search_real_businesses(
                 )
             ]
 
-            # 제공자 검색어 자체가 사용자의 핵심 서비스어를 포함하면
-            # 카카오가 그 검색어로 반환한 후보를 2차 안전망으로 쓴다.
-            # 예: "임플란트" 검색 결과의 카테고리가 단순 "치과"라서
-            # 문자열 필터만으로 전부 버리는 문제를 막는다.
-            if (
-                not filtered
-                and scoped_documents
-            ):
-                query_lower = query.lower()
-                mission_keywords = _mission_keywords(
-                    mission
-                )
-                provider_query_is_relevant = (
-                    not mission_keywords
-                    or any(
-                        keyword in query_lower
-                        for keyword in mission_keywords
-                    )
-                )
-
-                if provider_query_is_relevant:
-                    filtered = scoped_documents
-
         if filtered and selected_query is None:
             selected_query = query
 
@@ -1074,7 +1063,7 @@ def search_real_businesses(
                 if key and key not in collected:
                     collected[key] = item
 
-            if len(collected) >= 6:
+            if len(collected) >= requested_count:
                 break
         elif filtered:
             documents = filtered
@@ -1083,7 +1072,7 @@ def search_real_businesses(
     if broad_search:
         documents = list(
             collected.values()
-        )[:12]
+        )[:requested_count]
 
     if not documents and last_error is not None:
         raise ResearchProviderError(
@@ -1183,6 +1172,8 @@ def search_real_businesses(
         ).strip(),
         "businesses": businesses,
         "displayed_count": len(businesses),
+        "requested_count": requested_count,
+        "strict_category_filter": True,
         "kakao_reported_total_count": kakao_total_count,
         "count_is_exhaustive": False,
         "evaluation": evaluation,
