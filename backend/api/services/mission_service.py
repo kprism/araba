@@ -282,6 +282,11 @@ def _clean_fast_place_subject(value):
         text,
     ).strip()
     text = re.sub(
+        r"\s*(?:몇\s*(?:군데|곳)|여러\s*(?:군데|곳))\s*$",
+        "",
+        text,
+    ).strip()
+    text = re.sub(
         r"(?:할\s*만한|괜찮은)\s*곳\s*$",
         "",
         text,
@@ -292,6 +297,139 @@ def _clean_fast_place_subject(value):
         text,
     ).strip()
     return text
+
+
+def _build_fast_place_mission(
+    location,
+    subject,
+    *,
+    location_type,
+    search_mode,
+    radius_hint_km,
+):
+    location = " ".join(
+        str(location or "").split()
+    ).strip()
+    subject = _clean_fast_place_subject(
+        subject
+    )
+
+    if (
+        len(_compact_text(location)) < 2
+        or len(_compact_text(subject)) < 2
+    ):
+        return None
+
+    if location_type == "reference_point":
+        scope_text = f"{location} 주변"
+        decision_needed = (
+            "기준 장소 주변에서 요청에 맞는 실제 후보를 찾는다."
+        )
+        first_goal = (
+            f"{location} 좌표를 기준으로 {subject} 후보를 찾는다."
+        )
+    else:
+        scope_text = location
+        decision_needed = (
+            "지정한 행정구역 안에서 요청에 맞는 실제 후보를 찾는다."
+        )
+        first_goal = (
+            f"{location} 범위에서 {subject} 후보를 찾는다."
+        )
+
+    summary = (
+        f"{scope_text}에서 {subject} 관련 장소를 찾아 비교한다."
+    )
+
+    mission = {
+        "title": f"{scope_text} {subject} 찾기",
+        "summary": summary,
+        "category": subject,
+        "subcategories": [subject],
+        "intent": "조사",
+        "search_mode": search_mode,
+        "response_mode": "research",
+        "direct_answer": None,
+        "location": location,
+        "location_explicit": True,
+        "subject": subject,
+        "target_business": None,
+        "attributes": {},
+        "constraints": [],
+        "comparison": "거리와 적합성",
+        "search_terms": [subject],
+        "required_facts": [
+            "후보 장소",
+            "주소",
+            "전화번호",
+            "거리",
+        ],
+        "needs_fresh_data": True,
+        "may_need_phone_call": False,
+        "missing_information": [],
+        "clarification_questions": [],
+        "ready_to_research": True,
+        "user_goal": summary,
+        "decision_needed": decision_needed,
+        "expected_answer": {
+            "type": "recommendation",
+            "summary": (
+                "실제 장소 후보를 카드로 보여주고 위치와 기본 정보를 비교한다."
+            ),
+            "must_include": [
+                "후보 장소",
+                "주소",
+                "전화번호",
+                "거리",
+            ],
+        },
+        "known_facts": {
+            "검색 범위": location,
+            "찾는 대상": subject,
+        },
+        "unknown_facts": [
+            "실제 후보 장소",
+            "주소",
+            "전화번호",
+            "거리",
+        ],
+        "evidence_needed": [
+            {
+                "fact": "실제 후보 장소",
+                "source_priority": [
+                    "place_search",
+                    "map",
+                ],
+                "required": True,
+            },
+        ],
+        "research_plan": [
+            {
+                "step": 1,
+                "goal": first_goal,
+                "tool": "place_search",
+                "when": "항상",
+            },
+            {
+                "step": 2,
+                "goal": "후보의 위치와 거리를 확인한다.",
+                "tool": "map",
+                "when": "후보를 찾은 뒤",
+            },
+        ],
+        "completion_criteria": [
+            "검색 범위 안의 실제 후보가 확보된다.",
+            "후보별 주소와 위치정보를 사용자에게 제시할 수 있다.",
+        ],
+        "confidence_target": "high",
+        "location_context": {
+            "value": location,
+            "type": location_type,
+            "radius_hint_km": radius_hint_km,
+        },
+    }
+
+    return mission
 
 
 def _fast_reference_place_mission(request_text):
@@ -333,117 +471,73 @@ def _fast_reference_place_mission(request_text):
         location,
     ).strip()
 
-    subject = _clean_fast_place_subject(
-        match.group("subject")
+    mission = _build_fast_place_mission(
+        location,
+        match.group("subject"),
+        location_type="reference_point",
+        search_mode="area_discovery",
+        radius_hint_km=3,
     )
-
-    if (
-        len(_compact_text(location)) < 2
-        or len(_compact_text(subject)) < 2
-    ):
+    if mission is None:
         return None
-
-    summary = (
-        f"{location} 주변에서 {subject} 관련 장소를 찾아 비교한다."
-    )
-
-    mission = {
-        "title": f"{location} 주변 {subject} 찾기",
-        "summary": summary,
-        "category": subject,
-        "subcategories": [subject],
-        "intent": "조사",
-        "search_mode": "area_discovery",
-        "response_mode": "research",
-        "direct_answer": None,
-        "location": location,
-        "location_explicit": True,
-        "subject": subject,
-        "target_business": None,
-        "attributes": {},
-        "constraints": [],
-        "comparison": "거리와 적합성",
-        "search_terms": [subject],
-        "required_facts": [
-            "후보 장소",
-            "주소",
-            "전화번호",
-            "거리",
-        ],
-        "needs_fresh_data": True,
-        "may_need_phone_call": False,
-        "missing_information": [],
-        "clarification_questions": [],
-        "ready_to_research": True,
-        "user_goal": summary,
-        "decision_needed": (
-            "기준 장소 주변에서 요청에 맞는 실제 후보를 찾는다."
-        ),
-        "expected_answer": {
-            "type": "recommendation",
-            "summary": (
-                "실제 장소 후보를 카드로 보여주고 위치와 기본 정보를 비교한다."
-            ),
-            "must_include": [
-                "후보 장소",
-                "주소",
-                "전화번호",
-                "거리",
-            ],
-        },
-        "known_facts": {
-            "기준 장소": location,
-            "찾는 대상": subject,
-        },
-        "unknown_facts": [
-            "실제 후보 장소",
-            "주소",
-            "전화번호",
-            "거리",
-        ],
-        "evidence_needed": [
-            {
-                "fact": "실제 후보 장소",
-                "source_priority": [
-                    "place_search",
-                    "map",
-                ],
-                "required": True,
-            },
-        ],
-        "research_plan": [
-            {
-                "step": 1,
-                "goal": (
-                    f"{location} 좌표를 기준으로 {subject} 후보를 찾는다."
-                ),
-                "tool": "place_search",
-                "when": "항상",
-            },
-            {
-                "step": 2,
-                "goal": "후보의 위치와 거리를 확인한다.",
-                "tool": "map",
-                "when": "후보를 찾은 뒤",
-            },
-        ],
-        "completion_criteria": [
-            "기준 장소 주변의 실제 후보가 확보된다.",
-            "후보별 주소와 위치정보를 사용자에게 제시할 수 있다.",
-        ],
-        "confidence_target": "high",
-        "location_context": {
-            "value": location,
-            "type": "reference_point",
-            "radius_hint_km": 3,
-        },
-    }
 
     return enhance_mission(
         mission,
         request_text,
     )
 
+
+_ADMIN_LOCATION_PATTERN = (
+    r"(?:[0-9a-zA-Z가-힣]+"
+    r"(?:특별자치시|특별자치도|특별시|광역시|도|시|군|구|읍|면|동|리)"
+    r"\s*)+"
+)
+
+
+def _fast_administrative_place_mission(request_text):
+    """
+    '창원시 의창구 중동에 치과 몇 군데 찾아줘'처럼
+    행정구역과 찾을 업종이 모두 명확한 요청도 LLM 없이 바로 조사한다.
+    """
+    current = _current_request_text(
+        request_text
+    )
+    compact = _compact_text(current)
+
+    if not any(
+        marker in compact
+        for marker in (
+            "알아봐",
+            "찾아",
+            "검색",
+            "추천",
+            "보여줘",
+        )
+    ):
+        return None
+
+    match = re.match(
+        rf"^\s*(?P<location>{_ADMIN_LOCATION_PATTERN})"
+        r"(?:에|에서)\s*(?P<subject>.+?)\s*$",
+        current,
+    )
+    if match is None:
+        return None
+
+    mission = _build_fast_place_mission(
+        match.group("location"),
+        match.group("subject"),
+        location_type="administrative_area",
+        search_mode="category_discovery",
+        radius_hint_km=None,
+    )
+    if mission is None:
+        return None
+
+    return enhance_mission(
+        mission,
+        request_text,
+    )
 
 def _normalize_search_scope(
     mission,
@@ -659,12 +753,26 @@ def create_mission(user_request, api_key=None, *, diagnostics=None):
         )
 
     diagnostics["stage"] = "fast_route_check"
-    fast_mission = _fast_reference_place_mission(
-        request_text
+    fast_routes = (
+        (
+            "reference_place",
+            _fast_reference_place_mission,
+        ),
+        (
+            "administrative_place",
+            _fast_administrative_place_mission,
+        ),
     )
-    if fast_mission is not None:
+
+    for route_name, route_builder in fast_routes:
+        fast_mission = route_builder(
+            request_text
+        )
+        if fast_mission is None:
+            continue
+
         diagnostics["fast_path"] = True
-        diagnostics["route"] = "reference_place"
+        diagnostics["route"] = route_name
         diagnostics["openai_elapsed_ms"] = 0
         diagnostics["stage"] = "fast_route_complete"
         return fast_mission

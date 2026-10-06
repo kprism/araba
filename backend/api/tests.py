@@ -3285,6 +3285,117 @@ class FastMissionRoutingTests(TestCase):
         mocked_openai.assert_not_called()
         mocked_rules.assert_not_called()
 
+    @patch(
+        "api.services.mission_service.active_rules_text"
+    )
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_administrative_area_place_request_bypasses_openai(
+        self,
+        mocked_openai,
+        mocked_rules,
+    ):
+        from api.services.mission_service import (
+            create_mission,
+        )
+
+        diagnostics = {}
+        mission = create_mission(
+            "창원시 의창구 중동에 치과 몇 군데 찾아줘",
+            "sk-test",
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(
+            mission["location"],
+            "창원시 의창구 중동",
+        )
+        self.assertEqual(
+            mission["location_context"]["type"],
+            "administrative_area",
+        )
+        self.assertEqual(
+            mission["search_mode"],
+            "category_discovery",
+        )
+        self.assertEqual(
+            mission["search_terms"],
+            ["치과"],
+        )
+        self.assertIsNone(
+            mission["target_business"],
+        )
+        self.assertEqual(
+            mission["response_mode"],
+            "research",
+        )
+        self.assertTrue(
+            mission["ready_to_research"],
+        )
+        self.assertEqual(
+            mission["orchestration"]["route"],
+            "place_research",
+        )
+        self.assertTrue(
+            mission["orchestration"]["requires_place_search"],
+        )
+        self.assertTrue(
+            diagnostics["fast_path"],
+        )
+        self.assertEqual(
+            diagnostics["route"],
+            "administrative_place",
+        )
+        self.assertEqual(
+            diagnostics["openai_elapsed_ms"],
+            0,
+        )
+        mocked_openai.assert_not_called()
+        mocked_rules.assert_not_called()
+
+    @patch(
+        "api.services.mission_service.active_rules_text"
+    )
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_administrative_route_uses_only_current_request(
+        self,
+        mocked_openai,
+        mocked_rules,
+    ):
+        from api.services.mission_service import (
+            create_mission,
+        )
+
+        request_text = (
+            "[대화 문맥 - 참고용]\n"
+            '{"category":"자동차","subject":"타이어 교체",'
+            '"target_business":"이전타이어점"}\n\n'
+            "[현재 요청]\n"
+            "창원시 의창구 중동에 치과 몇 군데 찾아줘"
+        )
+
+        mission = create_mission(
+            request_text,
+            "sk-test",
+        )
+
+        self.assertEqual(
+            mission["location"],
+            "창원시 의창구 중동",
+        )
+        self.assertEqual(
+            mission["search_terms"],
+            ["치과"],
+        )
+        self.assertIsNone(
+            mission["target_business"],
+        )
+        mocked_openai.assert_not_called()
+        mocked_rules.assert_not_called()
+
     def test_general_question_does_not_use_fast_place_route(
         self,
     ):
