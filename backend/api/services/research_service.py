@@ -144,63 +144,105 @@ def _resolve_reference_point_origin(
     }
 
 
+def _location_address_candidates(location):
+    normalized = " ".join(
+        str(location or "").split()
+    ).strip()
+    if not normalized:
+        return []
+
+    candidates = [normalized]
+    fallback = _location_address_query(normalized)
+
+    if fallback and fallback not in candidates:
+        candidates.append(fallback)
+
+    return candidates
+
+
 def _resolve_location_origin(location, api_key):
-    query = _location_address_query(location)
-    if not query:
+    normalized = " ".join(
+        str(location or "").split()
+    ).strip()
+    if not normalized:
         return None
 
-    try:
-        response = httpx.get(
-            KAKAO_ADDRESS_SEARCH_URL,
-            headers={
-                "Authorization": f"KakaoAK {api_key}",
-            },
-            params={
-                "query": query,
-                "size": 1,
-            },
-            timeout=httpx.Timeout(
-                2.0,
-                connect=1.0,
-            ),
+    # 먼저 사용자가 실제로 말한 문자열을 그대로 주소검색한다.
+    # "창원시청" 같은 기준 장소를 임의로 "창원시청시"로 바꾼 뒤
+    # 검색을 시작하면 주변검색의 기준점을 잃을 수 있다.
+    for query in _location_address_candidates(
+        normalized
+    ):
+        try:
+            response = httpx.get(
+                KAKAO_ADDRESS_SEARCH_URL,
+                headers={
+                    "Authorization": f"KakaoAK {api_key}",
+                },
+                params={
+                    "query": query,
+                    "size": 1,
+                },
+                timeout=httpx.Timeout(
+                    2.0,
+                    connect=1.0,
+                ),
+            )
+        except httpx.HTTPError:
+            continue
+
+        if response.status_code != 200:
+            continue
+
+        payload = response.json()
+        documents = payload.get(
+            "documents",
+            [],
         )
-    except httpx.HTTPError:
-        return None
+        if (
+            not isinstance(documents, list)
+            or not documents
+        ):
+            continue
 
-    if response.status_code != 200:
-        return None
+        document = documents[0]
+        if not isinstance(document, dict):
+            continue
 
-    payload = response.json()
-    documents = payload.get("documents", [])
-    if not isinstance(documents, list) or not documents:
-        return None
-
-    document = documents[0]
-    if not isinstance(document, dict):
-        return None
-
-    latitude = str(document.get("y") or "").strip()
-    longitude = str(document.get("x") or "").strip()
-
-    if not latitude or not longitude:
-        return None
-
-    address = document.get("address")
-    label = query
-    if isinstance(address, dict):
-        address_name = str(
-            address.get("address_name") or ""
+        latitude = str(
+            document.get("y") or ""
         ).strip()
-        if address_name:
-            label = address_name
+        longitude = str(
+            document.get("x") or ""
+        ).strip()
 
-    return {
-        "label": label,
-        "latitude": latitude,
-        "longitude": longitude,
-        "source": "user_search_region",
-        "accuracy": "region_reference",
-    }
+        if not latitude or not longitude:
+            continue
+
+        address = document.get("address")
+        label = query
+        if isinstance(address, dict):
+            address_name = str(
+                address.get("address_name") or ""
+            ).strip()
+            if address_name:
+                label = address_name
+
+        return {
+            "label": label,
+            "latitude": latitude,
+            "longitude": longitude,
+            "source": "user_search_region",
+            "accuracy": "region_reference",
+        }
+
+    # 주소가 아니었던 문자열은 장소명일 수 있다.
+    # Mission 분류가 administrative_area로 잘못 와도
+    # 장소검색으로 한 번 더 해석해 실제 좌표를 복구한다.
+    return _resolve_reference_point_origin(
+        normalized,
+        api_key,
+    )
 
 
 def _location_variants(location):
@@ -791,10 +833,21 @@ def search_real_businesses(
             resolved_api_key,
         )
 
+    # LLM이 "창원시청 주변"을 행정구역으로 잘못 분류해도,
+    # 실제 주소검색 실패 뒤 장소좌표가 확인되면 기준장소 검색으로
+    # 자동 승격한다. 검색 성공 여부를 모델 분류 한 번에 맡기지 않는다.
+    resolved_location_type = location_type
+    if (
+        reference_origin
+        and reference_origin.get("accuracy")
+        == "place_reference"
+    ):
+        resolved_location_type = "reference_point"
+
     search_mission = dict(mission)
 
     if reference_origin:
-        if location_type == "reference_point":
+        if resolved_location_type == "reference_point":
             # 기준 장소는 행정구역이 아니다. 업체 주소 문자열에
             # 장소명이 포함되는지 검사하지 말고 좌표 기준으로 찾는다.
             search_mission["location"] = ""
@@ -844,7 +897,7 @@ def search_real_businesses(
                                         )
                                     )
                                 }
-                                if location_type
+                                if resolved_location_type
                                 == "reference_point"
                                 else {}
                             ),
@@ -854,7 +907,7 @@ def search_real_businesses(
                             and (
                                 not target_business
                                 or location_explicit
-                                or location_type
+                                or resolved_location_type
                                 == "reference_point"
                             )
                         )
@@ -909,7 +962,7 @@ def search_real_businesses(
                     )
                     else (
                         True
-                        if location_type
+                        if resolved_location_type
                         == "reference_point"
                         else _matches_location(
                             item,
@@ -1081,6 +1134,10 @@ def search_real_businesses(
             == "kakao_place"
         ),
         "reference_origin": reference_origin,
+        "resolved_location_type": (
+            resolved_location_type
+            or "none"
+        ),
         "life_info": _life_info_for(category),
         "phone_call_mock": True,
         "final_question": (
