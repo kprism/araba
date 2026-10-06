@@ -645,6 +645,7 @@ class _HomeScreenState extends State<HomeScreen>
         text: message,
         badge: '조사 오류',
       );
+      _speakProgress(message);
     } finally {
       _stopResearchProgress();
     }
