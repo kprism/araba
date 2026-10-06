@@ -1,0 +1,43 @@
+name: ARABA Live Backend Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/live-backend-smoke.yml"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check live health
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://araba-api-dev-908580697493.asia-northeast3.run.app"
+          curl --fail --show-error --silent             --connect-timeout 5             --max-time 15             "$BASE/api/health/"             | tee /tmp/health.json
+          python - <<'PY'
+          import json
+          data=json.load(open("/tmp/health.json"))
+          assert data.get("ok") is True, data
+          PY
+
+      - name: Check live training API version
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://araba-api-dev-908580697493.asia-northeast3.run.app"
+          STATUS="$(curl --show-error --silent             --connect-timeout 5             --max-time 20             -o /tmp/core-training.json             -w "%{http_code}"             -H "Content-Type: application/json"             -X POST             "$BASE/api/training/core-curriculum/run/"             -d '{}')"
+          cat /tmp/core-training.json || true
+          echo
+          echo "HTTP_STATUS=$STATUS"
+          test "$STATUS" = "200"
+          python - <<'PY'
+          import json
+          data=json.load(open("/tmp/core-training.json"))
+          assert data.get("ok") is True, data
+          assert data.get("trained", 0) >= 11, data
+          assert data.get("failed") == 0, data
+          PY
