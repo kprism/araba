@@ -170,7 +170,7 @@ class ArabaApi {
         ),
         body: jsonEncode({'mission': mission}),
       ),
-      timeout: const Duration(seconds: 30),
+      timeout: const Duration(seconds: 40),
       retries: 0,
       retryServerErrors: false,
     );

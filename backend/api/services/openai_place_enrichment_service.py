@@ -1,7 +1,6 @@
 import json
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 from openai import OpenAI
@@ -14,7 +13,7 @@ WEB_ENRICH_MODEL = (
     ).strip()
     or "gpt-6-luna"
 )
-WEB_ENRICH_TIMEOUT_SECONDS = 10.0
+WEB_ENRICH_TIMEOUT_SECONDS = 22.0
 WEB_ENRICH_LIMIT = 5
 
 
@@ -339,22 +338,38 @@ def _clean_prices(value):
     return prices
 
 
-def _build_prompt(
-    business,
+def _build_batch_prompt(
+    businesses,
     mission,
-    missing,
 ):
-    name = str(
-        business.get("name") or ""
-    ).strip()
-    address = str(
-        business.get("address") or ""
-    ).strip()
-    category = str(
-        business.get("category")
-        or business.get("description")
-        or ""
-    ).strip()
+    payload = []
+
+    for index, business in enumerate(
+        businesses
+    ):
+        payload.append(
+            {
+                "index": index,
+                "business_name": str(
+                    business.get("name")
+                    or ""
+                ).strip(),
+                "address": str(
+                    business.get("address")
+                    or ""
+                ).strip(),
+                "category": str(
+                    business.get("category")
+                    or business.get(
+                        "description"
+                    )
+                    or ""
+                ).strip(),
+                "missing": _missing_fields(
+                    business
+                ),
+            }
+        )
 
     constraints = mission.get(
         "constraints"
@@ -369,108 +384,51 @@ def _build_prompt(
         else []
     )
 
-    return f"""
-한국의 실제 업체 한 곳을 웹에서 확인한다.
+    return (
+        "한국의 실제 업체 여러 곳을 웹에서 확인한다.\n\n"
+        "각 업체마다 업체명과 주소/지역이 같은 곳인지 먼저 검증한다.\n"
+        "동명이거나 다른 지역이면 identity_match=false로 표시한다.\n"
+        "공식 홈페이지, 네이버/카카오 장소정보, 업체가 직접 등록한 페이지를 우선하고, "
+        "그 다음 신뢰할 수 있는 웹페이지와 블로그를 참고한다.\n"
+        "현재 웹에서 명시적으로 확인한 값만 사용하고 추측하지 않는다.\n"
+        "가격은 항목명과 금액이 함께 확인된 경우만 넣는다.\n"
+        "주차는 가능/불가가 명시된 경우만 boolean으로 넣고 불명확하면 null이다.\n"
+        "영업시간은 출처에 적힌 문자열을 짧게 정리한다.\n"
+        "대표사진은 JSON에 만들지 말고 검색 결과의 이미지 결과를 사용한다.\n"
+        f"추가 조건: {', '.join(constraints) if constraints else '없음'}\n\n"
+        "확인 대상:\n"
+        + json.dumps(
+            payload,
+            ensure_ascii=False,
+        )
+        + "\n\n"
+        "아래 JSON 객체 하나만 출력한다.\n"
+        "{\n"
+        '  "businesses": [\n'
+        "    {\n"
+        '      "index": 0,\n'
+        '      "business_name": "업체명",\n'
+        '      "identity_match": true,\n'
+        '      "opening_hours": [],\n'
+        '      "parking_available": null,\n'
+        '      "parking_text": null,\n'
+        '      "prices": [],\n'
+        '      "phone": null,\n'
+        '      "address": null,\n'
+        '      "price_link": null,\n'
+        '      "source_urls": []\n'
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
 
-업체명: {name}
-주소: {address}
-업종: {category}
-확인할 정보: {", ".join(missing)}
-추가 조건: {", ".join(constraints) if constraints else "없음"}
 
-반드시 업체명과 지역/주소가 같은 업체인지 먼저 검증하라.
-동명이거나 다른 지역이면 identity_match=false로 반환하라.
-공식 홈페이지, 네이버/카카오 장소정보, 업체가 직접 등록한 페이지를 우선하고,
-그 다음 신뢰할 수 있는 웹페이지와 블로그를 참고하라.
-현재 웹에서 명시적으로 확인한 값만 사용하고 추측하지 마라.
-가격은 항목명과 금액이 함께 확인된 경우만 넣어라.
-주차는 가능/불가가 명시된 경우만 boolean으로 넣고 불명확하면 null이다.
-영업시간은 출처에 적힌 문자열을 짧게 정리한다.
-대표사진은 JSON에 만들지 말고 검색 결과의 이미지 결과를 사용한다.
-
-아래 JSON 객체 하나만 출력한다.
-{{
-  "business_name": "{name}",
-  "identity_match": true,
-  "opening_hours": [],
-  "parking_available": null,
-  "parking_text": null,
-  "prices": [],
-  "phone": null,
-  "address": null,
-  "price_link": null,
-  "source_urls": []
-}}
-""".strip()
-
-
-def _enrich_one(
+def _apply_one_result(
     business,
-    mission,
-    *,
-    api_key,
+    parsed,
+    raw_results,
 ):
     item = dict(business)
-    missing = _missing_fields(
-        item
-    )
-
-    if not missing:
-        item["openai_web"] = {
-            "status": "not_needed",
-            "matched": False,
-            "sources": [],
-        }
-        return item
-
-    client = OpenAI(
-        api_key=api_key,
-        timeout=WEB_ENRICH_TIMEOUT_SECONDS,
-        max_retries=0,
-    )
-
-    try:
-        response = client.responses.create(
-            model=WEB_ENRICH_MODEL,
-            tools=[
-                {
-                    "type": "web_search",
-                    "search_context_size": "low",
-                    "search_content_types": [
-                        "image",
-                        "text",
-                    ],
-                    "image_settings": {
-                        "max_results": 3,
-                        "caption": True,
-                    },
-                }
-            ],
-            include=[
-                "web_search_call.results"
-            ],
-            input=_build_prompt(
-                item,
-                mission,
-                missing,
-            ),
-            max_output_tokens=900,
-        )
-    except Exception:
-        item["openai_web"] = {
-            "status": "provider_error",
-            "matched": False,
-            "sources": [],
-        }
-        return item
-
-    parsed = _parse_json(
-        response.output_text
-    )
-    raw_results = _search_results(
-        response
-    )
-
     expected_name = _normalize(
         item.get("name")
     )
@@ -495,7 +453,8 @@ def _enrich_one(
 
     if not identity_match:
         item["openai_web"] = {
-            "status": "identity_not_confirmed",
+            "status":
+                "identity_not_confirmed",
             "matched": False,
             "sources": sources,
         }
@@ -618,7 +577,6 @@ def _enrich_one(
         "status": "matched",
         "matched": True,
         "sources": sources,
-        "missing_requested": missing,
         "opening_hours_found": bool(
             opening_hours
         ),
@@ -673,54 +631,157 @@ def enrich_businesses_with_openai_web(
     deferred = safe[
         WEB_ENRICH_LIMIT:
     ]
-    results = [None] * len(primary)
 
-    with ThreadPoolExecutor(
-        max_workers=min(
-            WEB_ENRICH_LIMIT,
-            len(primary),
-        )
-    ) as executor:
-        future_to_index = {
-            executor.submit(
-                _enrich_one,
-                item,
-                mission,
-                api_key=key,
-            ): index
-            for index, item in enumerate(
-                primary
-            )
-        }
-
-        for future in as_completed(
-            future_to_index
-        ):
-            index = future_to_index[
-                future
-            ]
-
-            try:
-                results[index] = (
-                    future.result()
-                )
-            except Exception:
-                results[index] = {
-                    **primary[index],
+    if not any(
+        _missing_fields(item)
+        for item in primary
+    ):
+        return [
+            *[
+                {
+                    **item,
                     "openai_web": {
-                        "status":
-                            "enrichment_error",
+                        "status": "not_needed",
                         "matched": False,
                         "sources": [],
                     },
                 }
+                for item in primary
+            ],
+            *deferred,
+        ]
+
+    client = OpenAI(
+        api_key=key,
+        timeout=WEB_ENRICH_TIMEOUT_SECONDS,
+        max_retries=0,
+    )
+
+    try:
+        response = client.responses.create(
+            model=WEB_ENRICH_MODEL,
+            reasoning={
+                "effort": "low",
+            },
+            tools=[
+                {
+                    "type": "web_search",
+                    "search_context_size":
+                        "medium",
+                    "search_content_types": [
+                        "image",
+                        "text",
+                    ],
+                    "image_settings": {
+                        "max_results": 10,
+                        "caption": True,
+                    },
+                }
+            ],
+            include=[
+                "web_search_call.results"
+            ],
+            input=_build_batch_prompt(
+                primary,
+                mission,
+            ),
+            max_output_tokens=2200,
+        )
+    except Exception as exc:
+        error_name = (
+            exc.__class__.__name__
+        )
+        return [
+            *[
+                {
+                    **item,
+                    "openai_web": {
+                        "status":
+                            "provider_error",
+                        "matched": False,
+                        "sources": [],
+                        "error_type":
+                            error_name,
+                    },
+                }
+                for item in primary
+            ],
+            *deferred,
+        ]
+
+    parsed = _parse_json(
+        response.output_text
+    )
+    raw_results = _search_results(
+        response
+    )
+
+    raw_items = parsed.get(
+        "businesses"
+    )
+    raw_items = (
+        raw_items
+        if isinstance(raw_items, list)
+        else []
+    )
+
+    parsed_by_index = {}
+
+    for value in raw_items:
+        if not isinstance(value, dict):
+            continue
+
+        raw_index = value.get("index")
+
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            continue
+
+        if (
+            index < 0
+            or index >= len(primary)
+        ):
+            continue
+
+        parsed_by_index[index] = value
+
+    results = []
+
+    for index, item in enumerate(
+        primary
+    ):
+        parsed_item = parsed_by_index.get(
+            index
+        )
+
+        if not isinstance(
+            parsed_item,
+            dict,
+        ):
+            results.append(
+                {
+                    **item,
+                    "openai_web": {
+                        "status":
+                            "not_returned",
+                        "matched": False,
+                        "sources": [],
+                    },
+                }
+            )
+            continue
+
+        results.append(
+            _apply_one_result(
+                item,
+                parsed_item,
+                raw_results,
+            )
+        )
 
     return [
-        *[
-            item
-            for item in results
-            if isinstance(item, dict)
-        ],
+        *results,
         *[
             {
                 **item,

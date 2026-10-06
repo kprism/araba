@@ -1193,6 +1193,103 @@ class OpenAIPlaceEnrichmentTests(TestCase):
         )
 
 
+
+    @patch(
+        "api.services.openai_place_enrichment_service.OpenAI"
+    )
+    def test_batch_web_enrichment_uses_single_openai_call(
+        self,
+        mocked_openai,
+    ):
+        from api.services.openai_place_enrichment_service import (
+            enrich_businesses_with_openai_web,
+        )
+
+        response = Mock(
+            output_text=json.dumps(
+                {
+                    "businesses": [
+                        {
+                            "index": 0,
+                            "business_name": "A치과",
+                            "identity_match": True,
+                            "opening_hours": [
+                                "평일 09:00-18:00"
+                            ],
+                            "parking_available": True,
+                            "parking_text": "주차 가능",
+                            "prices": [],
+                            "phone": None,
+                            "address": None,
+                            "price_link": None,
+                            "source_urls": [
+                                "https://example.com/a"
+                            ],
+                        },
+                        {
+                            "index": 1,
+                            "business_name": "B치과",
+                            "identity_match": True,
+                            "opening_hours": [],
+                            "parking_available": None,
+                            "parking_text": None,
+                            "prices": [],
+                            "phone": None,
+                            "address": None,
+                            "price_link": None,
+                            "source_urls": [],
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        )
+        response.model_dump.return_value = {
+            "output": []
+        }
+        mocked_openai.return_value.responses.create.return_value = (
+            response
+        )
+
+        result = enrich_businesses_with_openai_web(
+            [
+                {
+                    "name": "A치과",
+                    "address": "창원시 의창구 중동",
+                    "naver": {
+                        "opening_hours": [],
+                        "parking_available": None,
+                        "prices": [],
+                    },
+                },
+                {
+                    "name": "B치과",
+                    "address": "창원시 의창구 중동",
+                    "naver": {
+                        "opening_hours": [],
+                        "parking_available": None,
+                        "prices": [],
+                    },
+                },
+            ],
+            {
+                "constraints": [],
+            },
+            api_key="sk-test",
+        )
+
+        self.assertEqual(
+            mocked_openai.return_value.responses.create.call_count,
+            1,
+        )
+        self.assertEqual(
+            result[0]["naver"]["opening_hours"],
+            ["평일 09:00-18:00"],
+        )
+        self.assertTrue(
+            result[0]["naver"]["parking_available"],
+        )
+
 class WebPlaceEnrichmentTests(TestCase):
     def test_missing_keywords_include_card_detail_fields(self):
         from api.services.web_place_enrichment_service import (

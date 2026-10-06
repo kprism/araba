@@ -1231,6 +1231,30 @@ def search_real_businesses(
             )
             is True
         ),
+        "openai_web_status_counts": {
+            status_name: sum(
+                1
+                for item in businesses
+                if isinstance(
+                    item.get("openai_web"),
+                    dict,
+                )
+                and item["openai_web"].get(
+                    "status"
+                )
+                == status_name
+            )
+            for status_name in (
+                "matched",
+                "provider_error",
+                "identity_not_confirmed",
+                "not_returned",
+                "not_configured",
+                "not_needed",
+                "deferred_fast_response",
+                "enrichment_error",
+            )
+        },
         "representative_photo_count": sum(
             1
             for item in businesses

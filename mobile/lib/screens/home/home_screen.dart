@@ -661,6 +661,23 @@ class _HomeScreenState extends State<HomeScreen>
               ? (result['representative_photo_count'] as num)
                   .round()
               : 0;
+      final rawWebStatuses =
+          result['openai_web_status_counts'];
+      final webStatuses = rawWebStatuses is Map
+          ? Map<String, dynamic>.from(
+              rawWebStatuses,
+            )
+          : <String, dynamic>{};
+      int webStatusCount(String key) {
+        final value = webStatuses[key];
+        return value is num ? value.round() : 0;
+      }
+      final webProviderErrors =
+          webStatusCount('provider_error');
+      final webIdentityMisses =
+          webStatusCount('identity_not_confirmed');
+      final webNotReturned =
+          webStatusCount('not_returned');
 
       final evaluationValue =
           result['evaluation'];
@@ -731,6 +748,22 @@ class _HomeScreenState extends State<HomeScreen>
           '웹검색으로 $openAiWebEnriched곳의 부족정보를 보강했어요.',
         if (representativePhotos > 0)
           '대표사진 $representativePhotos곳을 확보했어요.',
+        if (
+          openAiWebEnriched == 0 &&
+          webProviderErrors > 0
+        )
+          '웹 보강 호출 실패 $webProviderErrors곳.',
+        if (
+          openAiWebEnriched == 0 &&
+          webProviderErrors == 0 &&
+          webIdentityMisses > 0
+        )
+          '웹에서 동일 업체 확인 실패 $webIdentityMisses곳.',
+        if (
+          openAiWebEnriched == 0 &&
+          webNotReturned > 0
+        )
+          '웹검색 응답 누락 $webNotReturned곳.',
       ].join(' ');
 
       final searchDetail = searchQuery.isEmpty
