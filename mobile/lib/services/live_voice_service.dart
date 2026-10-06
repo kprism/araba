@@ -323,6 +323,7 @@ class LiveVoiceService {
   }) async {
     _missionInFlight = true;
     String? preparedRequestText;
+    final missionStopwatch = Stopwatch()..start();
 
     try {
       final rawRequestText = _pendingRequestContext == null
@@ -368,7 +369,7 @@ class LiveVoiceService {
       }
 
       _pendingRequestContext = null;
-    } catch (_) {
+    } catch (error) {
       // 실패해도 사용자가 방금 말한 맥락을 버리지 않는다.
       // 다음 발화가 이어지면 직전 요청과 합쳐 Core가 다시 판단한다.
       if (preparedRequestText != null) {
@@ -376,11 +377,20 @@ class LiveVoiceService {
       }
       _consumeProcessedTranscript(latestUserText);
 
+      final elapsedSeconds =
+          missionStopwatch.elapsedMilliseconds / 1000;
+      final detail = error is ArabaApiException
+          ? error.message
+          : error.runtimeType.toString();
+
       speakCommentary(
-        '응답이 조금 늦어졌어요. 방금 말씀하신 내용은 유지하고 있어요.',
+        '진단: GPT Core 요청이 '
+        '${elapsedSeconds.toStringAsFixed(1)}초 후 실패했어요. '
+        '$detail 방금 말씀하신 내용은 유지하고 있어요.',
       );
-      onStatus('듣고 있어요');
+      onStatus('Core 진단: ${elapsedSeconds.toStringAsFixed(1)}초');
     } finally {
+      missionStopwatch.stop();
       _missionInFlight = false;
 
       if (_userTranscript.trim().isNotEmpty) {
