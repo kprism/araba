@@ -239,11 +239,12 @@ class LiveVoiceService {
       case 'session.output_transcript.delta':
         final delta = event['delta']?.toString() ?? '';
         if (delta.isNotEmpty) {
-          if (_userTranscript.trim().isNotEmpty &&
-              !_missionInFlight) {
-            _missionFallbackTimer?.cancel();
-            _missionFallbackTimer = null;
-            unawaited(_dispatchTranscriptToCore());
+          // Live의 짧은 맞장구는 사용자 발화 종료 신호가 아니다.
+          // 여기서 Core를 호출하면 "창원시청"과 "주변에..." 같은
+          // 한 요청이 두 Mission으로 잘리는 문제가 생긴다.
+          if (_userTranscript.isNotEmpty &&
+              !_userTranscript.endsWith(' ')) {
+            _userTranscript += ' ';
           }
           onTranscript(isUser: false, delta: delta);
         }
@@ -274,7 +275,7 @@ class LiveVoiceService {
     if (!_started || _closing) return;
 
     _missionFallbackTimer = Timer(
-      const Duration(seconds: 2),
+      const Duration(seconds: 3),
       () {
         _missionFallbackTimer = null;
         unawaited(_dispatchTranscriptToCore());
@@ -370,10 +371,13 @@ class LiveVoiceService {
           ? error.message
           : 'ARABA 조사 엔진 처리 중 오류가 발생했습니다.';
 
+      // 실패해도 사용자가 방금 말한 맥락을 버리지 않는다.
+      // 다음 발화가 이어지면 직전 요청과 합쳐 Core가 다시 판단한다.
+      _pendingRequestContext = requestText;
       _consumeProcessedTranscript(latestUserText);
 
       speakCommentary(
-        '이번 요청을 완료하지 못했어요. $message',
+        '응답이 조금 늦어졌어요. 방금 말씀하신 내용은 유지하고 있어요.',
       );
       onStatus('듣고 있어요');
     } finally {
