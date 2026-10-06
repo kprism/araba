@@ -2515,6 +2515,74 @@ class SearchIntentBreadthTests(TestCase):
         )
 
 
+    @patch(
+        "api.services.research_service.enrich_businesses_with_naver",
+        side_effect=lambda businesses, **kwargs: businesses,
+    )
+    @patch(
+        "api.services.research_service.enrich_businesses_with_kakao_pages",
+        side_effect=lambda businesses: businesses,
+    )
+    @patch(
+        "api.services.research_service.httpx.get"
+    )
+    def test_provider_ranked_candidate_survives_missing_service_metadata(
+        self,
+        mocked_get,
+        mocked_kakao_enrich,
+        mocked_naver_enrich,
+    ):
+        from api.services.research_service import (
+            search_real_businesses,
+        )
+
+        search_response = Mock()
+        search_response.status_code = 200
+        search_response.json.return_value = {
+            "meta": {"total_count": 1},
+            "documents": [
+                {
+                    "id": "dentist-1",
+                    "place_name": "스마트치과",
+                    "category_name": "의료,건강 > 병원 > 치과",
+                    "phone": "055-555-6666",
+                    "address_name": "경남 창원시 성산구 중앙동 1",
+                    "road_address_name": "경남 창원시 성산구 중앙대로 1",
+                    "x": "128.68",
+                    "y": "35.22",
+                    "place_url": "http://place.map.kakao.com/dentist-1",
+                }
+            ],
+        }
+        mocked_get.side_effect = [
+            search_response
+            for _ in range(8)
+        ]
+
+        result = search_real_businesses(
+            {
+                "category": "의료",
+                "subcategories": ["임플란트"],
+                "intent": "비교",
+                "search_mode": "area_discovery",
+                "location": "",
+                "subject": "임플란트 가능한 치과",
+                "search_terms": ["임플란트"],
+                "required_facts": ["후보 치과"],
+            },
+            api_key="device-kakao-key",
+        )
+
+        self.assertEqual(
+            result["businesses"][0]["name"],
+            "스마트치과",
+        )
+        self.assertEqual(
+            result["search_query"],
+            "임플란트",
+        )
+
+
 class ResearchEvidenceEvaluationTests(TestCase):
     def test_evaluation_marks_unverified_decision_facts_missing(
         self,
