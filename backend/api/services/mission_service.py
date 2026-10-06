@@ -201,14 +201,32 @@ VALID_SEARCH_MODES = {
 
 
 def _current_request_text(request_text):
+    text = str(request_text or "")
     marker = "[현재 요청]"
-    if marker not in request_text:
-        return request_text.strip()
+    if marker not in text:
+        return text.strip()
 
-    return request_text.split(
+    current = text.split(
         marker,
         1,
-    )[1].strip()
+    )[1]
+
+    # 구버전 앱은 [현재 요청] 뒤에 대화 문맥을 붙였고,
+    # 신버전은 문맥 뒤 마지막에 현재 요청을 둔다.
+    # 어느 순서든 현재 요청 블록만 잘라내야 과거 주제의
+    # 상호명/업종이 새 질문의 명시 정보로 오인되지 않는다.
+    for boundary in (
+        "[대화 문맥 - 참고용]",
+        "[대화 문맥]",
+        "[판단 규칙]",
+    ):
+        if boundary in current:
+            current = current.split(
+                boundary,
+                1,
+            )[0]
+
+    return current.strip()
 
 
 def _compact_text(value):
