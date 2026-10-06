@@ -1,4 +1,5 @@
 import json
+import os
 import re
 
 from openai import OpenAI
@@ -190,6 +191,13 @@ ARABA는 자동차에 한정된 서비스가 아니다.
 """.strip()
 
 
+MISSION_MODEL = (
+    os.getenv("ARABA_MISSION_MODEL", "gpt-6-luna").strip()
+    or "gpt-6-luna"
+)
+MISSION_TIMEOUT_SECONDS = 4.5
+
+
 VALID_SEARCH_MODES = {
     "exact_place",
     "category_discovery",
@@ -336,6 +344,80 @@ def _normalize_search_scope(
     return mission
 
 
+def _force_place_research_when_clear(
+    mission,
+    request_text,
+):
+    current = _current_request_text(
+        request_text
+    )
+    compact = _compact_text(current)
+
+    place_markers = (
+        "찾아줘",
+        "찾아봐",
+        "알아봐",
+        "추천",
+        "근처",
+        "주변",
+        "몇곳",
+        "몇군데",
+    )
+    wants_place_result = any(
+        marker in compact
+        for marker in place_markers
+    )
+
+    has_search_target = bool(
+        str(
+            mission.get("target_business") or ""
+        ).strip()
+        or str(
+            mission.get("location") or ""
+        ).strip()
+        or (
+            isinstance(
+                mission.get("search_terms"),
+                list,
+            )
+            and any(
+                str(item).strip()
+                for item in mission["search_terms"]
+            )
+        )
+    )
+
+    if not (
+        wants_place_result
+        and has_search_target
+    ):
+        return mission
+
+    mission["response_mode"] = "research"
+    mission["ready_to_research"] = True
+
+    if (
+        not mission.get("target_business")
+        and str(
+            mission.get("search_mode") or ""
+        ).strip()
+        in {"", "general", "follow_up_detail"}
+    ):
+        mission["search_mode"] = (
+            "category_discovery"
+        )
+
+    # 위치나 검색대상이 이미 있으면 검색으로 확인 가능한 내용을
+    # 다시 사용자에게 묻지 않고 바로 조사한다.
+    if str(
+        mission.get("location") or ""
+    ).strip() or mission.get("target_business"):
+        mission["clarification_questions"] = []
+        mission["missing_information"] = []
+
+    return mission
+
+
 def _parse_mission_json(raw):
     text = str(raw or "").strip()
 
@@ -378,7 +460,7 @@ def _create_mission_response(
     for attempt in range(2):
         try:
             return client.responses.create(
-                model="gpt-5-mini",
+                model=MISSION_MODEL,
                 instructions=instructions,
                 input=request_text,
             )
@@ -415,7 +497,7 @@ def create_mission(user_request, api_key=None):
 
     client = OpenAI(
         api_key=api_key,
-        timeout=12.0,
+        timeout=MISSION_TIMEOUT_SECONDS,
         max_retries=0,
     )
 
@@ -502,6 +584,11 @@ def create_mission(user_request, api_key=None):
         mission["search_terms"] = []
 
     mission = _normalize_search_scope(
+        mission,
+        request_text,
+    )
+
+    mission = _force_place_research_when_clear(
         mission,
         request_text,
     )
