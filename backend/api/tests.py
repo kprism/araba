@@ -3038,35 +3038,28 @@ class MissionRuntimeResilienceTests(TestCase):
             result["ready_to_research"],
         )
 
-    def test_mission_openai_call_retries_one_transient_failure(
+    def test_mission_openai_call_does_not_duplicate_retry(
         self,
     ):
         from api.services.mission_service import (
             _create_mission_response,
         )
 
-        expected = Mock()
-        expected.output_text = "{}"
-
         client = Mock()
-        client.responses.create.side_effect = [
-            RuntimeError("temporary"),
-            expected,
-        ]
-
-        result = _create_mission_response(
-            client,
-            instructions="test",
-            request_text="테스트 요청",
+        client.responses.create.side_effect = RuntimeError(
+            "temporary"
         )
 
-        self.assertIs(
-            result,
-            expected,
-        )
+        with self.assertRaises(RuntimeError):
+            _create_mission_response(
+                client,
+                instructions="test",
+                request_text="테스트 요청",
+            )
+
         self.assertEqual(
             client.responses.create.call_count,
-            2,
+            1,
         )
 
 
