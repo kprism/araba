@@ -126,6 +126,53 @@ def mission_create(request):
         )
 
     except Exception as exc:
+        error_name = type(exc).__name__
+
+        if error_name in {
+            "AuthenticationError",
+            "PermissionDeniedError",
+        }:
+            return Response(
+                {
+                    "ok": False,
+                    "message": (
+                        "OpenAI API Key 인증에 실패했습니다. "
+                        "MY의 API Key를 다시 확인해주세요."
+                    ),
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if error_name in {
+            "APITimeoutError",
+            "TimeoutError",
+        }:
+            return Response(
+                {
+                    "ok": False,
+                    "message": (
+                        "AI 요청 이해가 지연되어 한 번 재시도했지만 "
+                        "응답시간을 넘겼습니다. 다시 시도해주세요."
+                    ),
+                },
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+
+        if error_name in {
+            "APIConnectionError",
+            "ConnectError",
+        }:
+            return Response(
+                {
+                    "ok": False,
+                    "message": (
+                        "AI 요청 이해 서버와 연결이 불안정합니다. "
+                        "잠시 후 다시 시도해주세요."
+                    ),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         return Response(
             {
                 "ok": False,
@@ -136,6 +183,7 @@ def mission_create(request):
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
 
 
 @api_view(["POST"])
