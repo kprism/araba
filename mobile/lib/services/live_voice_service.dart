@@ -374,30 +374,14 @@ class LiveVoiceService {
           ? error.message
           : 'ARABA 조사 엔진 처리 중 오류가 발생했습니다.';
 
-      if (_missionFailureTranscript == latestUserText) {
-        _missionFailureCount += 1;
-      } else {
-        _missionFailureTranscript = latestUserText;
-        _missionFailureCount = 1;
-      }
+      _consumeProcessedTranscript(latestUserText);
+      _missionFailureCount = 0;
+      _missionFailureTranscript = '';
 
-      final willRetry = _missionFailureCount <= 2;
-
-      if (willRetry) {
-        onStatus('요청 자동 재시도 중');
-        speakCommentary(
-          '잠시만요. 같은 요청을 다시 확인하고 있어요.',
-        );
-      } else {
-        _consumeProcessedTranscript(latestUserText);
-        _missionFailureCount = 0;
-        _missionFailureTranscript = '';
-
-        speakCommentary(
-          '요청 처리를 여러 번 시도했지만 완료하지 못했어요. $message',
-        );
-        onStatus('듣고 있어요');
-      }
+      speakCommentary(
+        '이번 요청을 완료하지 못했어요. $message',
+      );
+      onStatus('듣고 있어요');
     } finally {
       _missionInFlight = false;
 
