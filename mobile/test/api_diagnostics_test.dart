@@ -26,7 +26,7 @@ void main() {
         'exception_type': 'APITimeoutError',
         'request_id': 'test-request',
       },
-    }), 504)));
+    }), 504, headers: {'content-type': 'application/json; charset=utf-8'})));
   });
 
   test('local timeout differs from a server HTTP 504', () async {
