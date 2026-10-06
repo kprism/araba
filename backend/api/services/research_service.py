@@ -821,7 +821,7 @@ def _requested_result_count(mission):
     try:
         value = int(raw)
     except (TypeError, ValueError):
-        value = 5
+        value = 10
 
     return max(1, min(value, 10))
 
