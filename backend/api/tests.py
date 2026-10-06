@@ -2340,3 +2340,32 @@ class ReferencePointResearchTests(TestCase):
             search_kwargs["params"]["sort"],
             "distance",
         )
+
+
+class SearchIntentBreadthTests(TestCase):
+    def test_narrow_subcategory_does_not_hide_valid_base_business(
+        self,
+    ):
+        from api.services.research_service import (
+            _matches_mission,
+        )
+
+        mission = {
+            "category": "의료",
+            "location": "경남 창원시",
+            "subject": "임플란트 가능한 치과",
+            "search_terms": ["치과"],
+            "subcategories": ["임플란트"],
+        }
+
+        dentist = {
+            "place_name": "스마트치과",
+            "category_name": "의료,건강 > 병원 > 치과",
+        }
+
+        self.assertTrue(
+            _matches_mission(
+                dentist,
+                mission,
+            )
+        )
