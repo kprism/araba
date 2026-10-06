@@ -322,6 +322,7 @@ class LiveVoiceService {
     required String latestUserText,
   }) async {
     _missionInFlight = true;
+    String? preparedRequestText;
 
     try {
       final rawRequestText = _pendingRequestContext == null
@@ -335,6 +336,7 @@ class LiveVoiceService {
       final requestText = conversationContext.enrichRequest(
         rawRequestText,
       );
+      preparedRequestText = requestText;
 
       final result = await api.createMission(
         requestText,
@@ -366,14 +368,12 @@ class LiveVoiceService {
       }
 
       _pendingRequestContext = null;
-    } catch (error) {
-      final message = error is ArabaApiException
-          ? error.message
-          : 'ARABA 조사 엔진 처리 중 오류가 발생했습니다.';
-
+    } catch (_) {
       // 실패해도 사용자가 방금 말한 맥락을 버리지 않는다.
       // 다음 발화가 이어지면 직전 요청과 합쳐 Core가 다시 판단한다.
-      _pendingRequestContext = requestText;
+      if (preparedRequestText != null) {
+        _pendingRequestContext = preparedRequestText;
+      }
       _consumeProcessedTranscript(latestUserText);
 
       speakCommentary(
