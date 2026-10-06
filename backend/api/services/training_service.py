@@ -842,16 +842,71 @@ def save_training_rule(*, category="", trigger, instruction, example="", source=
 
 
 def active_rules_text(category=None, limit=30):
-    ensure_core_curriculum()
-    query = TrainingRule.objects.filter(active=True)
+    # Mission 생성은 읽기 경로다. 여기서 DB upsert를 수행하면
+    # Cloud Run + SQLite 환경에서 지연/잠금이 생겨 실제 사용자
+    # 요청이 실패할 수 있다. 핵심 커리큘럼 규칙은 코드에서
+    # 읽기 전용으로 주입하고, 관리자/자동훈련 규칙만 DB에서 읽는다.
+    safe_limit = max(1, min(100, int(limit)))
     category = str(category or "").strip()
+
+    lines = []
+    seen = set()
+
+    for item in CORE_CURRICULUM:
+        rule = item.get("rule")
+        if not isinstance(rule, dict):
+            continue
+
+        trigger = str(
+            rule.get("trigger") or ""
+        ).strip()
+        instruction = str(
+            rule.get("instruction") or ""
+        ).strip()
+        if not trigger or not instruction:
+            continue
+
+        signature = _signature(
+            "",
+            trigger,
+            instruction,
+        )
+        if signature in seen:
+            continue
+
+        seen.add(signature)
+        lines.append(
+            f"- 상황: {trigger} / 지침: {instruction}"
+        )
+        if len(lines) >= safe_limit:
+            return "\n".join(lines)
+
+    query = TrainingRule.objects.filter(
+        active=True
+    ).exclude(source="core_curriculum")
+
     if category:
-        query = query.filter(category__in=["", category])
-    rules = list(query[: max(1, min(100, int(limit)))])
-    return "\n".join(
-        f"- 상황: {rule.trigger} / 지침: {rule.instruction}"
-        for rule in rules
-    )
+        query = query.filter(
+            category__in=["", category]
+        )
+
+    for rule in query[:safe_limit]:
+        signature = _signature(
+            rule.category,
+            rule.trigger,
+            rule.instruction,
+        )
+        if signature in seen:
+            continue
+
+        seen.add(signature)
+        lines.append(
+            f"- 상황: {rule.trigger} / 지침: {rule.instruction}"
+        )
+        if len(lines) >= safe_limit:
+            break
+
+    return "\n".join(lines)
 
 
 def _actual_categories():
@@ -971,7 +1026,6 @@ def run_auto_training(*, api_key=None, limit=4, category=None):
 
 
 def training_status():
-    ensure_core_curriculum()
     return {
         "scenario_count": TrainingScenario.objects.count(),
         "ready_scenario_count": TrainingScenario.objects.filter(status="ready").count(),
