@@ -5,6 +5,9 @@ import httpx
 
 from .kakao_place_service import enrich_businesses_with_kakao_pages
 from .naver_place_service import enrich_businesses_with_naver
+from .research_evaluation_service import (
+    evaluate_research_result,
+)
 
 
 KAKAO_LOCAL_SEARCH_URL = (
@@ -997,6 +1000,12 @@ def search_real_businesses(
         mission.get("category") or "기타"
     ).strip()
 
+    evaluation = evaluate_research_result(
+        mission,
+        businesses,
+        reference_origin=reference_origin,
+    )
+
     return {
         "source": "kakao+naver",
         "primary_source": "kakao",
@@ -1010,6 +1019,7 @@ def search_real_businesses(
         "displayed_count": len(businesses),
         "kakao_reported_total_count": kakao_total_count,
         "count_is_exhaustive": False,
+        "evaluation": evaluation,
         "naver_matched_count": naver_matched_count,
         "naver_page_checked_count": naver_page_checked_count,
         "kakao_photo_count": sum(
