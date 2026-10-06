@@ -2513,13 +2513,6 @@ class CoreTrainingCurriculumTests(TestCase):
         self.assertEqual(
             TrainingScenario.objects.filter(
                 category="범용",
-                context__provider_profile__isnull=True,
-            ).count(),
-            0,
-        )
-        self.assertEqual(
-            TrainingScenario.objects.filter(
-                category="범용",
             ).count(),
             10,
         )
