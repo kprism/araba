@@ -2224,3 +2224,119 @@ class GoalFirstIntentBrainTests(TestCase):
             "place_search",
             tools_used,
         )
+
+
+class ReferencePointResearchTests(TestCase):
+    @patch(
+        "api.services.research_service.enrich_businesses_with_naver",
+        side_effect=lambda businesses, **kwargs: businesses,
+    )
+    @patch(
+        "api.services.research_service.enrich_businesses_with_kakao_pages",
+        side_effect=lambda businesses: businesses,
+    )
+    @patch(
+        "api.services.research_service.httpx.get"
+    )
+    def test_reference_point_uses_coordinates_not_address_text_filter(
+        self,
+        mocked_get,
+        mocked_kakao_enrich,
+        mocked_naver_enrich,
+    ):
+        from api.services.research_service import (
+            search_real_businesses,
+        )
+
+        reference_response = Mock()
+        reference_response.status_code = 200
+        reference_response.json.return_value = {
+            "documents": [
+                {
+                    "id": "cityhall",
+                    "place_name": "창원시청",
+                    "category_name": "사회,공공기관",
+                    "address_name": "경남 창원시 성산구 중앙동",
+                    "road_address_name": "경남 창원시 성산구 중앙대로 151",
+                    "x": "128.6819",
+                    "y": "35.2279",
+                }
+            ]
+        }
+
+        search_response = Mock()
+        search_response.status_code = 200
+        search_response.json.return_value = {
+            "meta": {"total_count": 1},
+            "documents": [
+                {
+                    "id": "tire-1",
+                    "place_name": "성산타이어",
+                    "category_name": "자동차 > 자동차정비 > 타이어",
+                    "phone": "055-111-2222",
+                    "address_name": "경남 창원시 성산구 중앙동 10",
+                    "road_address_name": "경남 창원시 성산구 중앙대로 170",
+                    "x": "128.6825",
+                    "y": "35.2290",
+                    "place_url": "http://place.map.kakao.com/tire-1",
+                }
+            ],
+        }
+
+        mocked_get.side_effect = [
+            reference_response,
+            search_response,
+        ]
+
+        result = search_real_businesses(
+            {
+                "category": "자동차",
+                "subcategories": ["타이어"],
+                "intent": "비교",
+                "search_mode": "area_discovery",
+                "location": "창원시청",
+                "location_explicit": True,
+                "location_context": {
+                    "value": "창원시청",
+                    "type": "reference_point",
+                    "radius_hint_km": 3,
+                },
+                "subject": "타이어 교체",
+                "search_terms": ["타이어"],
+                "required_facts": ["후보 업체"],
+            },
+            api_key="device-kakao-key",
+        )
+
+        self.assertEqual(
+            len(result["businesses"]),
+            1,
+        )
+        self.assertEqual(
+            result["businesses"][0]["name"],
+            "성산타이어",
+        )
+        self.assertEqual(
+            result["reference_origin"]["source"],
+            "reference_point",
+        )
+
+        reference_kwargs = mocked_get.call_args_list[0].kwargs
+        self.assertEqual(
+            reference_kwargs["params"]["query"],
+            "창원시청",
+        )
+
+        search_kwargs = mocked_get.call_args_list[1].kwargs
+        self.assertEqual(
+            search_kwargs["params"]["query"],
+            "타이어",
+        )
+        self.assertEqual(
+            search_kwargs["params"]["radius"],
+            3000,
+        )
+        self.assertEqual(
+            search_kwargs["params"]["sort"],
+            "distance",
+        )
