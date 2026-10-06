@@ -231,11 +231,35 @@ class LiveVoiceService {
         onStatus('듣고 있어요');
         break;
       case 'session.input_transcript.delta':
+      case 'conversation.item.input_audio_transcription.delta':
         final delta = event['delta']?.toString() ?? '';
         if (delta.isNotEmpty) {
           _userTranscript += delta;
           onTranscript(isUser: true, delta: delta);
           _scheduleMissionFallback();
+        }
+        break;
+      case 'session.input_transcript.completed':
+      case 'conversation.item.input_audio_transcription.completed':
+        final transcript = (
+          event['transcript'] ?? event['text'] ?? ''
+        ).toString().trim();
+        final hadTranscript = _userTranscript.trim().isNotEmpty;
+
+        if (transcript.isNotEmpty) {
+          _userTranscript = transcript;
+          if (!hadTranscript) {
+            onTranscript(
+              isUser: true,
+              delta: transcript,
+            );
+          }
+        }
+
+        _missionFallbackTimer?.cancel();
+        _missionFallbackTimer = null;
+        if (_userTranscript.trim().isNotEmpty) {
+          unawaited(_dispatchTranscriptToCore());
         }
         break;
       case 'session.output_transcript.delta':
@@ -277,7 +301,7 @@ class LiveVoiceService {
     if (!_started || _closing) return;
 
     _missionFallbackTimer = Timer(
-      const Duration(seconds: 3),
+      const Duration(milliseconds: 4500),
       () {
         _missionFallbackTimer = null;
         unawaited(_dispatchTranscriptToCore());

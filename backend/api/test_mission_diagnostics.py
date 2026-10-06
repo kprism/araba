@@ -26,7 +26,7 @@ class MissionDiagnosticsTests(TestCase):
         self.assertEqual(details['stage'], 'openai_request')
         self.assertEqual(details['exception_type'], 'APITimeoutError')
         self.assertEqual(details['retries'], 0)
-        self.assertEqual(details['timeout_seconds'], 7.0)
+        self.assertEqual(details['timeout_seconds'], 12.0)
         self.assertGreaterEqual(details['server_elapsed_ms'], details['openai_elapsed_ms'])
         self.assertEqual(response['X-Request-ID'], details['request_id'])
         self.assertEqual(client.return_value.responses.create.call_count, 1)
