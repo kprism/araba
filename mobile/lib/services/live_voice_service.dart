@@ -428,6 +428,15 @@ class LiveVoiceService {
     }
   }
 
+  Future<void> pauseAudio() async {
+    for (final track
+        in _localStream?.getAudioTracks() ??
+            <MediaStreamTrack>[]) {
+      track.enabled = false;
+    }
+    onStatus('마이크 꺼짐 · ARABA 연결 유지');
+  }
+
   Future<void> resumeAudio() async {
     for (final track
         in _localStream?.getAudioTracks() ??
@@ -438,6 +447,10 @@ class LiveVoiceService {
     try {
       await Helper.setSpeakerphoneOnButPreferBluetooth();
     } catch (_) {}
+
+    if (_started) {
+      onStatus('듣고 있어요');
+    }
   }
 
   void resetPendingMissionContext() {

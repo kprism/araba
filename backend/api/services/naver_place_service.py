@@ -384,6 +384,65 @@ def _prices_from_json_ld(items):
     return values[:12]
 
 
+def _parking_from_page(
+    description,
+    html_text,
+    json_ld,
+):
+    # 주차정보는 페이지에 명시적으로 확인된 경우에만 반환한다.
+    # 단순히 "주차"라는 단어가 있다는 이유로 가능하다고 추측하지 않는다.
+    payload_text = " ".join(
+        [
+            str(description or ""),
+            str(html_text or ""),
+            json.dumps(
+                json_ld or [],
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    normalized = html.unescape(
+        payload_text
+    ).lower()
+    compact = re.sub(
+        r"\s+",
+        " ",
+        normalized,
+    )
+
+    unavailable_patterns = (
+        r"주차\s*(?:불가|안됨|불가능)",
+        r"주차장\s*(?:없음|없습니다)",
+        r'"parking(?:available)?"\s*:\s*false',
+        r'"parking(?:available)?"\s*:\s*"?(?:n|no|false)"?',
+    )
+    for pattern in unavailable_patterns:
+        if re.search(pattern, compact):
+            return {
+                "available": False,
+                "text": "주차 불가",
+            }
+
+    available_patterns = (
+        r"주차\s*(?:가능|됩니다|가능함)",
+        r"무료\s*주차",
+        r"전용\s*주차",
+        r'"parking(?:available)?"\s*:\s*true',
+        r'"parking(?:available)?"\s*:\s*"?(?:y|yes|true)"?',
+    )
+    for pattern in available_patterns:
+        if re.search(pattern, compact):
+            return {
+                "available": True,
+                "text": "주차 가능",
+            }
+
+    return {
+        "available": None,
+        "text": None,
+    }
+
+
 def inspect_naver_place_page(url):
     page_url = str(url or "").strip()
 
@@ -394,6 +453,8 @@ def inspect_naver_place_page(url):
             "url": page_url or None,
             "opening_hours": [],
             "prices": [],
+            "parking_available": None,
+            "parking_text": None,
         }
 
     try:
@@ -416,6 +477,8 @@ def inspect_naver_place_page(url):
             "url": page_url,
             "opening_hours": [],
             "prices": [],
+            "parking_available": None,
+            "parking_text": None,
         }
 
     final_url = str(response.url)
@@ -432,6 +495,8 @@ def inspect_naver_place_page(url):
             "url": final_url,
             "opening_hours": [],
             "prices": [],
+            "parking_available": None,
+            "parking_text": None,
         }
 
     parser = _MetadataParser()
@@ -466,6 +531,12 @@ def inspect_naver_place_page(url):
         else None
     )
 
+    parking = _parking_from_page(
+        description,
+        response.text,
+        json_ld,
+    )
+
     return {
         "checked": True,
         "reason": None,
@@ -481,6 +552,8 @@ def inspect_naver_place_page(url):
         "prices": _prices_from_json_ld(
             json_ld
         ),
+        "parking_available": parking["available"],
+        "parking_text": parking["text"],
     }
 
 
@@ -656,6 +729,12 @@ def enrich_one_business(
             or []
         ),
         "prices": page.get("prices") or [],
+        "parking_available": page.get(
+            "parking_available"
+        ),
+        "parking_text": page.get(
+            "parking_text"
+        ),
     }
 
     return business
@@ -702,7 +781,7 @@ def enrich_businesses_with_naver(
     results = [None] * len(safe)
 
     with ThreadPoolExecutor(
-        max_workers=min(4, len(safe)),
+        max_workers=min(6, len(safe)),
     ) as executor:
         future_to_index = {
             executor.submit(

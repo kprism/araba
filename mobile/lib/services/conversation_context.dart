@@ -187,6 +187,84 @@ class ConversationContext {
     }
   }
 
+  void rememberBusinessResults(
+    Map<String, dynamic> mission,
+    List<Map<String, dynamic>> businesses,
+  ) {
+    if (businesses.isEmpty) return;
+
+    final category =
+        mission['category']?.toString().trim() ?? '';
+    final location =
+        mission['location']?.toString().trim() ?? '';
+
+    final summarized = <Map<String, dynamic>>[];
+
+    for (var index = 0;
+        index < businesses.length && index < 10;
+        index++) {
+      final business = businesses[index];
+      final naverValue = business['naver'];
+      final naver = naverValue is Map
+          ? Map<String, dynamic>.from(naverValue)
+          : <String, dynamic>{};
+      final rawHours = naver['opening_hours'];
+      final hours = rawHours is List
+          ? rawHours
+              .map((item) => item.toString().trim())
+              .where((item) => item.isNotEmpty)
+              .take(4)
+              .toList()
+          : <String>[];
+
+      summarized.add({
+        'rank': index + 1,
+        'name':
+            business['name']?.toString().trim() ?? '',
+        'address':
+            business['address']?.toString().trim() ?? '',
+        'phone':
+            business['phone']?.toString().trim() ?? '',
+        if (hours.isNotEmpty)
+          'opening_hours': hours,
+        if (naver.containsKey('parking_available'))
+          'parking_available':
+              naver['parking_available'],
+      });
+    }
+
+    final resultSet = <String, dynamic>{
+      'category': category,
+      'location': location,
+      'results': summarized,
+    };
+
+    _known['recent_place_results'] = summarized;
+
+    final existingValue = _known['recent_place_searches'];
+    final history = existingValue is List
+        ? existingValue
+            .whereType<Map>()
+            .map(
+              (item) =>
+                  Map<String, dynamic>.from(item),
+            )
+            .toList()
+        : <Map<String, dynamic>>[];
+
+    history.removeWhere((item) {
+      return item['category'] == category &&
+          item['location'] == location;
+    });
+    history.insert(0, resultSet);
+
+    if (history.length > 3) {
+      history.removeRange(3, history.length);
+    }
+
+    _known['recent_place_searches'] = history;
+  }
+
   void rememberBusiness(
     Map<String, dynamic> business,
   ) {
@@ -225,6 +303,11 @@ class ConversationContext {
             List<String>.from(
           hours.map((item) => item.toString()),
         );
+      }
+
+      if (naver.containsKey('parking_available')) {
+        merged['selected_business_parking_available'] =
+            naver['parking_available'];
       }
     }
 

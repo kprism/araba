@@ -48,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool _liveConnecting = false;
   bool _liveActive = false;
+  bool _micEnabled = false;
   bool _sending = false;
   bool _researching = false;
   bool _userBrowsingHistory = false;
@@ -79,7 +80,11 @@ class _HomeScreenState extends State<HomeScreen>
     if (live != null &&
         live.isStarted &&
         !_liveNeedsReconnect) {
-      unawaited(live.resumeAudio());
+      if (_micEnabled) {
+        unawaited(live.resumeAudio());
+      } else {
+        unawaited(live.pauseAudio());
+      }
       return;
     }
 
@@ -120,27 +125,27 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _toggleLiveVoice() async {
     final current = _liveVoice;
 
-    if (current != null &&
-        (_liveActive ||
-            _liveConnecting ||
-            current.isStarted)) {
-      _keepLiveVoice = false;
-      _liveNeedsReconnect = false;
-
-      setState(() {
-        _liveConnecting = false;
-        _liveActive = false;
-        _liveStatus = '종료 중';
-      });
-
-      await current.stop();
-      _liveVoice = null;
-
-      if (mounted) {
-        setState(() => _liveStatus = '종료됨');
+    if (current != null && current.isStarted) {
+      if (_micEnabled) {
+        await current.pauseAudio();
+        if (!mounted) return;
+        setState(() {
+          _micEnabled = false;
+          _liveStatus =
+              '마이크 꺼짐 · ARABA 연결 유지';
+        });
+      } else {
+        await current.resumeAudio();
+        if (!mounted) return;
+        setState(() {
+          _micEnabled = true;
+          _liveStatus = '듣고 있어요';
+        });
       }
       return;
     }
+
+    if (_liveConnecting) return;
 
     if (current != null) {
       try {
@@ -150,6 +155,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     _keepLiveVoice = true;
+    _micEnabled = true;
     await _startLiveVoice();
   }
 
@@ -191,8 +197,12 @@ class _HomeScreenState extends State<HomeScreen>
           if (!mounted || _liveVoice != liveVoice) return;
 
           setState(() {
-            _liveStatus = status;
             _liveActive = liveVoice.isStarted;
+            _liveStatus = (
+              _liveActive && !_micEnabled
+            )
+                ? '마이크 꺼짐 · ARABA 연결 유지'
+                : status;
             if (_liveActive) {
               _liveConnecting = false;
             }
@@ -289,8 +299,16 @@ class _HomeScreenState extends State<HomeScreen>
 
       _liveVoice = liveVoice;
       await liveVoice.start();
+
+      if (!_micEnabled) {
+        await liveVoice.pauseAudio();
+      }
     } catch (caught) {
       _liveVoice = null;
+
+      if (!automatic) {
+        _micEnabled = false;
+      }
 
       if (!mounted) return;
 
@@ -462,6 +480,8 @@ class _HomeScreenState extends State<HomeScreen>
             .map((item) => Map<String, dynamic>.from(item))
             .toList()
         : <Map<String, dynamic>>[];
+    final parkingAvailable =
+        naverMap['parking_available'];
     final phone =
         business['phone']?.toString().trim() ?? '';
     final address =
@@ -505,6 +525,15 @@ class _HomeScreenState extends State<HomeScreen>
     }
     if (requested.contains('주소') && address.isNotEmpty) {
       parts.add('주소: $address');
+    }
+    if (requested.contains('주차')) {
+      if (parkingAvailable == true) {
+        parts.add('주차: 가능');
+      } else if (parkingAvailable == false) {
+        parts.add('주차: 불가');
+      } else {
+        parts.add('주차: 확인되지 않음');
+      }
     }
 
     if (parts.isEmpty) {
@@ -587,6 +616,10 @@ class _HomeScreenState extends State<HomeScreen>
           businesses.first,
         );
       }
+      _conversationContext.rememberBusinessResults(
+        mission,
+        businesses,
+      );
       _lastBusinesses = businesses;
 
       if (businesses.isEmpty) {
@@ -1226,6 +1259,7 @@ class _HomeScreenState extends State<HomeScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _keepLiveVoice = false;
+    _micEnabled = false;
     _liveVoice?.stop(force: true);
     _controller.dispose();
     _scroll.dispose();
@@ -1358,9 +1392,13 @@ class _HomeScreenState extends State<HomeScreen>
                 _Composer(
                   controller: _controller,
                   focusNode: _focus,
-                  listening: _liveActive,
+                  listening:
+                      _liveActive && _micEnabled,
                   sending:
                       _sending || _liveConnecting || _researching,
+                  micDisabled:
+                      _liveConnecting ||
+                      (_researching && !_liveActive),
                   onImage: _showImageSourcePicker,
                   onMic: _toggleLiveVoice,
                   onSend: _send,
@@ -1707,6 +1745,8 @@ class _BusinessCards extends StatelessWidget {
             .map((item) => Map<String, dynamic>.from(item))
             .toList()
         : <Map<String, dynamic>>[];
+    final parkingAvailable =
+        naver['parking_available'];
     final priceText = _priceText(prices);
 
     await showModalBottomSheet<void>(
@@ -1890,6 +1930,14 @@ class _BusinessCards extends StatelessWidget {
                             icon: Icons.phone_outlined,
                             title: '전화',
                             value: phone,
+                          ),
+                        if (parkingAvailable != null)
+                          _BusinessDetailRow(
+                            icon: Icons.local_parking_outlined,
+                            title: '주차',
+                            value: parkingAvailable == true
+                                ? '가능'
+                                : '불가',
                           ),
                         if (priceText.isNotEmpty)
                           _BusinessDetailRow(
@@ -2822,6 +2870,7 @@ class _Composer extends StatelessWidget {
   final FocusNode focusNode;
   final bool listening;
   final bool sending;
+  final bool micDisabled;
   final VoidCallback onImage;
   final VoidCallback onMic;
   final VoidCallback onSend;
@@ -2831,6 +2880,7 @@ class _Composer extends StatelessWidget {
     required this.focusNode,
     required this.listening,
     required this.sending,
+    required this.micDisabled,
     required this.onImage,
     required this.onMic,
     required this.onSend,
@@ -2863,7 +2913,8 @@ class _Composer extends StatelessWidget {
             tooltip: listening
                 ? '음성 입력 중지'
                 : '음성으로 말하기',
-            onPressed: sending ? null : onMic,
+            onPressed:
+                micDisabled ? null : onMic,
             icon: Icon(
               listening
                   ? Icons.mic_rounded

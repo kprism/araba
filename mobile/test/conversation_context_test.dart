@@ -83,3 +83,89 @@ void main() {
     expect(twice, once);
   });
 }
+
+
+test('place result sets are remembered with rank and detail facts', () {
+  final context = ConversationContext();
+
+  context.rememberBusinessResults(
+    {
+      'category': '치과',
+      'location': '창원시 의창구 중동',
+    },
+    [
+      {
+        'name': '첫치과',
+        'address': '창원시 의창구 중동 1',
+        'phone': '055-111-1111',
+        'naver': {
+          'opening_hours': ['월 09:00-18:00'],
+          'parking_available': true,
+        },
+      },
+      {
+        'name': '둘치과',
+        'address': '창원시 의창구 중동 2',
+        'phone': '055-222-2222',
+      },
+    ],
+  );
+
+  final snapshot = context.snapshot;
+  final results =
+      snapshot['recent_place_results'] as List;
+  final history =
+      snapshot['recent_place_searches'] as List;
+
+  expect(results.length, 2);
+  expect(
+    (results.first as Map)['rank'],
+    1,
+  );
+  expect(
+    (results.first as Map)['name'],
+    '첫치과',
+  );
+  expect(
+    (results.first as Map)['parking_available'],
+    isTrue,
+  );
+  expect(history.length, 1);
+});
+
+test('place search history keeps recent categories for later follow-up', () {
+  final context = ConversationContext();
+
+  context.rememberBusinessResults(
+    {
+      'category': '치과',
+      'location': '중동',
+    },
+    [
+      {'name': '치과A'},
+    ],
+  );
+  context.rememberBusinessResults(
+    {
+      'category': '미용실',
+      'location': '중동',
+    },
+    [
+      {'name': '미용실A'},
+    ],
+  );
+
+  final history =
+      context.snapshot['recent_place_searches']
+          as List;
+
+  expect(history.length, 2);
+  expect(
+    (history.first as Map)['category'],
+    '미용실',
+  );
+  expect(
+    (history[1] as Map)['category'],
+    '치과',
+  );
+});

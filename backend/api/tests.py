@@ -1059,6 +1059,61 @@ class NaverPlaceServiceTests(TestCase):
         )
 
 
+class NaverParkingExtractionTests(TestCase):
+    def test_explicit_parking_available_is_detected(self):
+        from api.services.naver_place_service import (
+            _parking_from_page,
+        )
+
+        result = _parking_from_page(
+            "건물 내 주차 가능",
+            "",
+            [],
+        )
+
+        self.assertTrue(
+            result["available"],
+        )
+        self.assertEqual(
+            result["text"],
+            "주차 가능",
+        )
+
+    def test_explicit_parking_unavailable_is_detected(self):
+        from api.services.naver_place_service import (
+            _parking_from_page,
+        )
+
+        result = _parking_from_page(
+            "주차 불가",
+            "",
+            [],
+        )
+
+        self.assertFalse(
+            result["available"],
+        )
+        self.assertEqual(
+            result["text"],
+            "주차 불가",
+        )
+
+    def test_ambiguous_parking_word_is_not_guessed(self):
+        from api.services.naver_place_service import (
+            _parking_from_page,
+        )
+
+        result = _parking_from_page(
+            "인근 공영주차장 안내",
+            "",
+            [],
+        )
+
+        self.assertIsNone(
+            result["available"],
+        )
+
+
 class KakaoPlaceServiceTests(TestCase):
     @patch(
         "api.services.kakao_place_service.httpx.get"
@@ -2940,26 +2995,26 @@ class FastFirstResearchResponseTests(TestCase):
         )
         self.assertEqual(
             FAST_DETAIL_ENRICH_LIMIT,
-            2,
+            5,
         )
         self.assertEqual(
             len(
                 mocked_kakao_enrich.call_args.args[0]
             ),
-            2,
+            5,
         )
         self.assertEqual(
             len(
                 mocked_naver_enrich.call_args.args[0]
             ),
-            2,
+            5,
         )
         self.assertEqual(
             result["detail_deferred_count"],
-            6,
+            3,
         )
         self.assertEqual(
-            result["businesses"][2]["naver"]["status"],
+            result["businesses"][5]["naver"]["status"],
             "deferred_fast_response",
         )
 
