@@ -2855,3 +2855,68 @@ class MissionRuntimeResilienceTests(TestCase):
             client.responses.create.call_count,
             2,
         )
+
+
+class MissionApiErrorClassificationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    @patch(
+        "api.services.mission_service.create_mission"
+    )
+    def test_mission_auth_error_is_actionable(
+        self,
+        mocked_create,
+    ):
+        class AuthenticationError(Exception):
+            pass
+
+        mocked_create.side_effect = AuthenticationError(
+            "invalid key"
+        )
+
+        response = self.client.post(
+            "/api/missions/create/",
+            {"request": "창원시청 주변 타이어점 찾아줘"},
+            format="json",
+            HTTP_X_OPENAI_API_KEY="bad-key",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            401,
+        )
+        self.assertIn(
+            "API Key 인증",
+            response.data["message"],
+        )
+
+    @patch(
+        "api.services.mission_service.create_mission"
+    )
+    def test_mission_timeout_error_is_actionable(
+        self,
+        mocked_create,
+    ):
+        class APITimeoutError(Exception):
+            pass
+
+        mocked_create.side_effect = APITimeoutError(
+            "timeout"
+        )
+
+        response = self.client.post(
+            "/api/missions/create/",
+            {"request": "창원시청 주변 타이어점 찾아줘"},
+            format="json",
+            HTTP_X_OPENAI_API_KEY="sk-test",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            504,
+        )
+        self.assertIn(
+            "재시도",
+            response.data["message"],
+        )
