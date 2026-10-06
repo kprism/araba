@@ -155,8 +155,8 @@ def inspect_kakao_place_page(place_url):
                 ),
             },
             timeout=httpx.Timeout(
-                5.0,
-                connect=2.0,
+                3.5,
+                connect=1.5,
             ),
             follow_redirects=True,
         )
