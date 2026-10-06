@@ -82,17 +82,17 @@ CORE_CURRICULUM = [
         "group": "historical_failure",
         "title": "과거실패 · 실제 작업 없이 조회한다고 말함",
         "request": "창원시청 주변 타이어 교체할 곳 알아봐",
-        "goal": "음성 AI가 실제 조사 위임 전에는 조회·재시도를 했다고 말하지 않는다.",
+        "goal": "Live는 완충 대화만 하고, 확정된 사용자 발화를 GPT Core가 단일 판단 경로로 처리한다.",
         "difficulty": "어려움",
         "expected_behaviors": [
-            "외부 조사가 필요하면 실제 백엔드 위임을 먼저 발생시킨다.",
-            "작업이 시작되지 않았으면 '찾아보는 중'이라고 말하지 않는다.",
-            "재시도한다고 말할 경우 실제 재시도 로직이 뒤따라야 한다.",
+            "확정된 사용자 발화는 delegation 이벤트와 무관하게 GPT Core로 보낸다.",
+            "Live는 사실·판단·추천을 직접 만들지 않고 완충 대화만 한다.",
+            "재시도한다고 말할 경우 실제 GPT Core 재시도 로직이 뒤따라야 한다.",
         ],
         "rule": {
-            "trigger": "음성 대화에서 외부 검색·조회·전화가 필요한 요청을 받는다.",
-            "instruction": "실제 조사 작업을 먼저 시작하거나 위임한 뒤에만 진행 중이라고 말한다. 실행되지 않은 재시도나 조회를 말로만 약속하지 않는다.",
-            "example": "조회가 잘 안 돼 다시 해볼게요 -> 실제 재호출이 없으면 금지",
+            "trigger": "음성 대화에서 사실 판단·외부 검색·조회·전화가 필요한 요청을 받는다.",
+            "instruction": "Live를 귀와 입으로 제한하고 판단은 GPT Core 하나만 수행한다. 확정된 사용자 발화를 Core로 보내 실제 작업을 시작하며, 결과 전에는 사실 없는 짧은 완충 응답만 한다.",
+            "example": "사용자 발화 확정 -> GPT Core 처리 시작 + Live 완충 응답 -> Core 결과만 Live가 전달",
         },
     },
     {
@@ -433,12 +433,13 @@ def _diagnose_core_case(item):
         from .live_service import LIVE_SYSTEM_PROMPT
 
         passed = (
-            "위임 없이" in LIVE_SYSTEM_PROMPT
-            and "실제 백엔드 작업" in LIVE_SYSTEM_PROMPT
-            and "재시도" in LIVE_SYSTEM_PROMPT
+            "GPT Core 하나뿐" in LIVE_SYSTEM_PROMPT
+            and "귀와 입" in LIVE_SYSTEM_PROMPT
+            and "직접 결론내리지 않는다" in LIVE_SYSTEM_PROMPT
+            and "GPT Core가 확정한 결과" in LIVE_SYSTEM_PROMPT
         )
         detail = {
-            "delegation_guard_present": passed,
+            "single_brain_guard_present": passed,
         }
 
     elif key == "historical_candidates_not_answer":

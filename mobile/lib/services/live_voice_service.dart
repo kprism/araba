@@ -245,7 +245,7 @@ class LiveVoiceService {
               !_missionInFlight) {
             _missionFallbackTimer?.cancel();
             _missionFallbackTimer = null;
-            unawaited(_handleTranscriptFallback());
+            unawaited(_dispatchTranscriptToCore());
           }
           onTranscript(isUser: false, delta: delta);
         }
@@ -279,8 +279,24 @@ class LiveVoiceService {
       const Duration(seconds: 2),
       () {
         _missionFallbackTimer = null;
-        unawaited(_handleTranscriptFallback());
+        unawaited(_dispatchTranscriptToCore());
       },
+    );
+  }
+
+  Future<void> _dispatchTranscriptToCore() async {
+    if (_missionInFlight) {
+      if (_userTranscript.trim().isNotEmpty) {
+        _scheduleMissionFallback();
+      }
+      return;
+    }
+
+    final latestUserText = _userTranscript.trim();
+    if (latestUserText.isEmpty) return;
+
+    await _processMission(
+      latestUserText: latestUserText,
     );
   }
 
@@ -339,8 +355,6 @@ class LiveVoiceService {
       _missionFailureTranscript = '';
       onMission(mission, requestText);
 
-      final summary =
-          mission['summary']?.toString().trim() ?? '';
       final ready =
           mission['ready_to_research'] == true;
       final questions =
@@ -348,27 +362,13 @@ class LiveVoiceService {
 
       if (!ready &&
           questions is List &&
-          questions.isNotEmpty) {
-        final first = questions.first;
-        if (first is Map) {
-          final question =
-              first['question']?.toString().trim() ?? '';
-          final options = first['options'];
-          final optionText = options is List
-              ? options
-                  .map((item) => item.toString())
-                  .join(', ')
-              : '';
-
-          _pendingRequestContext = requestText;
-
-          return;
-        }
+          questions.isNotEmpty &&
+          questions.first is Map) {
+        _pendingRequestContext = requestText;
+        return;
       }
 
       _pendingRequestContext = null;
-
-
     } catch (error) {
       final message = error is ArabaApiException
           ? error.message
