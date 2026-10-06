@@ -195,7 +195,7 @@ MISSION_MODEL = (
     os.getenv("ARABA_MISSION_MODEL", "gpt-6-luna").strip()
     or "gpt-6-luna"
 )
-MISSION_TIMEOUT_SECONDS = 4.5
+MISSION_TIMEOUT_SECONDS = 7.0
 
 
 VALID_SEARCH_MODES = {
@@ -455,31 +455,14 @@ def _create_mission_response(
     instructions,
     request_text,
 ):
-    last_error = None
-
-    for attempt in range(2):
-        try:
-            return client.responses.create(
-                model=MISSION_MODEL,
-                instructions=instructions,
-                input=request_text,
-            )
-        except Exception as exc:
-            last_error = exc
-            error_name = type(exc).__name__
-
-            if error_name in {
-                "AuthenticationError",
-                "PermissionDeniedError",
-                "BadRequestError",
-            }:
-                raise
-
-            if attempt == 0:
-                continue
-            raise
-
-    raise last_error
+    # 사용자 한 요청에 대해 Core 호출은 한 번만 수행한다.
+    # 짧은 타임아웃 뒤 동일 요청을 즉시 다시 호출하면 전체 응답시간만
+    # 길어지고 모바일 제한시간과 충돌하므로 중복 재시도를 하지 않는다.
+    return client.responses.create(
+        model=MISSION_MODEL,
+        instructions=instructions,
+        input=request_text,
+    )
 
 
 def create_mission(user_request, api_key=None):
