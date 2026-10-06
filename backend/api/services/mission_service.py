@@ -268,6 +268,183 @@ def _has_follow_up_reference(text):
     )
 
 
+
+def _clean_fast_place_subject(value):
+    text = " ".join(
+        str(value or "").split()
+    ).strip(" ?!.,")
+    if not text:
+        return ""
+
+    text = re.sub(
+        r"\s*(?:좀\s*)?(?:알아봐(?:줘)?|찾아봐(?:줘)?|찾아줘|검색해줘|추천해줘|보여줘)\s*$",
+        "",
+        text,
+    ).strip()
+    text = re.sub(
+        r"(?:할\s*만한|괜찮은)\s*곳\s*$",
+        "",
+        text,
+    ).strip()
+    text = re.sub(
+        r"\s+곳\s*$",
+        "",
+        text,
+    ).strip()
+    return text
+
+
+def _fast_reference_place_mission(request_text):
+    """
+    'OO 주변/근처에 XX 찾아줘'처럼 의미가 명확한 장소 탐색은
+    LLM 왕복 없이 Core 내부의 결정적 파서로 바로 조사 Mission으로 만든다.
+    복잡하거나 애매한 요청만 GPT Core 모델로 보낸다.
+    """
+    current = _current_request_text(
+        request_text
+    )
+    compact = _compact_text(current)
+
+    if not any(
+        marker in compact
+        for marker in (
+            "알아봐",
+            "찾아",
+            "검색",
+            "추천",
+            "보여줘",
+        )
+    ):
+        return None
+
+    match = re.match(
+        r"^\s*(?P<location>.+?)\s*(?:주변|근처|인근)(?:에|에서)?\s*(?P<subject>.+?)\s*$",
+        current,
+    )
+    if match is None:
+        return None
+
+    location = " ".join(
+        match.group("location").split()
+    ).strip()
+    location = re.sub(
+        r"^(?:어|음|저기|그러면|그럼)\s+",
+        "",
+        location,
+    ).strip()
+
+    subject = _clean_fast_place_subject(
+        match.group("subject")
+    )
+
+    if (
+        len(_compact_text(location)) < 2
+        or len(_compact_text(subject)) < 2
+    ):
+        return None
+
+    summary = (
+        f"{location} 주변에서 {subject} 관련 장소를 찾아 비교한다."
+    )
+
+    mission = {
+        "title": f"{location} 주변 {subject} 찾기",
+        "summary": summary,
+        "category": subject,
+        "subcategories": [subject],
+        "intent": "조사",
+        "search_mode": "area_discovery",
+        "response_mode": "research",
+        "direct_answer": None,
+        "location": location,
+        "location_explicit": True,
+        "subject": subject,
+        "target_business": None,
+        "attributes": {},
+        "constraints": [],
+        "comparison": "거리와 적합성",
+        "search_terms": [subject],
+        "required_facts": [
+            "후보 장소",
+            "주소",
+            "전화번호",
+            "거리",
+        ],
+        "needs_fresh_data": True,
+        "may_need_phone_call": False,
+        "missing_information": [],
+        "clarification_questions": [],
+        "ready_to_research": True,
+        "user_goal": summary,
+        "decision_needed": (
+            "기준 장소 주변에서 요청에 맞는 실제 후보를 찾는다."
+        ),
+        "expected_answer": {
+            "type": "recommendation",
+            "summary": (
+                "실제 장소 후보를 카드로 보여주고 위치와 기본 정보를 비교한다."
+            ),
+            "must_include": [
+                "후보 장소",
+                "주소",
+                "전화번호",
+                "거리",
+            ],
+        },
+        "known_facts": {
+            "기준 장소": location,
+            "찾는 대상": subject,
+        },
+        "unknown_facts": [
+            "실제 후보 장소",
+            "주소",
+            "전화번호",
+            "거리",
+        ],
+        "evidence_needed": [
+            {
+                "fact": "실제 후보 장소",
+                "source_priority": [
+                    "place_search",
+                    "map",
+                ],
+                "required": True,
+            },
+        ],
+        "research_plan": [
+            {
+                "step": 1,
+                "goal": (
+                    f"{location} 좌표를 기준으로 {subject} 후보를 찾는다."
+                ),
+                "tool": "place_search",
+                "when": "항상",
+            },
+            {
+                "step": 2,
+                "goal": "후보의 위치와 거리를 확인한다.",
+                "tool": "map",
+                "when": "후보를 찾은 뒤",
+            },
+        ],
+        "completion_criteria": [
+            "기준 장소 주변의 실제 후보가 확보된다.",
+            "후보별 주소와 위치정보를 사용자에게 제시할 수 있다.",
+        ],
+        "confidence_target": "high",
+        "location_context": {
+            "value": location,
+            "type": "reference_point",
+            "radius_hint_km": 3,
+        },
+    }
+
+    return enhance_mission(
+        mission,
+        request_text,
+    )
+
+
 def _normalize_search_scope(
     mission,
     request_text,
@@ -480,6 +657,19 @@ def create_mission(user_request, api_key=None, *, diagnostics=None):
         raise ValueError(
             "OpenAI API Key가 설정되지 않았습니다."
         )
+
+    diagnostics["stage"] = "fast_route_check"
+    fast_mission = _fast_reference_place_mission(
+        request_text
+    )
+    if fast_mission is not None:
+        diagnostics["fast_path"] = True
+        diagnostics["route"] = "reference_place"
+        diagnostics["openai_elapsed_ms"] = 0
+        diagnostics["stage"] = "fast_route_complete"
+        return fast_mission
+
+    diagnostics["fast_path"] = False
 
     client = OpenAI(
         api_key=api_key,
