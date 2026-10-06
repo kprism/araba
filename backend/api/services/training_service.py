@@ -227,24 +227,24 @@ def _ensure_core_scenario(item):
             "curriculum": "goal-first-v1",
             "group": item["group"],
         },
-        "status": "ready",
     }
 
     if scenario is None:
         scenario = TrainingScenario.objects.create(
             category="범용",
             title=title,
+            status="ready",
             **defaults,
         )
     else:
-        changed = False
+        changed_fields = []
         for field, value in defaults.items():
             if getattr(scenario, field) != value:
                 setattr(scenario, field, value)
-                changed = True
-        if changed:
+                changed_fields.append(field)
+        if changed_fields:
             scenario.save(
-                update_fields=list(defaults.keys())
+                update_fields=changed_fields
             )
 
     return scenario
