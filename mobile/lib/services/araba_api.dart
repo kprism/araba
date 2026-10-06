@@ -142,7 +142,7 @@ class ArabaApi {
         ),
         body: jsonEncode({'mission': mission}),
       ),
-      timeout: const Duration(seconds: 22),
+      timeout: const Duration(seconds: 32),
     );
 
     return _decode(response);
