@@ -397,6 +397,78 @@ def _normalize_completion_criteria(
     ]
 
 
+
+
+def _build_orchestration(
+    mission,
+):
+    plan = mission.get("research_plan")
+    tools = []
+
+    if isinstance(plan, list):
+        for item in plan:
+            if not isinstance(item, dict):
+                continue
+            tool = _clean_text(
+                item.get("tool")
+            )
+            if (
+                tool in VALID_TOOL_NAMES
+                and tool not in tools
+            ):
+                tools.append(tool)
+
+    response_mode = _clean_text(
+        mission.get("response_mode")
+    )
+
+    if response_mode == "answer":
+        route = "direct_answer"
+    elif response_mode == "clarify":
+        route = "clarify"
+    elif "place_search" in tools or "map" in tools:
+        route = "place_research"
+    elif "image" in tools:
+        route = "image_research"
+    elif "phone" in tools:
+        route = "phone_research"
+    elif "web_search" in tools:
+        route = "web_research"
+    elif "records" in tools:
+        route = "record_research"
+    else:
+        route = "general_research"
+
+    return {
+        "route": route,
+        "primary_tool": (
+            tools[0]
+            if tools
+            else (
+                "direct_reasoning"
+                if response_mode == "answer"
+                else None
+            )
+        ),
+        "tools": tools,
+        "requires_place_search": (
+            "place_search" in tools
+            or "map" in tools
+        ),
+        "may_require_phone": (
+            "phone" in tools
+            or mission.get(
+                "may_need_phone_call"
+            )
+            is True
+        ),
+        "completion_policy": (
+            "검색 횟수가 아니라 expected_answer의 필수 항목을 "
+            "근거로 채웠는지 평가하고, 부족하면 다음 조사수단으로 진행한다."
+        ),
+    }
+
+
 def enhance_mission(
     mission,
     request_text="",
@@ -483,6 +555,12 @@ def enhance_mission(
 
     mission["location_context"] = (
         _normalize_location_context(
+            mission
+        )
+    )
+
+    mission["orchestration"] = (
+        _build_orchestration(
             mission
         )
     )
