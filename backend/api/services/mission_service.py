@@ -238,6 +238,34 @@ def _current_request_text(request_text):
     return current.strip()
 
 
+def _fast_request_candidates(request_text):
+    current = _current_request_text(
+        request_text
+    )
+    candidates = []
+    additional_marker = "사용자 추가 답변:"
+
+    if additional_marker in current:
+        before, after = current.rsplit(
+            additional_marker,
+            1,
+        )
+        latest = after.strip()
+        original = before.strip()
+
+        # Live가 실패한 요청을 보존한 뒤 같은 내용을 다시 받으면
+        # 현재 요청 블록 뒤에 '사용자 추가 답변'으로 덧붙인다.
+        # 빠른 장소 라우팅은 가장 최근 사용자 발화를 먼저 독립 요청으로 본다.
+        if latest:
+            candidates.append(latest)
+        if original and original not in candidates:
+            candidates.append(original)
+    elif current:
+        candidates.append(current)
+
+    return candidates
+
+
 def _compact_text(value):
     return re.sub(
         r"[^0-9a-zA-Z가-힣]",
@@ -277,7 +305,7 @@ def _clean_fast_place_subject(value):
         return ""
 
     text = re.sub(
-        r"\s*(?:좀\s*)?(?:알아봐(?:줘)?|찾아봐(?:줘)?|찾아줘|검색해줘|추천해줘|보여줘)\s*$",
+        r"\s*(?:좀\s*)?(?:알아봐(?:줘)?|찾아봐(?:줘)?|찾아줘|검색해줘|추천해줘|보여줘)(?:요)?\s*$",
         "",
         text,
     ).strip()
@@ -438,54 +466,55 @@ def _fast_reference_place_mission(request_text):
     LLM 왕복 없이 Core 내부의 결정적 파서로 바로 조사 Mission으로 만든다.
     복잡하거나 애매한 요청만 GPT Core 모델로 보낸다.
     """
-    current = _current_request_text(
+    for current in _fast_request_candidates(
         request_text
-    )
-    compact = _compact_text(current)
-
-    if not any(
-        marker in compact
-        for marker in (
-            "알아봐",
-            "찾아",
-            "검색",
-            "추천",
-            "보여줘",
-        )
     ):
-        return None
+        compact = _compact_text(current)
 
-    match = re.match(
-        r"^\s*(?P<location>.+?)\s*(?:주변|근처|인근)(?:에|에서)?\s*(?P<subject>.+?)\s*$",
-        current,
-    )
-    if match is None:
-        return None
+        if not any(
+            marker in compact
+            for marker in (
+                "알아봐",
+                "찾아",
+                "검색",
+                "추천",
+                "보여줘",
+            )
+        ):
+            continue
 
-    location = " ".join(
-        match.group("location").split()
-    ).strip()
-    location = re.sub(
-        r"^(?:어|음|저기|그러면|그럼)\s+",
-        "",
-        location,
-    ).strip()
+        match = re.match(
+            r"^\s*(?P<location>.+?)\s*(?:주변|근처|인근)(?:에|에서)?\s*(?P<subject>.+?)\s*$",
+            current,
+        )
+        if match is None:
+            continue
 
-    mission = _build_fast_place_mission(
-        location,
-        match.group("subject"),
-        location_type="reference_point",
-        search_mode="area_discovery",
-        radius_hint_km=3,
-    )
-    if mission is None:
-        return None
+        location = " ".join(
+            match.group("location").split()
+        ).strip()
+        location = re.sub(
+            r"^(?:어|음|저기|그러면|그럼)\s+",
+            "",
+            location,
+        ).strip()
 
-    return enhance_mission(
-        mission,
-        request_text,
-    )
+        mission = _build_fast_place_mission(
+            location,
+            match.group("subject"),
+            location_type="reference_point",
+            search_mode="area_discovery",
+            radius_hint_km=3,
+        )
+        if mission is None:
+            continue
 
+        return enhance_mission(
+            mission,
+            request_text,
+        )
+
+    return None
 
 _ADMIN_LOCATION_PATTERN = (
     r"(?:[0-9a-zA-Z가-힣]+"
@@ -499,45 +528,47 @@ def _fast_administrative_place_mission(request_text):
     '창원시 의창구 중동에 치과 몇 군데 찾아줘'처럼
     행정구역과 찾을 업종이 모두 명확한 요청도 LLM 없이 바로 조사한다.
     """
-    current = _current_request_text(
+    for current in _fast_request_candidates(
         request_text
-    )
-    compact = _compact_text(current)
-
-    if not any(
-        marker in compact
-        for marker in (
-            "알아봐",
-            "찾아",
-            "검색",
-            "추천",
-            "보여줘",
-        )
     ):
-        return None
+        compact = _compact_text(current)
 
-    match = re.match(
-        rf"^\s*(?P<location>{_ADMIN_LOCATION_PATTERN})"
-        r"(?:에|에서)\s*(?P<subject>.+?)\s*$",
-        current,
-    )
-    if match is None:
-        return None
+        if not any(
+            marker in compact
+            for marker in (
+                "알아봐",
+                "찾아",
+                "검색",
+                "추천",
+                "보여줘",
+            )
+        ):
+            continue
 
-    mission = _build_fast_place_mission(
-        match.group("location"),
-        match.group("subject"),
-        location_type="administrative_area",
-        search_mode="category_discovery",
-        radius_hint_km=None,
-    )
-    if mission is None:
-        return None
+        match = re.match(
+            rf"^\s*(?P<location>{_ADMIN_LOCATION_PATTERN})"
+            r"(?:에|에서)\s*(?P<subject>.+?)\s*$",
+            current,
+        )
+        if match is None:
+            continue
 
-    return enhance_mission(
-        mission,
-        request_text,
-    )
+        mission = _build_fast_place_mission(
+            match.group("location"),
+            match.group("subject"),
+            location_type="administrative_area",
+            search_mode="category_discovery",
+            radius_hint_km=None,
+        )
+        if mission is None:
+            continue
+
+        return enhance_mission(
+            mission,
+            request_text,
+        )
+
+    return None
 
 def _normalize_search_scope(
     mission,

@@ -3396,6 +3396,76 @@ class FastMissionRoutingTests(TestCase):
         mocked_openai.assert_not_called()
         mocked_rules.assert_not_called()
 
+    @patch(
+        "api.services.mission_service.active_rules_text"
+    )
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_live_retry_context_still_uses_administrative_fast_route(
+        self,
+        mocked_openai,
+        mocked_rules,
+    ):
+        from api.services.mission_service import (
+            create_mission,
+        )
+
+        request_text = (
+            "[대화 문맥 - 참고용]\n"
+            '{"category":"자동차","subject":"타이어 교체"}\n\n'
+            "[현재 요청]\n"
+            "창원시 의창구 중동에 치과 몇 군데 찾아줘\n\n"
+            "사용자 추가 답변:\n"
+            "창원시 의창구 중동에 치과 몇 군데 찾아줘요"
+        )
+
+        diagnostics = {}
+        mission = create_mission(
+            request_text,
+            "sk-test",
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(
+            mission["location"],
+            "창원시 의창구 중동",
+        )
+        self.assertEqual(
+            mission["search_terms"],
+            ["치과"],
+        )
+        self.assertEqual(
+            diagnostics["route"],
+            "administrative_place",
+        )
+        self.assertEqual(
+            diagnostics["openai_elapsed_ms"],
+            0,
+        )
+        mocked_openai.assert_not_called()
+        mocked_rules.assert_not_called()
+
+    def test_fast_request_candidates_prefers_latest_live_retry(self):
+        from api.services.mission_service import (
+            _fast_request_candidates,
+        )
+
+        request_text = (
+            "[현재 요청]\n"
+            "창원시 의창구 중동에 치과 몇 군데 찾아줘\n\n"
+            "사용자 추가 답변:\n"
+            "창원시 의창구 중동에 치과 몇 군데 찾아줘요"
+        )
+
+        self.assertEqual(
+            _fast_request_candidates(request_text),
+            [
+                "창원시 의창구 중동에 치과 몇 군데 찾아줘요",
+                "창원시 의창구 중동에 치과 몇 군데 찾아줘",
+            ],
+        )
+
     def test_general_question_does_not_use_fast_place_route(
         self,
     ):
