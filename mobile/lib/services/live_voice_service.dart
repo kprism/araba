@@ -42,6 +42,8 @@ class LiveVoiceService {
   bool _missionInFlight = false;
   String _lastMissionTranscript = '';
   DateTime? _lastMissionStartedAt;
+  int _missionFailureCount = 0;
+  String _missionFailureTranscript = '';
 
   LiveVoiceService({
     required this.api,
@@ -307,8 +309,6 @@ class LiveVoiceService {
     final latestUserText = _userTranscript.trim();
     if (latestUserText.isEmpty) return;
 
-    _userTranscript = '';
-
     await _processMission(
       latestUserText: latestUserText,
     );
@@ -344,12 +344,29 @@ class LiveVoiceService {
       return;
     }
 
-    _userTranscript = '';
-
     await _processMission(
       latestUserText: latestUserText,
       delegationId: delegationId,
     );
+  }
+
+  void _consumeProcessedTranscript(String processedText) {
+    final current = _userTranscript;
+    final processed = processedText.trim();
+
+    if (processed.isEmpty || current.isEmpty) {
+      return;
+    }
+
+    if (current.trim() == processed) {
+      _userTranscript = '';
+      return;
+    }
+
+    final index = current.indexOf(processedText);
+    if (index == 0) {
+      _userTranscript = current.substring(processedText.length);
+    }
   }
 
   Future<void> _processMission({
@@ -395,6 +412,9 @@ class LiveVoiceService {
       }
 
       conversationContext.rememberMission(mission);
+      _consumeProcessedTranscript(latestUserText);
+      _missionFailureCount = 0;
+      _missionFailureTranscript = '';
       onMission(mission, requestText);
 
       final summary =
@@ -454,14 +474,44 @@ class LiveVoiceService {
           ? error.message
           : 'ARABA 조사 엔진 처리 중 오류가 발생했습니다.';
 
-      if (delegationId != null) {
-        _sendEvent({
-          'type': 'session.commentary.append',
-          'delegation_id': delegationId,
-          'content': '조사 엔진을 호출했지만 오류가 발생했습니다. $message',
-        });
+      if (_missionFailureTranscript == latestUserText) {
+        _missionFailureCount += 1;
       } else {
-        onError(message);
+        _missionFailureTranscript = latestUserText;
+        _missionFailureCount = 1;
+      }
+
+      final willRetry = _missionFailureCount <= 2;
+
+      if (willRetry) {
+        onStatus('요청 자동 재시도 중');
+
+        if (delegationId != null) {
+          _sendEvent({
+            'type': 'session.commentary.append',
+            'delegation_id': delegationId,
+            'content': '요청을 보존했습니다. 자동으로 다시 처리하고 있습니다.',
+          });
+        }
+      } else {
+        _consumeProcessedTranscript(latestUserText);
+        _missionFailureCount = 0;
+        _missionFailureTranscript = '';
+
+        if (delegationId != null) {
+          _sendEvent({
+            'type': 'session.commentary.append',
+            'delegation_id': delegationId,
+            'content': '요청 처리를 여러 번 시도했지만 완료하지 못했습니다. $message',
+          });
+        } else {
+          onTranscript(
+            isUser: false,
+            delta: '요청 처리를 여러 번 시도했지만 완료하지 못했어요. $message',
+          );
+        }
+
+        onStatus('듣고 있어요');
       }
     } finally {
       _missionInFlight = false;
@@ -542,6 +592,8 @@ class LiveVoiceService {
     _missionFallbackTimer?.cancel();
     _missionFallbackTimer = null;
     _missionInFlight = false;
+    _missionFailureCount = 0;
+    _missionFailureTranscript = '';
     _connectionState = null;
 
     try {
