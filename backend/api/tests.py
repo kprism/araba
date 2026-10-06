@@ -2417,7 +2417,6 @@ class ReferencePointResearchTests(TestCase):
 
         mocked_get.side_effect = [
             empty_address,
-            empty_address,
             reference_response,
             *[search_response for _ in range(8)],
         ]
@@ -2463,15 +2462,11 @@ class ReferencePointResearchTests(TestCase):
         )
         self.assertEqual(
             mocked_get.call_args_list[1].kwargs["params"]["query"],
-            "창원시청시",
-        )
-        self.assertEqual(
-            mocked_get.call_args_list[2].kwargs["params"]["query"],
             "창원시청",
         )
 
         search_params = (
-            mocked_get.call_args_list[3].kwargs["params"]
+            mocked_get.call_args_list[2].kwargs["params"]
         )
         self.assertEqual(
             search_params["query"],
