@@ -404,8 +404,8 @@ def inspect_naver_place_page(url):
                 "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.7",
             },
             timeout=httpx.Timeout(
-                5.0,
-                connect=2.0,
+                3.5,
+                connect=1.5,
             ),
             follow_redirects=True,
         )
@@ -531,8 +531,8 @@ def _search_naver_candidates(
                 "sort": "random",
             },
             timeout=httpx.Timeout(
-                5.0,
-                connect=2.0,
+                3.5,
+                connect=1.5,
             ),
         )
     except httpx.HTTPError as exc:
