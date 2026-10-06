@@ -2500,28 +2500,28 @@ class CoreTrainingCurriculumTests(TestCase):
 
         self.assertEqual(
             len(CORE_CURRICULUM),
-            11,
+            12,
         )
         self.assertEqual(
             len(first),
-            11,
+            12,
         )
         self.assertEqual(
             len(second),
-            11,
+            12,
         )
         self.assertEqual(
             TrainingScenario.objects.filter(
                 category="범용",
             ).count(),
-            11,
+            12,
         )
         self.assertEqual(
             TrainingRule.objects.filter(
                 source="core_curriculum",
                 active=True,
             ).count(),
-            11,
+            12,
         )
 
     def test_core_curriculum_contains_five_historical_and_five_future_cases(
@@ -2560,7 +2560,7 @@ class CoreTrainingCurriculumTests(TestCase):
         ]
         self.assertEqual(
             len(observed),
-            1,
+            2,
         )
 
     def test_all_curriculum_cases_run_as_training_and_pass_current_guards(
@@ -2575,7 +2575,7 @@ class CoreTrainingCurriculumTests(TestCase):
 
         self.assertEqual(
             len(runs),
-            11,
+            12,
         )
         self.assertTrue(
             all(
@@ -2594,7 +2594,7 @@ class CoreTrainingCurriculumTests(TestCase):
             TrainingRun.objects.filter(
                 mode="curriculum_regression",
             ).count(),
-            11,
+            12,
         )
         self.assertTrue(
             all(
@@ -2623,7 +2623,7 @@ class CoreTrainingCurriculumTests(TestCase):
         )
         self.assertEqual(
             response.data["trained"],
-            11,
+            12,
         )
         self.assertEqual(
             response.data["historical_count"],
@@ -2635,11 +2635,11 @@ class CoreTrainingCurriculumTests(TestCase):
         )
         self.assertEqual(
             response.data["observed_failure_count"],
-            1,
+            2,
         )
         self.assertEqual(
             response.data["passed"],
-            11,
+            12,
         )
         self.assertEqual(
             response.data["failed"],
@@ -2649,7 +2649,7 @@ class CoreTrainingCurriculumTests(TestCase):
             TrainingRun.objects.filter(
                 mode="curriculum_regression",
             ).count(),
-            11,
+            12,
         )
 
     def test_core_curriculum_rules_are_injected_into_runtime_prompt_memory(
