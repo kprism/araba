@@ -196,7 +196,7 @@ MISSION_MODEL = (
     os.getenv("ARABA_MISSION_MODEL", "gpt-6-luna").strip()
     or "gpt-6-luna"
 )
-MISSION_TIMEOUT_SECONDS = 7.0
+MISSION_TIMEOUT_SECONDS = 12.0
 
 
 VALID_SEARCH_MODES = {
