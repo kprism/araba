@@ -17,7 +17,12 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://araba-api-dev-908580697493.asia-northeast3.run.app"
-          curl --fail --show-error --silent             --connect-timeout 5             --max-time 15             "$BASE/api/health/"             | tee /tmp/health.json
+          curl --fail --show-error --silent \
+            --connect-timeout 5 \
+            --max-time 15 \
+            "$BASE/api/health/" \
+            | tee /tmp/health.json
+
           python - <<'PY'
           import json
           data=json.load(open("/tmp/health.json"))
@@ -29,21 +34,32 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://araba-api-dev-908580697493.asia-northeast3.run.app"
-          STATUS="$(curl --show-error --silent             --connect-timeout 5             --max-time 20             -o /tmp/core-training.json             -w "%{http_code}"             -H "Content-Type: application/json"             -X POST             "$BASE/api/training/core-curriculum/run/"             -d '{}')"
+
+          STATUS="$(curl --show-error --silent \
+            --connect-timeout 5 \
+            --max-time 20 \
+            -o /tmp/core-training.json \
+            -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "$BASE/api/training/core-curriculum/run/" \
+            -d '{}')"
+
           cat /tmp/core-training.json || true
           echo
           echo "HTTP_STATUS=$STATUS"
           test "$STATUS" = "200"
+
           python - <<'PY'
           import json
           data=json.load(open("/tmp/core-training.json"))
           assert data.get("ok") is True, data
-          assert data.get("trained", 0) >= 11, data
+          assert data.get("trained", 0) >= 12, data
           assert data.get("failed") == 0, data
+          assert data.get("observed_failure_count", 0) >= 2, data
           PY
 
-
-      - name: Check live mission and research path
+      - name: Check live mission and research path when test keys exist
         shell: bash
         env:
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -54,24 +70,34 @@ jobs:
           set -euo pipefail
           BASE="https://araba-api-dev-908580697493.asia-northeast3.run.app"
 
-          OPENAI_HEADER=()
-          KAKAO_HEADER=()
-          NAVER_HEADERS=()
+          if [ -z "${OPENAI_KEY:-}" ]; then
+            STATUS="$(curl --show-error --silent \
+              --connect-timeout 5 \
+              --max-time 10 \
+              -o /tmp/mission-no-key.json \
+              -w "%{http_code}" \
+              -H "Content-Type: application/json" \
+              -X POST \
+              "$BASE/api/missions/create/" \
+              -d '{"request":"창원시청 주변에 타이어 교체할 만한 곳 알아봐"}')"
 
-          if [ -n "${OPENAI_KEY:-}" ]; then
-            OPENAI_HEADER=(-H "X-OpenAI-API-Key: $OPENAI_KEY")
-          fi
-          if [ -n "${KAKAO_KEY:-}" ]; then
-            KAKAO_HEADER=(-H "X-Kakao-REST-API-Key: $KAKAO_KEY")
-          fi
-          if [ -n "${NAVER_ID:-}" ] && [ -n "${NAVER_SECRET:-}" ]; then
-            NAVER_HEADERS=(
-              -H "X-Naver-Client-Id: $NAVER_ID"
-              -H "X-Naver-Client-Secret: $NAVER_SECRET"
-            )
+            cat /tmp/mission-no-key.json || true
+            echo
+            echo "No Actions OpenAI test key. Authenticated Mission E2E skipped."
+            test "$STATUS" = "400"
+            exit 0
           fi
 
-          MISSION_STATUS="$(curl --show-error --silent             --connect-timeout 5             --max-time 35             -o /tmp/mission.json             -w "%{http_code}"             "${OPENAI_HEADER[@]}"             -H "Content-Type: application/json"             -X POST             "$BASE/api/missions/create/"             -d '{"request":"창원시청 주변에 타이어 교체할 만한 곳 알아봐"}')"
+          MISSION_STATUS="$(curl --show-error --silent \
+            --connect-timeout 5 \
+            --max-time 30 \
+            -o /tmp/mission.json \
+            -w "%{http_code}" \
+            -H "X-OpenAI-API-Key: $OPENAI_KEY" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "$BASE/api/missions/create/" \
+            -d '{"request":"창원시청 주변에 타이어 교체할 만한 곳 알아봐"}')"
 
           cat /tmp/mission.json || true
           echo
@@ -94,7 +120,30 @@ jobs:
           )
           PY
 
-          RESEARCH_STATUS="$(curl --show-error --silent             --connect-timeout 5             --max-time 32             -o /tmp/research.json             -w "%{http_code}"             "${KAKAO_HEADER[@]}"             "${NAVER_HEADERS[@]}"             -H "Content-Type: application/json"             -X POST             "$BASE/api/research/search/"             --data-binary @/tmp/research-request.json)"
+          if [ -z "${KAKAO_KEY:-}" ]; then
+            echo "No Actions Kakao test key. Authenticated research E2E skipped."
+            exit 0
+          fi
+
+          NAVER_HEADERS=()
+          if [ -n "${NAVER_ID:-}" ] && [ -n "${NAVER_SECRET:-}" ]; then
+            NAVER_HEADERS=(
+              -H "X-Naver-Client-Id: $NAVER_ID"
+              -H "X-Naver-Client-Secret: $NAVER_SECRET"
+            )
+          fi
+
+          RESEARCH_STATUS="$(curl --show-error --silent \
+            --connect-timeout 5 \
+            --max-time 32 \
+            -o /tmp/research.json \
+            -w "%{http_code}" \
+            -H "X-Kakao-REST-API-Key: $KAKAO_KEY" \
+            "${NAVER_HEADERS[@]}" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "$BASE/api/research/search/" \
+            --data-binary @/tmp/research-request.json)"
 
           cat /tmp/research.json || true
           echo
