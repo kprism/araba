@@ -1,3 +1,4 @@
+import json
 from unittest.mock import ANY, Mock, patch
 
 from django.test import TestCase
@@ -811,96 +812,77 @@ class LiveServiceTests(TestCase):
         mocked_post.assert_not_called()
 
 
-class MissionScopeTests(TestCase):
-    def test_broad_category_request_clears_stale_specific_business(self):
+
+class IntentMissionBuilderTests(TestCase):
+    def test_place_intent_builds_strict_category_mission(self):
         from api.services.mission_service import (
-            _normalize_search_scope,
+            _mission_from_intent,
+            _normalize_intent,
         )
 
-        mission = {
-            "search_mode": "follow_up_detail",
-            "target_business": "처음말한치과",
-            "ready_to_research": True,
-        }
-
-        result = _normalize_search_scope(
-            mission,
-            """
-[대화 문맥 - 참고용]
-{"target_business":"처음말한치과","category":"의료","location":"창원시 의창구 중동"}
-[현재 요청]
-창원시 의창구 중동에 치과 찾아줘
-""".strip(),
+        intent = _normalize_intent(
+            {
+                "intent": "place_search",
+                "goal": "중동에서 치과 5곳 찾기",
+                "location": {
+                    "value": "창원시 의창구 중동",
+                    "type": "administrative_area",
+                    "explicit": True,
+                },
+                "category": "치과",
+                "subject": "치과",
+                "target_business": None,
+                "count": 5,
+                "constraints": [],
+                "attributes": {},
+                "requested_facts": [],
+                "sort": "relevance",
+                "needs_fresh_data": True,
+                "needs_clarification": False,
+                "clarification_question": None,
+                "direct_answer": None,
+            }
         )
 
-        self.assertIsNone(
-            result["target_business"]
-        )
+        mission = _mission_from_intent(intent)
+
+        self.assertEqual(mission["location"], "창원시 의창구 중동")
+        self.assertEqual(mission["search_terms"], ["치과"])
+        self.assertEqual(mission["requested_count"], 5)
         self.assertEqual(
-            result["search_mode"],
-            "category_discovery",
+            mission["orchestration"]["route"],
+            "place_research",
         )
 
-    def test_follow_up_pronoun_keeps_selected_business(self):
+    def test_service_condition_is_separate_from_base_category(self):
         from api.services.mission_service import (
-            _normalize_search_scope,
+            _mission_from_intent,
+            _normalize_intent,
         )
 
-        mission = {
-            "search_mode": "",
-            "target_business": "처음말한치과",
-            "ready_to_research": True,
-        }
-
-        result = _normalize_search_scope(
-            mission,
-            """
-[대화 문맥 - 참고용]
-{"target_business":"처음말한치과"}
-[현재 요청]
-그 치과 영업시간은?
-""".strip(),
+        intent = _normalize_intent(
+            {
+                "intent": "place_search",
+                "goal": "임플란트 가능한 치과 찾기",
+                "location": {
+                    "value": "창원시",
+                    "type": "administrative_area",
+                    "explicit": True,
+                },
+                "category": "치과",
+                "subject": "임플란트 가능한 치과",
+                "count": 5,
+                "constraints": ["임플란트 가능"],
+            }
         )
 
+        mission = _mission_from_intent(intent)
+
+        self.assertEqual(mission["search_terms"], ["치과"])
         self.assertEqual(
-            result["target_business"],
-            "처음말한치과",
+            mission["constraints"],
+            ["임플란트 가능"],
         )
-        self.assertEqual(
-            result["search_mode"],
-            "follow_up_detail",
-        )
-
-    def test_explicit_new_business_becomes_exact_place(self):
-        from api.services.mission_service import (
-            _normalize_search_scope,
-        )
-
-        mission = {
-            "search_mode": "general",
-            "target_business": "새봄치과",
-            "ready_to_research": True,
-        }
-
-        result = _normalize_search_scope(
-            mission,
-            """
-[대화 문맥 - 참고용]
-{"target_business":"처음말한치과"}
-[현재 요청]
-새봄치과 찾아줘
-""".strip(),
-        )
-
-        self.assertEqual(
-            result["target_business"],
-            "새봄치과",
-        )
-        self.assertEqual(
-            result["search_mode"],
-            "exact_place",
-        )
-
 
 class NaverPlaceServiceTests(TestCase):
     @patch(
@@ -2978,72 +2960,23 @@ class FastFirstResearchResponseTests(TestCase):
         )
 
 
+
 class MissionRuntimeResilienceTests(TestCase):
-    def test_runtime_rule_lookup_is_read_only_and_still_includes_core_rules(
-        self,
-    ):
-        from api.models import (
-            TrainingRule,
-            TrainingScenario,
-        )
-        from api.services.training_service import (
-            active_rules_text,
-        )
-
-        self.assertEqual(
-            TrainingRule.objects.count(),
-            0,
-        )
-        self.assertEqual(
-            TrainingScenario.objects.count(),
-            0,
-        )
-
-        rules = active_rules_text(
-            limit=30,
-        )
-
-        self.assertIn(
-            "기준점 좌표",
-            rules,
-        )
-        self.assertIn(
-            "첫 결과는 빠르게 반환",
-            rules,
-        )
-        self.assertEqual(
-            TrainingRule.objects.count(),
-            0,
-        )
-        self.assertEqual(
-            TrainingScenario.objects.count(),
-            0,
-        )
-
-    def test_mission_json_parser_recovers_wrapped_json_object(
-        self,
-    ):
+    def test_intent_json_parser_recovers_wrapped_json_object(self):
         from api.services.mission_service import (
-            _parse_mission_json,
+            _parse_intent_json,
         )
 
-        result = _parse_mission_json(
-            '설명 문장 앞부분 {"title":"테스트","ready_to_research":true} 뒤부분'
+        result = _parse_intent_json(
+            '설명 앞 {"intent":"conversation","goal":"테스트"} 설명 뒤'
         )
 
-        self.assertEqual(
-            result["title"],
-            "테스트",
-        )
-        self.assertTrue(
-            result["ready_to_research"],
-        )
+        self.assertEqual(result["intent"], "conversation")
+        self.assertEqual(result["goal"], "테스트")
 
-    def test_mission_openai_call_does_not_duplicate_retry(
-        self,
-    ):
+    def test_intent_openai_call_does_not_duplicate_retry(self):
         from api.services.mission_service import (
-            _create_mission_response,
+            _create_intent_response,
         )
 
         client = Mock()
@@ -3052,9 +2985,8 @@ class MissionRuntimeResilienceTests(TestCase):
         )
 
         with self.assertRaises(RuntimeError):
-            _create_mission_response(
+            _create_intent_response(
                 client,
-                instructions="test",
                 request_text="테스트 요청",
             )
 
@@ -3062,7 +2994,6 @@ class MissionRuntimeResilienceTests(TestCase):
             client.responses.create.call_count,
             1,
         )
-
 
 class MissionApiErrorClassificationTests(TestCase):
     def setUp(self):
@@ -3129,403 +3060,243 @@ class MissionApiErrorClassificationTests(TestCase):
         )
 
 
-class CurrentRequestIsolationTests(TestCase):
-    def test_old_mobile_format_does_not_make_stale_target_explicit(
-        self,
-    ):
-        from api.services.mission_service import (
-            _current_request_text,
-            _normalize_search_scope,
-        )
 
-        request_text = (
-            "[현재 요청]\n"
-            "창원에서 임플란트 가능한 치과 몇 군데 알아봐.\n\n"
-            "[대화 문맥 - 참고용]\n"
-            '{"category":"자동차","subject":"타이어 교체",'
-            '"target_business":"예전타이어점"}'
-        )
-
-        current = _current_request_text(
-            request_text
-        )
-        self.assertEqual(
-            current,
-            "창원에서 임플란트 가능한 치과 몇 군데 알아봐.",
-        )
-
-        mission = _normalize_search_scope(
-            {
-                "search_mode": "follow_up_detail",
-                "target_business": "예전타이어점",
-                "ready_to_research": True,
-            },
-            request_text,
-        )
-
-        self.assertIsNone(
-            mission["target_business"],
-        )
-        self.assertEqual(
-            mission["search_mode"],
-            "category_discovery",
-        )
-
-    def test_new_mobile_format_keeps_only_current_request_block(
-        self,
-    ):
-        from api.services.mission_service import (
-            _current_request_text,
-        )
-
-        request_text = (
-            "[대화 문맥 - 참고용]\n"
-            '{"category":"자동차","subject":"타이어 교체"}\n\n'
-            "[현재 요청]\n"
-            "창원에서 임플란트 가능한 치과 몇 군데 알아봐."
-        )
-
-        self.assertEqual(
-            _current_request_text(request_text),
-            "창원에서 임플란트 가능한 치과 몇 군데 알아봐.",
-        )
-
-
-class FastMissionRoutingTests(TestCase):
-    @patch(
-        "api.services.mission_service.active_rules_text"
-    )
+class IntentContextIsolationTests(TestCase):
     @patch(
         "api.services.mission_service.OpenAI"
     )
-    def test_reference_point_place_request_bypasses_openai(
+    def test_current_request_can_override_stale_context_via_core(
         self,
         mocked_openai,
-        mocked_rules,
     ):
         from api.services.mission_service import (
             create_mission,
         )
 
-        diagnostics = {}
-        mission = create_mission(
-            "창원시청 주변에 타이어 교체할 만한 곳 좀 알아봐줘",
-            "sk-test",
-            diagnostics=diagnostics,
-        )
-
-        self.assertEqual(
-            mission["location"],
-            "창원시청",
-        )
-        self.assertEqual(
-            mission["location_context"]["type"],
-            "reference_point",
-        )
-        self.assertEqual(
-            mission["search_terms"],
-            ["타이어 교체"],
-        )
-        self.assertEqual(
-            mission["response_mode"],
-            "research",
-        )
-        self.assertTrue(
-            mission["ready_to_research"],
-        )
-        self.assertEqual(
-            mission["orchestration"]["route"],
-            "place_research",
-        )
-        self.assertTrue(
-            mission["orchestration"]["requires_place_search"],
-        )
-        self.assertTrue(
-            diagnostics["fast_path"],
-        )
-        self.assertEqual(
-            diagnostics["openai_elapsed_ms"],
-            0,
-        )
-        mocked_openai.assert_not_called()
-        mocked_rules.assert_not_called()
-
-    @patch(
-        "api.services.mission_service.active_rules_text"
-    )
-    @patch(
-        "api.services.mission_service.OpenAI"
-    )
-    def test_fast_place_route_is_generic_not_tire_specific(
-        self,
-        mocked_openai,
-        mocked_rules,
-    ):
-        from api.services.mission_service import (
-            create_mission,
-        )
-
-        mission = create_mission(
-            "서울역 근처에 조용한 식당 찾아줘",
-            "sk-test",
-        )
-
-        self.assertEqual(
-            mission["location"],
-            "서울역",
-        )
-        self.assertEqual(
-            mission["search_terms"],
-            ["조용한 식당"],
-        )
-        self.assertEqual(
-            mission["location_context"]["type"],
-            "reference_point",
-        )
-        mocked_openai.assert_not_called()
-        mocked_rules.assert_not_called()
-
-    @patch(
-        "api.services.mission_service.active_rules_text"
-    )
-    @patch(
-        "api.services.mission_service.OpenAI"
-    )
-    def test_administrative_area_place_request_bypasses_openai(
-        self,
-        mocked_openai,
-        mocked_rules,
-    ):
-        from api.services.mission_service import (
-            create_mission,
-        )
-
-        diagnostics = {}
-        mission = create_mission(
-            "창원시 의창구 중동에 치과 몇 군데 찾아줘",
-            "sk-test",
-            diagnostics=diagnostics,
-        )
-
-        self.assertEqual(
-            mission["location"],
-            "창원시 의창구 중동",
-        )
-        self.assertEqual(
-            mission["location_context"]["type"],
-            "administrative_area",
-        )
-        self.assertEqual(
-            mission["search_mode"],
-            "category_discovery",
-        )
-        self.assertEqual(
-            mission["search_terms"],
-            ["치과"],
-        )
-        self.assertIsNone(
-            mission["target_business"],
-        )
-        self.assertEqual(
-            mission["response_mode"],
-            "research",
-        )
-        self.assertTrue(
-            mission["ready_to_research"],
-        )
-        self.assertEqual(
-            mission["orchestration"]["route"],
-            "place_research",
-        )
-        self.assertTrue(
-            mission["orchestration"]["requires_place_search"],
-        )
-        self.assertTrue(
-            diagnostics["fast_path"],
-        )
-        self.assertEqual(
-            diagnostics["route"],
-            "administrative_place",
-        )
-        self.assertEqual(
-            diagnostics["openai_elapsed_ms"],
-            0,
-        )
-        mocked_openai.assert_not_called()
-        mocked_rules.assert_not_called()
-
-    @patch(
-        "api.services.mission_service.active_rules_text"
-    )
-    @patch(
-        "api.services.mission_service.OpenAI"
-    )
-    def test_administrative_route_uses_only_current_request(
-        self,
-        mocked_openai,
-        mocked_rules,
-    ):
-        from api.services.mission_service import (
-            create_mission,
-        )
-
-        request_text = (
-            "[대화 문맥 - 참고용]\n"
-            '{"category":"자동차","subject":"타이어 교체",'
-            '"target_business":"이전타이어점"}\n\n'
-            "[현재 요청]\n"
-            "창원시 의창구 중동에 치과 몇 군데 찾아줘"
-        )
-
-        mission = create_mission(
-            request_text,
-            "sk-test",
-        )
-
-        self.assertEqual(
-            mission["location"],
-            "창원시 의창구 중동",
-        )
-        self.assertEqual(
-            mission["search_terms"],
-            ["치과"],
-        )
-        self.assertIsNone(
-            mission["target_business"],
-        )
-        mocked_openai.assert_not_called()
-        mocked_rules.assert_not_called()
-
-    @patch(
-        "api.services.mission_service.active_rules_text"
-    )
-    @patch(
-        "api.services.mission_service.OpenAI"
-    )
-    def test_live_retry_context_still_uses_administrative_fast_route(
-        self,
-        mocked_openai,
-        mocked_rules,
-    ):
-        from api.services.mission_service import (
-            create_mission,
-        )
-
-        request_text = (
-            "[대화 문맥 - 참고용]\n"
-            '{"category":"자동차","subject":"타이어 교체"}\n\n'
-            "[현재 요청]\n"
-            "창원시 의창구 중동에 치과 몇 군데 찾아줘\n\n"
-            "사용자 추가 답변:\n"
-            "창원시 의창구 중동에 치과 몇 군데 찾아줘요"
-        )
-
-        diagnostics = {}
-        mission = create_mission(
-            request_text,
-            "sk-test",
-            diagnostics=diagnostics,
-        )
-
-        self.assertEqual(
-            mission["location"],
-            "창원시 의창구 중동",
-        )
-        self.assertEqual(
-            mission["search_terms"],
-            ["치과"],
-        )
-        self.assertEqual(
-            diagnostics["route"],
-            "administrative_place",
-        )
-        self.assertEqual(
-            diagnostics["openai_elapsed_ms"],
-            0,
-        )
-        mocked_openai.assert_not_called()
-        mocked_rules.assert_not_called()
-
-    def test_fast_request_candidates_prefers_latest_live_retry(self):
-        from api.services.mission_service import (
-            _fast_request_candidates,
-        )
-
-        request_text = (
-            "[현재 요청]\n"
-            "창원시 의창구 중동에 치과 몇 군데 찾아줘\n\n"
-            "사용자 추가 답변:\n"
-            "창원시 의창구 중동에 치과 몇 군데 찾아줘요"
-        )
-
-        self.assertEqual(
-            _fast_request_candidates(request_text),
-            [
-                "창원시 의창구 중동에 치과 몇 군데 찾아줘요",
-                "창원시 의창구 중동에 치과 몇 군데 찾아줘",
-            ],
-        )
-
-    @patch(
-        "api.services.mission_service.active_rules_text"
-    )
-    @patch(
-        "api.services.mission_service.OpenAI"
-    )
-    def test_administrative_fast_route_accepts_natural_voice_variants(
-        self,
-        mocked_openai,
-        mocked_rules,
-    ):
-        from api.services.mission_service import (
-            create_mission,
-        )
-
-        variants = [
-            "어, 창원시 의창구 중동 치과 몇 군데 찾아줘",
-            "그럼 창원시 의창구 중동의 치과 몇 군데 찾아줘요",
-            "혹시 창원시 의창구 중동에 있는 치과 몇 군데 찾아줘",
-            "창원시 의창구 중동에서 치과를 몇 군데 알아봐 줘",
-        ]
-
-        for request_text in variants:
-            with self.subTest(request_text=request_text):
-                diagnostics = {}
-                mission = create_mission(
-                    request_text,
-                    "sk-test",
-                    diagnostics=diagnostics,
-                )
-
-                self.assertEqual(
-                    mission["location"],
-                    "창원시 의창구 중동",
-                )
-                self.assertEqual(
-                    mission["search_terms"],
-                    ["치과"],
-                )
-                self.assertEqual(
-                    diagnostics["route"],
-                    "administrative_place",
-                )
-                self.assertEqual(
-                    diagnostics["openai_elapsed_ms"],
-                    0,
-                )
-
-        mocked_openai.assert_not_called()
-        mocked_rules.assert_not_called()
-
-    def test_general_question_does_not_use_fast_place_route(
-        self,
-    ):
-        from api.services.mission_service import (
-            _fast_reference_place_mission,
-        )
-
-        self.assertIsNone(
-            _fast_reference_place_mission(
-                "타이어는 보통 언제 교체해야 해?"
+        mocked_openai.return_value.responses.create.return_value = Mock(
+            output_text=json.dumps(
+                {
+                    "intent": "place_search",
+                    "goal": "중동 치과 5곳 찾기",
+                    "location": {
+                        "value": "창원시 의창구 중동",
+                        "type": "administrative_area",
+                        "explicit": True,
+                    },
+                    "category": "치과",
+                    "subject": "치과",
+                    "target_business": None,
+                    "count": 5,
+                    "constraints": [],
+                    "attributes": {},
+                    "requested_facts": [],
+                    "sort": "relevance",
+                    "needs_fresh_data": True,
+                    "needs_clarification": False,
+                    "clarification_question": None,
+                    "direct_answer": None,
+                },
+                ensure_ascii=False,
             )
+        )
+
+        request_text = (
+            "[대화 문맥 - 참고용]\n"
+            '{"category":"자동차","subject":"타이어 교체"}\n\n'
+            "[현재 요청]\n"
+            "창원시 의창구 중동에서 치과 5곳 찾아줘"
+        )
+
+        mission = create_mission(
+            request_text,
+            "sk-test",
+        )
+
+        self.assertEqual(mission["category"], "치과")
+        self.assertIsNone(mission["target_business"])
+        self.assertEqual(
+            mocked_openai.return_value.responses.create.call_args.kwargs["input"],
+            request_text,
+        )
+
+
+class CoreIntentRoutingTests(TestCase):
+    def _place_payload(
+        self,
+        location="창원시 의창구 중동",
+        location_type="administrative_area",
+        category="치과",
+        count=5,
+    ):
+        return {
+            "intent": "place_search",
+            "goal": f"{location}에서 {category} 찾기",
+            "location": {
+                "value": location,
+                "type": location_type,
+                "explicit": True,
+            },
+            "category": category,
+            "subject": category,
+            "target_business": None,
+            "count": count,
+            "constraints": [],
+            "attributes": {},
+            "requested_facts": [],
+            "sort": "relevance",
+            "needs_fresh_data": True,
+            "needs_clarification": False,
+            "clarification_question": None,
+            "direct_answer": None,
+        }
+
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_place_search_uses_core_once_then_routes_to_place_engine(
+        self,
+        mocked_openai,
+    ):
+        from api.services.mission_service import (
+            create_mission,
+        )
+
+        mocked_openai.return_value.responses.create.return_value = Mock(
+            output_text=json.dumps(
+                self._place_payload(),
+                ensure_ascii=False,
+            )
+        )
+
+        diagnostics = {}
+        mission = create_mission(
+            "창원시 의창구 중동에서 치과 5곳 찾아줘",
+            "sk-test",
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(
+            mocked_openai.return_value.responses.create.call_count,
+            1,
+        )
+        self.assertEqual(
+            diagnostics["architecture"],
+            "intent_router_v2",
+        )
+        self.assertEqual(
+            diagnostics["route"],
+            "place_search",
+        )
+        self.assertEqual(mission["search_terms"], ["치과"])
+        self.assertEqual(mission["requested_count"], 5)
+        self.assertEqual(
+            mission["orchestration"]["route"],
+            "place_research",
+        )
+
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_reference_point_is_decided_by_core_not_regex_parser(
+        self,
+        mocked_openai,
+    ):
+        from api.services.mission_service import (
+            create_mission,
+        )
+
+        mocked_openai.return_value.responses.create.return_value = Mock(
+            output_text=json.dumps(
+                self._place_payload(
+                    location="창원시청",
+                    location_type="reference_point",
+                    category="타이어",
+                ),
+                ensure_ascii=False,
+            )
+        )
+
+        mission = create_mission(
+            "창원시청 주변에 타이어 교체할 곳 찾아줘",
+            "sk-test",
+        )
+
+        self.assertEqual(
+            mission["location_context"]["type"],
+            "reference_point",
+        )
+        self.assertEqual(mission["search_terms"], ["타이어"])
+
+    def test_requested_count_is_clamped(self):
+        from api.services.mission_service import (
+            _normalize_intent,
+        )
+
+        payload = self._place_payload(count=50)
+        intent = _normalize_intent(payload)
+
+        self.assertEqual(intent["count"], 10)
+
+
+
+class StrictPlaceResultTests(TestCase):
+    def test_category_filter_rejects_unrelated_place(self):
+        from api.services.research_service import (
+            _matches_mission,
+        )
+
+        mission = {
+            "category": "치과",
+            "subject": "치과",
+            "search_terms": ["치과"],
+        }
+
+        self.assertTrue(
+            _matches_mission(
+                {
+                    "place_name": "스마트치과",
+                    "category_name": "의료 > 병원 > 치과",
+                },
+                mission,
+            )
+        )
+        self.assertFalse(
+            _matches_mission(
+                {
+                    "place_name": "중동한의원",
+                    "category_name": "의료 > 병원 > 한의원",
+                },
+                mission,
+            )
+        )
+        self.assertFalse(
+            _matches_mission(
+                {
+                    "place_name": "중동카페",
+                    "category_name": "음식점 > 카페",
+                },
+                mission,
+            )
+        )
+
+    def test_requested_result_count_defaults_and_clamps(self):
+        from api.services.research_service import (
+            _requested_result_count,
+        )
+
+        self.assertEqual(
+            _requested_result_count({}),
+            5,
+        )
+        self.assertEqual(
+            _requested_result_count(
+                {"requested_count": 2}
+            ),
+            2,
+        )
+        self.assertEqual(
+            _requested_result_count(
+                {"requested_count": 99}
+            ),
+            10,
         )
