@@ -71,6 +71,71 @@ def _location_address_query(location):
     return normalized
 
 
+def _resolve_reference_point_origin(
+    reference_point,
+    api_key,
+):
+    query = " ".join(
+        str(reference_point or "").split()
+    ).strip()
+    if not query:
+        return None
+
+    try:
+        response = httpx.get(
+            KAKAO_LOCAL_SEARCH_URL,
+            headers={
+                "Authorization": f"KakaoAK {api_key}",
+            },
+            params={
+                "query": query,
+                "size": 1,
+            },
+            timeout=httpx.Timeout(
+                3.0,
+                connect=1.5,
+            ),
+        )
+    except httpx.HTTPError:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    payload = response.json()
+    documents = payload.get("documents", [])
+    if not isinstance(documents, list) or not documents:
+        return None
+
+    document = documents[0]
+    if not isinstance(document, dict):
+        return None
+
+    latitude = str(document.get("y") or "").strip()
+    longitude = str(document.get("x") or "").strip()
+    if not latitude or not longitude:
+        return None
+
+    return {
+        "label": (
+            str(
+                document.get("place_name")
+                or query
+            ).strip()
+            or query
+        ),
+        "latitude": latitude,
+        "longitude": longitude,
+        "source": "reference_point",
+        "accuracy": "place_reference",
+        "address": str(
+            document.get("road_address_name")
+            or document.get("address_name")
+            or ""
+        ).strip(),
+    }
+
+
 def _resolve_location_origin(location, api_key):
     query = _location_address_query(location)
     if not query:
@@ -690,18 +755,45 @@ def search_real_businesses(
         mission.get("location_explicit") is True
     )
 
-    reference_origin = _resolve_location_origin(
-        mission.get("location"),
-        resolved_api_key,
-    )
+    location_context = mission.get("location_context")
+    if not isinstance(location_context, dict):
+        location_context = {}
+
+    location_type = str(
+        location_context.get("type") or ""
+    ).strip()
+    location_value = str(
+        location_context.get("value")
+        or mission.get("location")
+        or ""
+    ).strip()
+
+    if location_type == "reference_point":
+        reference_origin = (
+            _resolve_reference_point_origin(
+                location_value,
+                resolved_api_key,
+            )
+        )
+    else:
+        reference_origin = _resolve_location_origin(
+            mission.get("location"),
+            resolved_api_key,
+        )
+
     search_mission = dict(mission)
 
     if reference_origin:
-        canonical_location = str(
-            reference_origin.get("label") or ""
-        ).strip()
-        if canonical_location:
-            search_mission["location"] = canonical_location
+        if location_type == "reference_point":
+            # 기준 장소는 행정구역이 아니다. 업체 주소 문자열에
+            # 장소명이 포함되는지 검사하지 말고 좌표 기준으로 찾는다.
+            search_mission["location"] = ""
+        else:
+            canonical_location = str(
+                reference_origin.get("label") or ""
+            ).strip()
+            if canonical_location:
+                search_mission["location"] = canonical_location
 
     for query in _search_queries(search_mission):
         try:
@@ -722,12 +814,36 @@ def search_real_businesses(
                             "x": reference_origin["longitude"],
                             "y": reference_origin["latitude"],
                             "sort": "distance",
+                            **(
+                                {
+                                    "radius": int(
+                                        max(
+                                            100,
+                                            min(
+                                                float(
+                                                    location_context.get(
+                                                        "radius_hint_km"
+                                                    )
+                                                    or 3
+                                                )
+                                                * 1000,
+                                                20000,
+                                            ),
+                                        )
+                                    )
+                                }
+                                if location_type
+                                == "reference_point"
+                                else {}
+                            ),
                         }
                         if (
                             reference_origin
                             and (
                                 not target_business
                                 or location_explicit
+                                or location_type
+                                == "reference_point"
                             )
                         )
                         else {}
@@ -779,11 +895,16 @@ def search_real_businesses(
                         target_business
                         and not location_explicit
                     )
-                    else _matches_location(
-                        item,
-                        search_mission.get(
-                            "location"
-                        ),
+                    else (
+                        True
+                        if location_type
+                        == "reference_point"
+                        else _matches_location(
+                            item,
+                            search_mission.get(
+                                "location"
+                            ),
+                        )
                     )
                 )
                 and _matches_target_business(
