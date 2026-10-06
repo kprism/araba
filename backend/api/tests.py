@@ -3189,3 +3189,111 @@ class CurrentRequestIsolationTests(TestCase):
             _current_request_text(request_text),
             "창원에서 임플란트 가능한 치과 몇 군데 알아봐.",
         )
+
+
+class FastMissionRoutingTests(TestCase):
+    @patch(
+        "api.services.mission_service.active_rules_text"
+    )
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_reference_point_place_request_bypasses_openai(
+        self,
+        mocked_openai,
+        mocked_rules,
+    ):
+        from api.services.mission_service import (
+            create_mission,
+        )
+
+        diagnostics = {}
+        mission = create_mission(
+            "창원시청 주변에 타이어 교체할 만한 곳 좀 알아봐줘",
+            "sk-test",
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(
+            mission["location"],
+            "창원시청",
+        )
+        self.assertEqual(
+            mission["location_context"]["type"],
+            "reference_point",
+        )
+        self.assertEqual(
+            mission["search_terms"],
+            ["타이어 교체"],
+        )
+        self.assertEqual(
+            mission["response_mode"],
+            "research",
+        )
+        self.assertTrue(
+            mission["ready_to_research"],
+        )
+        self.assertEqual(
+            mission["orchestration"]["route"],
+            "place_research",
+        )
+        self.assertTrue(
+            mission["orchestration"]["requires_place_search"],
+        )
+        self.assertTrue(
+            diagnostics["fast_path"],
+        )
+        self.assertEqual(
+            diagnostics["openai_elapsed_ms"],
+            0,
+        )
+        mocked_openai.assert_not_called()
+        mocked_rules.assert_not_called()
+
+    @patch(
+        "api.services.mission_service.active_rules_text"
+    )
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_fast_place_route_is_generic_not_tire_specific(
+        self,
+        mocked_openai,
+        mocked_rules,
+    ):
+        from api.services.mission_service import (
+            create_mission,
+        )
+
+        mission = create_mission(
+            "서울역 근처에 조용한 식당 찾아줘",
+            "sk-test",
+        )
+
+        self.assertEqual(
+            mission["location"],
+            "서울역",
+        )
+        self.assertEqual(
+            mission["search_terms"],
+            ["조용한 식당"],
+        )
+        self.assertEqual(
+            mission["location_context"]["type"],
+            "reference_point",
+        )
+        mocked_openai.assert_not_called()
+        mocked_rules.assert_not_called()
+
+    def test_general_question_does_not_use_fast_place_route(
+        self,
+    ):
+        from api.services.mission_service import (
+            _fast_reference_place_mission,
+        )
+
+        self.assertIsNone(
+            _fast_reference_place_mission(
+                "타이어는 보통 언제 교체해야 해?"
+            )
+        )
