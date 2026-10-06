@@ -2137,6 +2137,13 @@ class GoalFirstIntentBrainTests(TestCase):
             result["brain_version"],
             "goal-first-v1",
         )
+        self.assertEqual(
+            result["orchestration"]["route"],
+            "place_research",
+        )
+        self.assertTrue(
+            result["orchestration"]["requires_place_search"],
+        )
 
     def test_reference_point_location_is_preserved_as_reference_point(
         self,
@@ -2223,6 +2230,10 @@ class GoalFirstIntentBrainTests(TestCase):
         self.assertNotIn(
             "place_search",
             tools_used,
+        )
+        self.assertEqual(
+            result["orchestration"]["route"],
+            "image_research",
         )
 
 
