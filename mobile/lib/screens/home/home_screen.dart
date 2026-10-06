@@ -581,6 +581,31 @@ class _HomeScreenState extends State<HomeScreen>
       final naverConfigured =
           naverCredentials != null;
 
+      final evaluationValue =
+          result['evaluation'];
+      final evaluation =
+          evaluationValue is Map
+              ? Map<String, dynamic>.from(
+                  evaluationValue,
+                )
+              : <String, dynamic>{};
+      final rawMissingFacts =
+          evaluation['missing_facts'];
+      final missingFacts =
+          rawMissingFacts is List
+              ? rawMissingFacts
+                  .map(
+                    (item) =>
+                        item.toString().trim(),
+                  )
+                  .where(
+                    (item) => item.isNotEmpty,
+                  )
+                  .toList()
+              : <String>[];
+      final answerReady =
+          evaluation['answer_ready'] == true;
+
       _updateResearchStage(
         naverConfigured
             ? '영업시간·가격 등 상세정보 확인하는 중…'
@@ -626,17 +651,33 @@ class _HomeScreenState extends State<HomeScreen>
 
       final searchDetail = searchQuery.isEmpty
           ? ''
-          : '\n\n검색 기준: $searchQuery';
+          : '\\n\\n검색 기준: $searchQuery';
+
+      final evidenceDetail = missingFacts.isEmpty
+          ? (
+              answerReady
+                  ? '\\n\\n현재 답에 필요한 핵심 사실까지 확인됐어요.'
+                  : ''
+            )
+          : '\\n\\n아직 확인이 필요한 정보: ${missingFacts.join(' · ')}';
+
+      final spokenSummary = missingFacts.isEmpty
+          ? sourceSummary
+          : '$sourceSummary 아직 ${missingFacts.join(', ')} 확인이 더 필요해요.';
 
       _addAssistantMessage(
-        text: '$sourceSummary$searchDetail',
-        badge: naverConfigured
-            ? '카카오 + 네이버 검증'
-            : '카카오 검증',
+        text:
+            '$sourceSummary$evidenceDetail$searchDetail',
+        badge: missingFacts.isNotEmpty
+            ? '추가 확인 필요'
+            : (
+                naverConfigured
+                    ? '카카오 + 네이버 검증'
+                    : '카카오 검증'
+              ),
         businesses: businesses,
       );
-      _speakProgress(sourceSummary);
-    } catch (error) {
+      _speakProgress(spokenSummary);    } catch (error) {
       final message = error is ArabaApiException
           ? error.message
           : '실제 업체 조사 중 문제가 생겼어요.';
