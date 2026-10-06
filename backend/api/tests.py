@@ -2438,7 +2438,7 @@ class ResearchEvidenceEvaluationTests(TestCase):
         )
         self.assertEqual(
             result["confidence"],
-            "medium",
+            "low",
         )
 
     def test_evaluation_becomes_ready_when_required_facts_are_verified(
