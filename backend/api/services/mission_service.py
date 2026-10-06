@@ -5,6 +5,7 @@ from openai import OpenAI
 
 from .openai_service import get_api_key
 from .training_service import active_rules_text
+from .intent_brain_service import enhance_mission
 
 
 MISSION_SYSTEM_PROMPT = """
@@ -53,7 +54,40 @@ ARABA는 자동차에 한정된 서비스가 아니다.
       "options": ["선택지1", "선택지2", "선택지3"]
     }
   ],
-  "ready_to_research": true
+  "ready_to_research": true,
+  "user_goal": "사용자가 최종적으로 이루려는 현실 목적",
+  "decision_needed": "ARABA가 조사 후 내려야 할 판단 또는 실행 결정",
+  "expected_answer": {
+    "type": "direct_answer|fact_summary|comparison|recommendation|diagnosis_support|decision_support|execution_result|plan",
+    "summary": "최종 답변이 어떤 모습이어야 하는지",
+    "must_include": ["최종 답에 반드시 들어가야 할 항목"]
+  },
+  "known_facts": {
+    "이미 확인된 핵심 사실": "값"
+  },
+  "unknown_facts": ["답을 완성하기 위해 아직 확인할 사실"],
+  "evidence_needed": [
+    {
+      "fact": "확인할 사실",
+      "source_priority": ["place_search", "web_search", "phone"],
+      "required": true
+    }
+  ],
+  "research_plan": [
+    {
+      "step": 1,
+      "goal": "이 단계에서 확인할 것",
+      "tool": "direct_reasoning|place_search|map|web_search|records|image|phone",
+      "when": "이 도구를 사용할 조건"
+    }
+  ],
+  "completion_criteria": ["조사를 끝내도 되는 조건"],
+  "confidence_target": "high|medium|low",
+  "location_context": {
+    "value": "지역 또는 기준장소",
+    "type": "administrative_area|reference_point|none",
+    "radius_hint_km": null
+  }
 }
 
 규칙:
@@ -129,7 +163,30 @@ ARABA는 자동차에 한정된 서비스가 아니다.
 26. 조사 후 사용자의 선택이 필요한 경우에만 결과를 먼저 보여준 뒤 묻는다.
     예: 실제 가능한 예약시간 3개를 확인한 뒤 그중 하나를 선택하게 한다.
 27. direct_answer에는 확인되지 않은 외부 사실을 절대 넣지 않는다.
-28. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
+28. 가장 먼저 "사용자가 결국 어떤 답을 받으면 만족하는가"를 판단한다.
+    업종, 지역, 상호명은 목표를 해결하기 위한 조건일 뿐 사고의 출발점으로 삼지 않는다.
+29. expected_answer에는 실제 조사결과를 미리 지어내지 말고
+    최종 답의 구조와 반드시 채워야 할 항목만 설계한다.
+30. unknown_facts와 evidence_needed는 expected_answer의 빈칸을 역산해서 만든다.
+    사용자가 원하는 답과 관계없는 사실은 조사하지 않는다.
+31. research_plan은 필요한 사실마다 가장 적절한 도구를 고른다.
+    장소검색이 필요 없는 요청에 place_search를 억지로 넣지 않는다.
+    설명만으로 답할 수 있으면 direct_reasoning,
+    장소 후보가 필요하면 place_search/map,
+    공개 최신정보가 필요하면 web_search,
+    기존 조사기록이 중요하면 records,
+    사진이나 문서 확인이 필요하면 image,
+    검색으로 알 수 없는 현재 가능여부·가격·재고·예약·협의가 필요하면 phone을 사용한다.
+32. completion_criteria는 "검색결과를 몇 개 찾았는가"가 아니라
+    사용자가 실제로 결정하거나 다음 행동을 할 수 있을 만큼 답이 완성되었는가를 기준으로 만든다.
+33. location_context에서 시/군/구/읍/면/동처럼 행정구역 자체가 범위면 administrative_area다.
+    "창원시청 주변", "서울역 근처", "OO병원 앞"처럼 특정 장소를 기준으로 주변을 찾는 요청이면
+    type=reference_point로 하고 value에는 기준 장소명을 넣는다.
+    reference_point를 행정구역 문자열처럼 주소 필터에 사용하면 안 된다.
+34. 사용자가 결과를 원하는데 현재 증거가 부족하면 "잘 안 된다"고 끝내지 말고
+    research_plan에 검색어 변경, 범위 확장, 다른 출처, 전화 확인 등 다음 조사수단을 설계한다.
+35. known_facts에는 현재 요청과 충돌하지 않는 이미 확인된 사실만 넣는다.
+36. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
 """.strip()
 
 
@@ -368,6 +425,11 @@ def create_mission(user_request, api_key=None):
         mission["search_terms"] = []
 
     mission = _normalize_search_scope(
+        mission,
+        request_text,
+    )
+
+    mission = enhance_mission(
         mission,
         request_text,
     )
