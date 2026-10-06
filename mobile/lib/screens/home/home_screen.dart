@@ -216,28 +216,46 @@ class _HomeScreenState extends State<HomeScreen>
           if (!mounted || _liveVoice != liveVoice) return;
 
           final clarifications = _clarifications(mission);
+          final responseMode =
+              mission['response_mode']?.toString().trim() ?? '';
 
-          if (clarifications.isNotEmpty) {
+          if (clarifications.isNotEmpty ||
+              responseMode == 'clarify') {
+            final reply = _reply(mission);
             setState(() {
               _messages.add(
                 _Message(
                   isUser: false,
-                  text: _reply(mission),
+                  text: reply,
                   mission: mission,
                   requestContext: requestContext,
                 ),
               );
             });
             _toBottom();
+            _speakProgress(reply);
             return;
           }
 
-          final responseMode =
-              mission['response_mode']?.toString().trim() ?? '';
           if (responseMode == 'research' ||
               mission['ready_to_research'] == true) {
             unawaited(_runRealResearch(mission));
+            return;
           }
+
+          final reply = _reply(mission);
+          setState(() {
+            _messages.add(
+              _Message(
+                isUser: false,
+                text: reply,
+                mission: mission,
+                requestContext: requestContext,
+              ),
+            );
+          });
+          _toBottom();
+          _speakProgress(reply);
         },
         onError: (message) {
           if (!mounted || _liveVoice != liveVoice) return;
