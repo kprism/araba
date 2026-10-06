@@ -2556,13 +2556,15 @@ class SearchIntentBreadthTests(TestCase):
 
         result = search_real_businesses(
             {
-                "category": "의료",
-                "subcategories": ["임플란트"],
-                "intent": "비교",
-                "search_mode": "area_discovery",
+                "category": "치과",
+                "subcategories": ["치과"],
+                "intent": "place_search",
+                "search_mode": "category_discovery",
                 "location": "",
                 "subject": "임플란트 가능한 치과",
-                "search_terms": ["임플란트"],
+                "search_terms": ["치과"],
+                "constraints": ["임플란트 가능"],
+                "requested_count": 5,
                 "required_facts": ["후보 치과"],
             },
             api_key="device-kakao-key",
@@ -2574,7 +2576,7 @@ class SearchIntentBreadthTests(TestCase):
         )
         self.assertEqual(
             result["search_query"],
-            "임플란트",
+            "치과",
         )
 
 
@@ -2925,6 +2927,7 @@ class FastFirstResearchResponseTests(TestCase):
                 "location": "",
                 "subject": "",
                 "search_terms": ["타이어"],
+                "requested_count": 8,
                 "required_facts": ["후보 업체"],
             },
             api_key="device-kakao-key",
@@ -3286,7 +3289,7 @@ class StrictPlaceResultTests(TestCase):
 
         self.assertEqual(
             _requested_result_count({}),
-            5,
+            10,
         )
         self.assertEqual(
             _requested_result_count(
