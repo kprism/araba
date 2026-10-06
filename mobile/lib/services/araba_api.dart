@@ -155,6 +155,7 @@ class ArabaApi {
   Future<Map<String, dynamic>> searchBusinesses(
     Map<String, dynamic> mission, {
     required String kakaoRestApiKey,
+    required String openAiApiKey,
     String? naverClientId,
     String? naverClientSecret,
   }) async {
@@ -162,13 +163,14 @@ class ArabaApi {
       () => http.post(
         _uri('/api/research/search/'),
         headers: _headers(
+          apiKey: openAiApiKey,
           kakaoRestApiKey: kakaoRestApiKey,
           naverClientId: naverClientId,
           naverClientSecret: naverClientSecret,
         ),
         body: jsonEncode({'mission': mission}),
       ),
-      timeout: const Duration(seconds: 20),
+      timeout: const Duration(seconds: 30),
       retries: 0,
       retryServerErrors: false,
     );

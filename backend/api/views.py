@@ -434,6 +434,7 @@ def research_search(request):
             api_key=_request_kakao_rest_api_key(request),
             naver_client_id=_request_naver_client_id(request),
             naver_client_secret=_request_naver_client_secret(request),
+            openai_api_key=_request_api_key(request),
         )
         return Response(
             {

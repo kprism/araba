@@ -5,6 +5,9 @@ import httpx
 
 from .kakao_place_service import enrich_businesses_with_kakao_pages
 from .naver_place_service import enrich_businesses_with_naver
+from .openai_place_enrichment_service import (
+    enrich_businesses_with_openai_web,
+)
 from .web_place_enrichment_service import enrich_businesses_with_web
 from .research_evaluation_service import (
     evaluate_research_result,
@@ -832,6 +835,7 @@ def search_real_businesses(
     *,
     naver_client_id=None,
     naver_client_secret=None,
+    openai_api_key=None,
 ):
     resolved_api_key = str(api_key or "").strip()
     if not resolved_api_key:
@@ -1146,6 +1150,12 @@ def search_real_businesses(
         client_secret=naver_client_secret,
     )
 
+    businesses = enrich_businesses_with_openai_web(
+        businesses,
+        mission,
+        api_key=openai_api_key,
+    )
+
     naver_matched_count = sum(
         1
         for item in businesses
@@ -1208,6 +1218,25 @@ def search_real_businesses(
             if isinstance(item.get("web"), dict)
             and item["web"].get("status")
             == "matched"
+        ),
+        "openai_web_enriched_count": sum(
+            1
+            for item in businesses
+            if isinstance(
+                item.get("openai_web"),
+                dict,
+            )
+            and item["openai_web"].get(
+                "matched"
+            )
+            is True
+        ),
+        "representative_photo_count": sum(
+            1
+            for item in businesses
+            if str(
+                item.get("image_url") or ""
+            ).strip()
         ),
         "reference_origin": reference_origin,
         "resolved_location_type": (

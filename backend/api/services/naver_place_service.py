@@ -4,7 +4,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -90,6 +90,30 @@ def _resolve_credentials(
         )
 
     return resolved_id, resolved_secret
+
+
+def _naver_search_url(business):
+    name = str(
+        business.get("name") or ""
+    ).strip()
+    address = str(
+        business.get("address")
+        or business.get("road_address")
+        or ""
+    ).strip()
+    query = " ".join(
+        part
+        for part in (name, address)
+        if part
+    ).strip()
+
+    if not query:
+        return None
+
+    return (
+        "https://search.naver.com/search.naver?query="
+        + quote(query)
+    )
 
 
 def _is_allowed_naver_url(value):
@@ -575,57 +599,98 @@ def _search_naver_candidates(
     if not name:
         return []
 
-    address_tokens = list(
-        _address_tokens(address)
+    address_parts = re.findall(
+        r"[0-9A-Za-z가-힣]{2,}",
+        address,
     )
-    location_hint = " ".join(
-        address_tokens[:3]
-    )
-    query = " ".join(
-        part
-        for part in (
-            name,
-            location_hint,
+    admin_parts = [
+        token
+        for token in address_parts
+        if token.endswith(
+            ("시", "군", "구", "동", "읍", "면")
         )
-        if part
-    ).strip()
-
-    try:
-        response = httpx.get(
-            NAVER_LOCAL_SEARCH_URL,
-            headers={
-                "X-Naver-Client-Id": client_id,
-                "X-Naver-Client-Secret": client_secret,
-            },
-            params={
-                "query": query,
-                "display": 5,
-                "start": 1,
-                "sort": "random",
-            },
-            timeout=httpx.Timeout(
-                2.0,
-                connect=0.8,
-            ),
-        )
-    except httpx.HTTPError as exc:
-        raise NaverPlaceProviderError(
-            "네이버 지역검색 서버에 연결하지 못했습니다."
-        ) from exc
-
-    if response.status_code != 200:
-        raise NaverPlaceProviderError(
-            "네이버 지역검색 요청에 실패했습니다. "
-            f"HTTP {response.status_code}"
-        )
-
-    payload = response.json()
-    items = payload.get("items", [])
-    return [
-        item
-        for item in items
-        if isinstance(item, dict)
     ]
+
+    queries = [name]
+
+    if admin_parts:
+        contextual = " ".join(
+            [
+                name,
+                *admin_parts[-3:],
+            ]
+        ).strip()
+        if contextual not in queries:
+            queries.append(contextual)
+
+    collected = []
+    seen = set()
+
+    for query in queries[:2]:
+        try:
+            response = httpx.get(
+                NAVER_LOCAL_SEARCH_URL,
+                headers={
+                    "X-Naver-Client-Id":
+                        client_id,
+                    "X-Naver-Client-Secret":
+                        client_secret,
+                },
+                params={
+                    "query": query,
+                    "display": 5,
+                    "start": 1,
+                    "sort": "random",
+                },
+                timeout=httpx.Timeout(
+                    2.0,
+                    connect=0.8,
+                ),
+            )
+        except httpx.HTTPError as exc:
+            raise NaverPlaceProviderError(
+                "네이버 지역검색 서버에 연결하지 못했습니다."
+            ) from exc
+
+        if response.status_code != 200:
+            raise NaverPlaceProviderError(
+                "네이버 지역검색 요청에 실패했습니다. "
+                f"HTTP {response.status_code}"
+            )
+
+        payload = response.json()
+        items = payload.get("items", [])
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            key = (
+                _normalize_text(
+                    item.get("title")
+                ),
+                _normalize_text(
+                    item.get("roadAddress")
+                    or item.get("address")
+                ),
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            collected.append(item)
+
+        if any(
+            _normalize_text(
+                item.get("title")
+            )
+            == _normalize_text(name)
+            for item in collected
+        ):
+            break
+
+    return collected
 
 
 def enrich_one_business(
@@ -648,6 +713,9 @@ def enrich_one_business(
             "page_checked": False,
             "status": "provider_error",
             "message": str(exc),
+            "search_url": _naver_search_url(
+                business
+            ),
         }
         return business
 
@@ -671,6 +739,9 @@ def enrich_one_business(
             "matched": False,
             "page_checked": False,
             "status": "not_matched",
+            "search_url": _naver_search_url(
+                business
+            ),
         }
         return business
 
@@ -710,6 +781,9 @@ def enrich_one_business(
             or ""
         ).strip(),
         "link": link or None,
+        "search_url": _naver_search_url(
+            business
+        ),
         "page_checked": (
             page.get("checked") is True
         ),
@@ -773,6 +847,9 @@ def enrich_businesses_with_naver(
                     "matched": False,
                     "page_checked": False,
                     "status": "not_configured",
+                    "search_url": _naver_search_url(
+                        business
+                    ),
                 },
             }
             for business in safe
@@ -806,6 +883,9 @@ def enrich_businesses_with_naver(
                         "matched": False,
                         "page_checked": False,
                         "status": "enrichment_error",
+                        "search_url": _naver_search_url(
+                            safe[index]
+                        ),
                     },
                 }
 

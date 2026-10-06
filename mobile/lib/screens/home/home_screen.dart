@@ -585,7 +585,14 @@ class _HomeScreenState extends State<HomeScreen>
     _startResearchProgress();
 
     try {
+      final openAiApiKey = await _keyStore.read();
       final kakaoRestApiKey = await _kakaoStore.read();
+
+      if (openAiApiKey == null) {
+        throw const ArabaApiException(
+          'MY에서 OpenAI API Key를 먼저 저장해주세요.',
+        );
+      }
 
       if (kakaoRestApiKey == null) {
         throw const ArabaApiException(
@@ -604,6 +611,7 @@ class _HomeScreenState extends State<HomeScreen>
       final result = await _api.searchBusinesses(
         mission,
         kakaoRestApiKey: kakaoRestApiKey,
+        openAiApiKey: openAiApiKey,
         naverClientId: naverCredentials?.clientId,
         naverClientSecret: naverCredentials?.clientSecret,
       );
@@ -643,6 +651,16 @@ class _HomeScreenState extends State<HomeScreen>
               : 0;
       final naverConfigured =
           naverCredentials != null;
+      final openAiWebEnriched =
+          result['openai_web_enriched_count'] is num
+              ? (result['openai_web_enriched_count'] as num)
+                  .round()
+              : 0;
+      final representativePhotos =
+          result['representative_photo_count'] is num
+              ? (result['representative_photo_count'] as num)
+                  .round()
+              : 0;
 
       final evaluationValue =
           result['evaluation'];
@@ -670,9 +688,7 @@ class _HomeScreenState extends State<HomeScreen>
           evaluation['answer_ready'] == true;
 
       _updateResearchStage(
-        naverConfigured
-            ? '영업시간·가격 등 상세정보 확인하는 중…'
-            : '결과 정리하는 중…',
+        '영업시간·주차·가격·사진을 웹에서 확인하는 중…',
       );
 
       if (_isDetailFollowUp(mission)) {
@@ -704,14 +720,18 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
-      final sourceSummary = naverConfigured
-          ? '현재 조건에 맞는 후보 ${businesses.length}곳을 확인했어요. '
-              '네이버에서 $naverMatched곳을 같은 업체로 교차확인했고, '
-              '$naverPageChecked곳은 상세페이지까지 확인했습니다.'
-          : '현재 조건에 맞는 후보 ${businesses.length}곳을 확인했어요. '
-              '이 숫자는 해당 지역의 전체 업체 수를 뜻하지 않습니다. '
-              'MY에 Naver Search API 정보를 등록하면 '
-              '네이버 플레이스까지 2차 교차확인합니다.';
+      final sourceSummary = [
+        '현재 조건에 맞는 후보 ${businesses.length}곳을 확인했어요.',
+        if (naverConfigured)
+          '네이버 동일 업체 $naverMatched곳'
+          ' · 상세페이지 $naverPageChecked곳 확인.',
+        if (!naverConfigured)
+          '네이버 API는 미설정 상태예요.',
+        if (openAiWebEnriched > 0)
+          '웹검색으로 $openAiWebEnriched곳의 부족정보를 보강했어요.',
+        if (representativePhotos > 0)
+          '대표사진 $representativePhotos곳을 확보했어요.',
+      ].join(' ');
 
       final searchDetail = searchQuery.isEmpty
           ? ''
@@ -735,9 +755,13 @@ class _HomeScreenState extends State<HomeScreen>
         badge: missingFacts.isNotEmpty
             ? '추가 확인 필요'
             : (
-                naverConfigured
-                    ? '카카오 + 네이버 검증'
-                    : '카카오 검증'
+                openAiWebEnriched > 0
+                    ? '카카오 + 웹 검증'
+                    : (
+                        naverConfigured
+                            ? '카카오 + 네이버 검증'
+                            : '카카오 검증'
+                      )
               ),
         businesses: businesses,
       );
@@ -1727,9 +1751,11 @@ class _BusinessCards extends StatelessWidget {
         ? Map<String, dynamic>.from(naverValue)
         : <String, dynamic>{};
     final naverUrl =
-        (naver['page_url'] ?? naver['link'])
-                ?.toString()
-                .trim() ??
+        (
+          naver['page_url'] ??
+          naver['link'] ??
+          naver['search_url']
+        )?.toString().trim() ??
             '';
     final webValue = business['web'];
     final web = webValue is Map
@@ -1744,6 +1770,20 @@ class _BusinessCards extends StatelessWidget {
         : <Map<String, dynamic>>[];
     final webSourceUrl = webSources.isNotEmpty
         ? webSources.first['url']?.toString().trim() ?? ''
+        : '';
+    final openAiWebValue = business['openai_web'];
+    final openAiWeb = openAiWebValue is Map
+        ? Map<String, dynamic>.from(openAiWebValue)
+        : <String, dynamic>{};
+    final rawOpenAiSources = openAiWeb['sources'];
+    final openAiSources = rawOpenAiSources is List
+        ? rawOpenAiSources
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList()
+        : <String>[];
+    final openAiSourceUrl = openAiSources.isNotEmpty
+        ? openAiSources.first
         : '';
     final priceLink =
         (naver['price_link'] ?? web['price_link'])
@@ -1867,9 +1907,13 @@ class _BusinessCards extends StatelessWidget {
                                           imageSource == 'naver_place'
                                               ? '네이버 플레이스 사진'
                                               : (
-                                                  imageSource == 'web_evidence'
-                                                      ? '웹 확인 사진'
-                                                      : '업체 사진'
+                                                  imageSource == 'openai_web'
+                                                      ? '웹검색 대표사진'
+                                                      : (
+                                                          imageSource == 'web_evidence'
+                                                              ? '웹 확인 사진'
+                                                              : '업체 사진'
+                                                        )
                                                 )
                                         ),
                                   style: const TextStyle(
@@ -2043,13 +2087,19 @@ class _BusinessCards extends StatelessWidget {
                               ),
                             ),
                           ),
-                        ] else if (webSourceUrl.isNotEmpty) ...[
+                        ] else if (
+                          webSourceUrl.isNotEmpty ||
+                          openAiSourceUrl.isNotEmpty
+                        ) ...[
                           const SizedBox(height: 10),
                           SizedBox(
                             width: double.infinity,
                             child: OutlinedButton.icon(
-                              onPressed: () =>
-                                  _openPlace(webSourceUrl),
+                              onPressed: () => _openPlace(
+                                  webSourceUrl.isNotEmpty
+                                      ? webSourceUrl
+                                      : openAiSourceUrl,
+                                ),
                               icon: const Icon(
                                 Icons.language_rounded,
                               ),
@@ -2109,7 +2159,7 @@ class _BusinessCards extends StatelessWidget {
     );
 
     return SizedBox(
-      height: hasMock ? 560 : 542,
+      height: hasMock ? 590 : 572,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: businesses.length,
@@ -2148,9 +2198,11 @@ class _BusinessCards extends StatelessWidget {
           final naverPageChecked =
               naver['page_checked'] == true;
           final naverPageUrl =
-              (naver['page_url'] ?? naver['link'])
-                      ?.toString()
-                      .trim() ??
+              (
+                naver['page_url'] ??
+                naver['link'] ??
+                naver['search_url']
+              )?.toString().trim() ??
                   '';
           final rawOpeningHours = naver['opening_hours'];
           final openingHours = rawOpeningHours is List
@@ -2190,6 +2242,34 @@ class _BusinessCards extends StatelessWidget {
                       .trim() ??
                   ''
               : '';
+          final openAiWebValue =
+              business['openai_web'];
+          final openAiWeb = openAiWebValue is Map
+              ? Map<String, dynamic>.from(
+                  openAiWebValue,
+                )
+              : <String, dynamic>{};
+          final rawOpenAiSources =
+              openAiWeb['sources'];
+          final openAiSources =
+              rawOpenAiSources is List
+                  ? rawOpenAiSources
+                      .map(
+                        (item) =>
+                            item.toString().trim(),
+                      )
+                      .where(
+                        (item) => item.isNotEmpty,
+                      )
+                      .toList()
+                  : <String>[];
+          final openAiSourceUrl =
+              openAiSources.isNotEmpty
+                  ? openAiSources.first
+                  : '';
+          final webVerified =
+              openAiWeb['matched'] == true ||
+              web['status'] == 'matched';
 
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
@@ -2221,7 +2301,7 @@ class _BusinessCards extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(
-                  height: 118,
+                  height: 146,
                   width: double.infinity,
                   child: Stack(
                     fit: StackFit.expand,
@@ -2317,9 +2397,13 @@ class _BusinessCards extends StatelessWidget {
                                           : '추천 ${rank.round()}위'
                                     )
                                   : (
-                                      naverMatched
-                                          ? '카카오+네이버'
-                                          : '카카오 확인'
+                                      webVerified
+                                          ? '카카오+웹'
+                                          : (
+                                              naverMatched
+                                                  ? '카카오+네이버'
+                                                  : '카카오 확인'
+                                            )
                                     ),
                               style: TextStyle(
                                 color: rank == 1
@@ -2462,33 +2546,35 @@ class _BusinessCards extends StatelessWidget {
                             ],
                           ),
                         ],
-                        if (openingHours.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(
-                                Icons.schedule_outlined,
-                                size: 15,
-                                color: Color(0xFF667085),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  '영업시간: ${openingHours.take(2).join(' · ')}',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Color(0xFF344054),
-                                    fontSize: 11.3,
-                                    height: 1.35,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.schedule_outlined,
+                              size: 15,
+                              color: Color(0xFF667085),
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                openingHours.isNotEmpty
+                                    ? '영업시간: ${openingHours.take(2).join(' · ')}'
+                                    : '영업시간: 확인되지 않음',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: openingHours.isNotEmpty
+                                      ? const Color(0xFF344054)
+                                      : const Color(0xFF98A2B3),
+                                  fontSize: 11.3,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                            ],
-                          ),
-                        ],
+                            ),
+                          ],
+                        ),
                         if (naverPrices.isNotEmpty) ...[
                           const SizedBox(height: 6),
                           Row(
@@ -2520,6 +2606,28 @@ class _BusinessCards extends StatelessWidget {
                             ],
                           ),
                         ],
+                        if (naverPrices.isEmpty)
+                          const Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.sell_outlined,
+                                size: 15,
+                                color: Color(0xFF98A2B3),
+                              ),
+                              SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  '가격: 확인되지 않음',
+                                  style: TextStyle(
+                                    color: Color(0xFF98A2B3),
+                                    fontSize: 11.3,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         const SizedBox(height: 6),
                         Row(
                           children: [
@@ -2623,9 +2731,13 @@ class _BusinessCards extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                naverMatched
-                                    ? '카카오 후보 · 네이버 교차확인'
-                                    : '카카오맵 장소검색',
+                                webVerified
+                                    ? '카카오 후보 · 웹검색 보강'
+                                    : (
+                                        naverMatched
+                                            ? '카카오 후보 · 네이버 교차확인'
+                                            : '카카오맵 장소검색'
+                                      ),
                                 style: const TextStyle(
                                   color: Color(0xFF667085),
                                   fontSize: 10.5,
@@ -2653,13 +2765,18 @@ class _BusinessCards extends StatelessWidget {
                               ),
                             if (
                               priceLink.isNotEmpty ||
-                              webSourceUrl.isNotEmpty
+                              webSourceUrl.isNotEmpty ||
+                              openAiSourceUrl.isNotEmpty
                             )
                               TextButton(
                                 onPressed: () => _openPlace(
                                   priceLink.isNotEmpty
                                       ? priceLink
-                                      : webSourceUrl,
+                                      : (
+                                          webSourceUrl.isNotEmpty
+                                              ? webSourceUrl
+                                              : openAiSourceUrl
+                                        ),
                                 ),
                                 style: TextButton.styleFrom(
                                   visualDensity: VisualDensity.compact,

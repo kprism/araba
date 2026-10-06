@@ -1059,6 +1059,140 @@ class NaverPlaceServiceTests(TestCase):
         )
 
 
+class OpenAIPlaceEnrichmentTests(TestCase):
+    def test_missing_fields_detect_card_gaps(self):
+        from api.services.openai_place_enrichment_service import (
+            _missing_fields,
+        )
+
+        missing = _missing_fields(
+            {
+                "name": "카이스트용치과의원",
+                "phone": "055-602-2875",
+                "image_url": None,
+                "naver": {
+                    "opening_hours": [],
+                    "parking_available": None,
+                    "prices": [],
+                },
+            }
+        )
+
+        self.assertIn(
+            "영업시간",
+            missing,
+        )
+        self.assertIn(
+            "주차",
+            missing,
+        )
+        self.assertIn(
+            "가격",
+            missing,
+        )
+        self.assertIn(
+            "대표사진",
+            missing,
+        )
+        self.assertNotIn(
+            "전화번호",
+            missing,
+        )
+
+    def test_parse_json_accepts_plain_json(self):
+        from api.services.openai_place_enrichment_service import (
+            _parse_json,
+        )
+
+        result = _parse_json(
+            '{"identity_match": true}'
+        )
+
+        self.assertTrue(
+            result["identity_match"]
+        )
+
+    def test_image_candidate_requires_business_signal(self):
+        from api.services.openai_place_enrichment_service import (
+            _image_candidate,
+        )
+
+        image = _image_candidate(
+            {
+                "name": "카이스트용치과의원",
+                "description": "치과",
+            },
+            [
+                {
+                    "type": "image_result",
+                    "image_url":
+                        "https://example.com/dental.jpg",
+                    "caption":
+                        "카이스트용치과의원 내부",
+                    "source_website_url":
+                        "https://example.com/page",
+                }
+            ],
+        )
+
+        self.assertIsNotNone(
+            image
+        )
+        self.assertEqual(
+            image["image_url"],
+            "https://example.com/dental.jpg",
+        )
+
+    def test_image_candidate_rejects_unrelated_photo(self):
+        from api.services.openai_place_enrichment_service import (
+            _image_candidate,
+        )
+
+        image = _image_candidate(
+            {
+                "name": "카이스트용치과의원",
+                "description": "치과",
+            },
+            [
+                {
+                    "type": "image_result",
+                    "image_url":
+                        "https://example.com/cafe.jpg",
+                    "caption":
+                        "서울 카페 내부",
+                    "source_website_url":
+                        "https://example.com/cafe",
+                }
+            ],
+        )
+
+        self.assertIsNone(
+            image
+        )
+
+    def test_naver_search_url_exists_without_api_match(self):
+        from api.services.naver_place_service import (
+            _naver_search_url,
+        )
+
+        url = _naver_search_url(
+            {
+                "name": "카이스트용치과의원",
+                "address":
+                    "경남 창원시 의창구 중동중앙로 47",
+            }
+        )
+
+        self.assertIn(
+            "search.naver.com",
+            url,
+        )
+        self.assertIn(
+            "query=",
+            url,
+        )
+
+
 class WebPlaceEnrichmentTests(TestCase):
     def test_missing_keywords_include_card_detail_fields(self):
         from api.services.web_place_enrichment_service import (
