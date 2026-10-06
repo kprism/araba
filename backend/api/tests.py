@@ -2762,3 +2762,96 @@ class FastFirstResearchResponseTests(TestCase):
             result["businesses"][4]["naver"]["status"],
             "deferred_fast_response",
         )
+
+
+class MissionRuntimeResilienceTests(TestCase):
+    def test_runtime_rule_lookup_is_read_only_and_still_includes_core_rules(
+        self,
+    ):
+        from api.models import (
+            TrainingRule,
+            TrainingScenario,
+        )
+        from api.services.training_service import (
+            active_rules_text,
+        )
+
+        self.assertEqual(
+            TrainingRule.objects.count(),
+            0,
+        )
+        self.assertEqual(
+            TrainingScenario.objects.count(),
+            0,
+        )
+
+        rules = active_rules_text(
+            limit=30,
+        )
+
+        self.assertIn(
+            "기준점 좌표",
+            rules,
+        )
+        self.assertIn(
+            "첫 결과는 빠르게 반환",
+            rules,
+        )
+        self.assertEqual(
+            TrainingRule.objects.count(),
+            0,
+        )
+        self.assertEqual(
+            TrainingScenario.objects.count(),
+            0,
+        )
+
+    def test_mission_json_parser_recovers_wrapped_json_object(
+        self,
+    ):
+        from api.services.mission_service import (
+            _parse_mission_json,
+        )
+
+        result = _parse_mission_json(
+            '설명 문장 앞부분 {"title":"테스트","ready_to_research":true} 뒤부분'
+        )
+
+        self.assertEqual(
+            result["title"],
+            "테스트",
+        )
+        self.assertTrue(
+            result["ready_to_research"],
+        )
+
+    def test_mission_openai_call_retries_one_transient_failure(
+        self,
+    ):
+        from api.services.mission_service import (
+            _create_mission_response,
+        )
+
+        expected = Mock()
+        expected.output_text = "{}"
+
+        client = Mock()
+        client.responses.create.side_effect = [
+            RuntimeError("temporary"),
+            expected,
+        ]
+
+        result = _create_mission_response(
+            client,
+            instructions="test",
+            request_text="테스트 요청",
+        )
+
+        self.assertIs(
+            result,
+            expected,
+        )
+        self.assertEqual(
+            client.responses.create.call_count,
+            2,
+        )
