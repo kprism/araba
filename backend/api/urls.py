@@ -70,6 +70,11 @@ urlpatterns = [
         name="training-run-auto",
     ),
     path(
+        "training/core-curriculum/run/",
+        views.training_core_curriculum,
+        name="training-core-curriculum",
+    ),
+    path(
         "training/feedback/",
         views.training_feedback,
         name="training-feedback",
