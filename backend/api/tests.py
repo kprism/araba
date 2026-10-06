@@ -2649,7 +2649,7 @@ class CoreTrainingCurriculumTests(TestCase):
             TrainingRun.objects.filter(
                 mode="curriculum_regression",
             ).count(),
-            12,
+            13,
         )
 
     def test_core_curriculum_rules_are_injected_into_runtime_prompt_memory(
