@@ -203,7 +203,25 @@ CORE_CURRICULUM = [
             "instruction": "각 상대의 가능조건을 수집한 뒤 전체 제약조건을 함께 평가하고, 충돌이 있으면 재협의해 하나의 실행 가능한 계획으로 통합한다.",
             "example": "이사일 인터넷/가스/엘리베이터 -> 개별 조회가 아닌 통합 일정 조율",
         },
+    },    {
+        "key": "observed_research_timeout",
+        "group": "observed_failure",
+        "title": "관찰실패 · 상세검증 과다로 조회 타임아웃",
+        "request": "창원시청 주변에 타이어 교체할 만한 곳 알아봐",
+        "goal": "모든 상세검증이 끝날 때까지 첫 결과를 막지 않고 제한된 시간 안에 후보를 먼저 반환한다.",
+        "difficulty": "어려움",
+        "expected_behaviors": [
+            "1차 후보 탐색과 상세검증을 같은 긴 임계경로에 모두 묶지 않는다.",
+            "상위 후보만 우선 상세검증하고 나머지는 후보 자체를 먼저 반환한다.",
+            "외부 제공자 응답시간과 검색 시도 횟수에 명확한 상한을 둔다.",
+        ],
+        "rule": {
+            "trigger": "외부 장소검색·상세페이지·교차검증을 한 요청에서 연속 수행해 첫 응답이 늦어질 수 있다.",
+            "instruction": "첫 결과는 빠르게 반환하고 상위 후보만 우선 상세검증한다. 외부 호출 수와 대기시간에 상한을 두고, 전체 상세검증 때문에 사용자가 첫 결과를 못 받는 구조를 피한다.",
+            "example": "후보 8곳 -> 상위 4곳 우선 검증 + 나머지 후보 즉시 반환",
+        },
     },
+
 ]
 
 
@@ -713,6 +731,21 @@ def _diagnose_core_case(item):
             "completion_criteria": result[
                 "completion_criteria"
             ],
+        }
+
+    elif key == "observed_research_timeout":
+        from .research_service import (
+            FAST_DETAIL_ENRICH_LIMIT,
+            MAX_KAKAO_QUERY_ATTEMPTS,
+        )
+
+        passed = (
+            FAST_DETAIL_ENRICH_LIMIT <= 4
+            and MAX_KAKAO_QUERY_ATTEMPTS <= 5
+        )
+        detail = {
+            "detail_enrichment_limit": FAST_DETAIL_ENRICH_LIMIT,
+            "max_kakao_query_attempts": MAX_KAKAO_QUERY_ATTEMPTS,
         }
 
     else:
