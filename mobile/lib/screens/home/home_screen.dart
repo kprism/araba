@@ -257,6 +257,13 @@ class _HomeScreenState extends State<HomeScreen>
           _toBottom();
           _speakProgress(reply);
         },
+        onDiagnostic: (message) {
+          if (!mounted || _liveVoice != liveVoice) return;
+          // Keep subsequent Live speech separate from the exact diagnostic.
+          _liveTranscriptSpeaker = null;
+          _liveTranscriptMessageIndex = null;
+          _addAssistantMessage(text: message, badge: 'Core 오류 진단');
+        },
         onError: (message) {
           if (!mounted || _liveVoice != liveVoice) return;
 
@@ -1195,7 +1202,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
 
       final message = error is ArabaApiException
-          ? error.message
+          ? error.diagnosticText
           : '요청 처리 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.';
 
       setState(() {

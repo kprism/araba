@@ -1,3 +1,8 @@
+import json
+import logging
+from time import monotonic
+from uuid import uuid4
+
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -97,93 +102,65 @@ def openai_test(request):
 
 @api_view(["POST"])
 def mission_create(request):
-    from .services.mission_service import create_mission
+    from .services.mission_service import (
+        MISSION_MODEL, MISSION_TIMEOUT_SECONDS, create_mission,
+    )
+
+    started = monotonic()
+    diagnostics = {
+        "request_id": uuid4().hex,
+        "stage": "mission_create",
+        "model": MISSION_MODEL,
+        "timeout_seconds": MISSION_TIMEOUT_SECONDS,
+        "retries": 0,
+    }
+
+    def finish(payload, http_status, exc=None):
+        diagnostics["server_elapsed_ms"] = round((monotonic() - started) * 1000)
+        diagnostics["http_status"] = http_status
+        if exc is not None:
+            diagnostics["exception_type"] = type(exc).__name__
+            upstream_status = getattr(exc, "status_code", None)
+            if isinstance(upstream_status, int):
+                diagnostics["upstream_http_status"] = upstream_status
+            request_id = getattr(exc, "request_id", None)
+            if isinstance(request_id, str):
+                diagnostics["upstream_request_id"] = request_id[:200]
+        # Never log request text, API keys, response bodies or raw exceptions.
+        logging.getLogger(__name__).warning(
+            "mission_diagnostic %s", json.dumps(diagnostics, ensure_ascii=False)
+        )
+        return Response(
+            {**payload, "diagnostics": diagnostics},
+            status=http_status,
+            headers={"X-Request-ID": diagnostics["request_id"]},
+        )
 
     try:
-        user_request = str(
-            request.data.get("request", "")
-        ).strip()
-
+        user_request = str(request.data.get("request", "")).strip()
         mission = create_mission(
-            user_request,
-            _request_api_key(request),
+            user_request, _request_api_key(request), diagnostics=diagnostics,
         )
-
-        return Response(
-            {
-                "ok": True,
-                "mission": mission,
-            }
-        )
-
-    except ValueError as exc:
-        return Response(
-            {
-                "ok": False,
-                "message": str(exc),
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
+        diagnostics["stage"] = "complete"
+        return finish({"ok": True, "mission": mission}, 200)
     except Exception as exc:
         error_name = type(exc).__name__
-
-        if error_name in {
-            "AuthenticationError",
-            "PermissionDeniedError",
-        }:
-            return Response(
-                {
-                    "ok": False,
-                    "message": (
-                        "OpenAI API Key 인증에 실패했습니다. "
-                        "MY의 API Key를 다시 확인해주세요."
-                    ),
-                },
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        if error_name in {
-            "APITimeoutError",
-            "TimeoutError",
-        }:
-            return Response(
-                {
-                    "ok": False,
-                    "message": (
-                        "AI 요청 이해가 지연되어 한 번 재시도했지만 "
-                        "응답시간을 넘겼습니다. 다시 시도해주세요."
-                    ),
-                },
-                status=status.HTTP_504_GATEWAY_TIMEOUT,
-            )
-
-        if error_name in {
-            "APIConnectionError",
-            "ConnectError",
-        }:
-            return Response(
-                {
-                    "ok": False,
-                    "message": (
-                        "AI 요청 이해 서버와 연결이 불안정합니다. "
-                        "잠시 후 다시 시도해주세요."
-                    ),
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        return Response(
-            {
-                "ok": False,
-                "message": (
-                    "Mission 생성 중 오류가 발생했습니다: "
-                    f"{exc}"
-                ),
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
+        if isinstance(exc, ValueError):
+            http_status = 400
+            message = str(exc)
+        elif error_name in {"AuthenticationError", "PermissionDeniedError"}:
+            http_status = 401
+            message = "OpenAI API Key 인증에 실패했습니다. MY의 API Key를 다시 확인해주세요."
+        elif error_name in {"APITimeoutError", "TimeoutError"}:
+            http_status = 504
+            message = "AI 요청 이해 중 응답 대기시간을 초과했습니다. 자동 재시도는 하지 않았습니다."
+        elif error_name in {"APIConnectionError", "ConnectError"}:
+            http_status = 502
+            message = "AI 요청 이해 서버와 연결하지 못했습니다. 자동 재시도는 하지 않았습니다."
+        else:
+            http_status = 500
+            message = "Mission 생성 중 오류가 발생했습니다. 아래 진단 정보를 확인해주세요."
+        return finish({"ok": False, "message": message}, http_status, exc)
 
 
 @api_view(["POST"])

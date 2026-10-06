@@ -26,6 +26,7 @@ class LiveVoiceService {
   final LiveTranscriptCallback onTranscript;
   final LiveMissionCallback onMission;
   final void Function(String message) onError;
+  final void Function(String message)? onDiagnostic;
 
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
@@ -51,6 +52,7 @@ class LiveVoiceService {
     required this.onTranscript,
     required this.onMission,
     required this.onError,
+    this.onDiagnostic,
   });
 
   bool get isStarted => _started;
@@ -380,13 +382,16 @@ class LiveVoiceService {
       final elapsedSeconds =
           missionStopwatch.elapsedMilliseconds / 1000;
       final detail = error is ArabaApiException
-          ? error.message
-          : error.runtimeType.toString();
+          ? error.diagnosticText
+          : '단계: app_mission_processing\n예외: ${error.runtimeType}';
 
+      onDiagnostic?.call(
+        'GPT Core 요청 실패 · 앱 경과 ${elapsedSeconds.toStringAsFixed(1)}초\n'
+        '$detail',
+      );
       speakCommentary(
-        '진단: GPT Core 요청이 '
-        '${elapsedSeconds.toStringAsFixed(1)}초 후 실패했어요. '
-        '$detail 방금 말씀하신 내용은 유지하고 있어요.',
+        '요청 처리에 실패했고 오류 진단을 채팅에 기록했습니다. '
+        '자동 재시도는 하지 않았습니다. 방금 말씀하신 내용은 유지하고 있습니다.',
       );
       onStatus('Core 진단: ${elapsedSeconds.toStringAsFixed(1)}초');
     } finally {

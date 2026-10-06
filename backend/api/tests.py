@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -107,6 +107,7 @@ class MissionApiTests(TestCase):
         mocked_create.assert_called_once_with(
             "오늘 창원에서 BMW X6 타이어 교체 가능한 가장 저렴한 곳 알아봐",
             "sk-test-1234",
+            diagnostics=ANY,
         )
 
 
@@ -3123,7 +3124,7 @@ class MissionApiErrorClassificationTests(TestCase):
             504,
         )
         self.assertIn(
-            "재시도",
+            "자동 재시도는 하지 않았습니다",
             response.data["message"],
         )
 

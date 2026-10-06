@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from time import monotonic
 
 from openai import OpenAI
 
@@ -465,7 +466,9 @@ def _create_mission_response(
     )
 
 
-def create_mission(user_request, api_key=None):
+def create_mission(user_request, api_key=None, *, diagnostics=None):
+    diagnostics = diagnostics if diagnostics is not None else {}
+    diagnostics["stage"] = "request_validation"
     request_text = str(user_request).strip()
 
     if not request_text:
@@ -484,6 +487,7 @@ def create_mission(user_request, api_key=None):
         max_retries=0,
     )
 
+    diagnostics["stage"] = "load_rules"
     learned_rules = active_rules_text(
         limit=30,
     )
@@ -495,12 +499,20 @@ def create_mission(user_request, api_key=None):
             + learned_rules
         )
 
-    response = _create_mission_response(
-        client,
-        instructions=instructions,
-        request_text=request_text,
-    )
+    diagnostics["stage"] = "openai_request"
+    call_started = monotonic()
+    try:
+        response = _create_mission_response(
+            client,
+            instructions=instructions,
+            request_text=request_text,
+        )
+    finally:
+        diagnostics["openai_elapsed_ms"] = round(
+            (monotonic() - call_started) * 1000
+        )
 
+    diagnostics["stage"] = "parse_response"
     raw = response.output_text.strip()
 
     try:
@@ -510,6 +522,7 @@ def create_mission(user_request, api_key=None):
             "OpenAI가 Mission JSON을 올바르게 반환하지 않았습니다."
         ) from exc
 
+    diagnostics["stage"] = "validate_response"
     required_keys = {
         "title",
         "summary",
@@ -566,6 +579,7 @@ def create_mission(user_request, api_key=None):
     if not isinstance(mission["search_terms"], list):
         mission["search_terms"] = []
 
+    diagnostics["stage"] = "normalize_mission"
     mission = _normalize_search_scope(
         mission,
         request_text,
