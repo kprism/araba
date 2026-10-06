@@ -232,7 +232,12 @@ class _HomeScreenState extends State<HomeScreen>
             return;
           }
 
-          unawaited(_runRealResearch(mission));
+          final responseMode =
+              mission['response_mode']?.toString().trim() ?? '';
+          if (responseMode == 'research' ||
+              mission['ready_to_research'] == true) {
+            unawaited(_runRealResearch(mission));
+          }
         },
         onError: (message) {
           if (!mounted || _liveVoice != liveVoice) return;
