@@ -54,9 +54,9 @@ jobs:
           import json
           data=json.load(open("/tmp/core-training.json"))
           assert data.get("ok") is True, data
-          assert data.get("trained", 0) >= 12, data
+          assert data.get("trained", 0) >= 13, data
           assert data.get("failed") == 0, data
-          assert data.get("observed_failure_count", 0) >= 2, data
+          assert data.get("observed_failure_count", 0) >= 3, data
           PY
 
       - name: Check live mission and research path when test keys exist
