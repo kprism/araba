@@ -41,3 +41,73 @@ jobs:
           assert data.get("trained", 0) >= 11, data
           assert data.get("failed") == 0, data
           PY
+
+
+      - name: Check live mission and research path
+        shell: bash
+        env:
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          KAKAO_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          NAVER_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          BASE="https://araba-api-dev-908580697493.asia-northeast3.run.app"
+
+          OPENAI_HEADER=()
+          KAKAO_HEADER=()
+          NAVER_HEADERS=()
+
+          if [ -n "${OPENAI_KEY:-}" ]; then
+            OPENAI_HEADER=(-H "X-OpenAI-API-Key: $OPENAI_KEY")
+          fi
+          if [ -n "${KAKAO_KEY:-}" ]; then
+            KAKAO_HEADER=(-H "X-Kakao-REST-API-Key: $KAKAO_KEY")
+          fi
+          if [ -n "${NAVER_ID:-}" ] && [ -n "${NAVER_SECRET:-}" ]; then
+            NAVER_HEADERS=(
+              -H "X-Naver-Client-Id: $NAVER_ID"
+              -H "X-Naver-Client-Secret: $NAVER_SECRET"
+            )
+          fi
+
+          MISSION_STATUS="$(curl --show-error --silent             --connect-timeout 5             --max-time 35             -o /tmp/mission.json             -w "%{http_code}"             "${OPENAI_HEADER[@]}"             -H "Content-Type: application/json"             -X POST             "$BASE/api/missions/create/"             -d '{"request":"창원시청 주변에 타이어 교체할 만한 곳 알아봐"}')"
+
+          cat /tmp/mission.json || true
+          echo
+          echo "MISSION_HTTP_STATUS=$MISSION_STATUS"
+          test "$MISSION_STATUS" = "200"
+
+          python - <<'PY'
+          import json
+          data=json.load(open("/tmp/mission.json"))
+          assert data.get("ok") is True, data
+          mission=data.get("mission")
+          assert isinstance(mission, dict), data
+          assert mission.get("user_goal"), mission
+          assert mission.get("expected_answer"), mission
+          assert mission.get("research_plan"), mission
+          json.dump(
+              {"mission": mission},
+              open("/tmp/research-request.json","w"),
+              ensure_ascii=False,
+          )
+          PY
+
+          RESEARCH_STATUS="$(curl --show-error --silent             --connect-timeout 5             --max-time 32             -o /tmp/research.json             -w "%{http_code}"             "${KAKAO_HEADER[@]}"             "${NAVER_HEADERS[@]}"             -H "Content-Type: application/json"             -X POST             "$BASE/api/research/search/"             --data-binary @/tmp/research-request.json)"
+
+          cat /tmp/research.json || true
+          echo
+          echo "RESEARCH_HTTP_STATUS=$RESEARCH_STATUS"
+          test "$RESEARCH_STATUS" = "200"
+
+          python - <<'PY'
+          import json
+          data=json.load(open("/tmp/research.json"))
+          assert data.get("ok") is True, data
+          businesses=data.get("businesses")
+          assert isinstance(businesses, list), data
+          assert isinstance(data.get("evaluation"), dict), data
+          print("LIVE_BUSINESS_COUNT=", len(businesses))
+          print("LIVE_DETAIL_DEFERRED=", data.get("detail_deferred_count"))
+          PY
