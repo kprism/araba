@@ -2380,3 +2380,103 @@ class SearchIntentBreadthTests(TestCase):
                 mission,
             )
         )
+
+
+class ResearchEvidenceEvaluationTests(TestCase):
+    def test_evaluation_marks_unverified_decision_facts_missing(
+        self,
+    ):
+        from api.services.research_evaluation_service import (
+            evaluate_research_result,
+        )
+
+        result = evaluate_research_result(
+            {
+                "required_facts": [
+                    "후보 업체",
+                    "거리",
+                    "현재 작업 가능 여부",
+                    "가격",
+                ],
+                "may_need_phone_call": True,
+                "orchestration": {
+                    "tools": [
+                        "place_search",
+                        "phone",
+                    ],
+                },
+            },
+            [
+                {
+                    "name": "성산타이어",
+                    "address": "창원시 성산구",
+                    "latitude": "35.22",
+                    "longitude": "128.68",
+                    "phone": "055-111-2222",
+                }
+            ],
+            reference_origin={
+                "latitude": "35.21",
+                "longitude": "128.67",
+            },
+        )
+
+        self.assertFalse(
+            result["answer_ready"],
+        )
+        self.assertIn(
+            "현재 작업 가능 여부",
+            result["missing_facts"],
+        )
+        self.assertIn(
+            "가격",
+            result["missing_facts"],
+        )
+        self.assertIn(
+            "phone",
+            result["next_tools"],
+        )
+        self.assertEqual(
+            result["confidence"],
+            "medium",
+        )
+
+    def test_evaluation_becomes_ready_when_required_facts_are_verified(
+        self,
+    ):
+        from api.services.research_evaluation_service import (
+            evaluate_research_result,
+        )
+
+        result = evaluate_research_result(
+            {
+                "required_facts": [
+                    "후보 업체",
+                    "영업시간",
+                    "가격",
+                ],
+            },
+            [
+                {
+                    "name": "테스트미용실",
+                    "verified_total_price": 25000,
+                    "naver": {
+                        "opening_hours": [
+                            "10:00-20:00",
+                        ],
+                    },
+                }
+            ],
+        )
+
+        self.assertTrue(
+            result["answer_ready"],
+        )
+        self.assertEqual(
+            result["confidence"],
+            "high",
+        )
+        self.assertEqual(
+            result["missing_facts"],
+            [],
+        )
