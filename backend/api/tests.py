@@ -2483,7 +2483,7 @@ class ResearchEvidenceEvaluationTests(TestCase):
 
 
 class CoreTrainingCurriculumTests(TestCase):
-    def test_core_curriculum_persists_ten_scenarios_and_rules_idempotently(
+    def test_core_curriculum_persists_scenarios_and_rules_idempotently(
         self,
     ):
         from api.models import (
@@ -2500,28 +2500,28 @@ class CoreTrainingCurriculumTests(TestCase):
 
         self.assertEqual(
             len(CORE_CURRICULUM),
-            10,
+            11,
         )
         self.assertEqual(
             len(first),
-            10,
+            11,
         )
         self.assertEqual(
             len(second),
-            10,
+            11,
         )
         self.assertEqual(
             TrainingScenario.objects.filter(
                 category="범용",
             ).count(),
-            10,
+            11,
         )
         self.assertEqual(
             TrainingRule.objects.filter(
                 source="core_curriculum",
                 active=True,
             ).count(),
-            10,
+            11,
         )
 
     def test_core_curriculum_contains_five_historical_and_five_future_cases(
@@ -2552,8 +2552,18 @@ class CoreTrainingCurriculumTests(TestCase):
             len(future),
             5,
         )
+        observed = [
+            item
+            for item in CORE_CURRICULUM
+            if item["group"]
+            == "observed_failure"
+        ]
+        self.assertEqual(
+            len(observed),
+            1,
+        )
 
-    def test_all_ten_curriculum_cases_run_as_training_and_pass_current_guards(
+    def test_all_curriculum_cases_run_as_training_and_pass_current_guards(
         self,
     ):
         from api.models import TrainingRun
@@ -2565,7 +2575,7 @@ class CoreTrainingCurriculumTests(TestCase):
 
         self.assertEqual(
             len(runs),
-            10,
+            11,
         )
         self.assertTrue(
             all(
@@ -2584,7 +2594,7 @@ class CoreTrainingCurriculumTests(TestCase):
             TrainingRun.objects.filter(
                 mode="curriculum_regression",
             ).count(),
-            10,
+            11,
         )
         self.assertTrue(
             all(
@@ -2613,7 +2623,7 @@ class CoreTrainingCurriculumTests(TestCase):
         )
         self.assertEqual(
             response.data["trained"],
-            10,
+            11,
         )
         self.assertEqual(
             response.data["historical_count"],
@@ -2624,8 +2634,12 @@ class CoreTrainingCurriculumTests(TestCase):
             5,
         )
         self.assertEqual(
+            response.data["observed_failure_count"],
+            1,
+        )
+        self.assertEqual(
             response.data["passed"],
-            10,
+            11,
         )
         self.assertEqual(
             response.data["failed"],
@@ -2635,7 +2649,7 @@ class CoreTrainingCurriculumTests(TestCase):
             TrainingRun.objects.filter(
                 mode="curriculum_regression",
             ).count(),
-            10,
+            11,
         )
 
     def test_core_curriculum_rules_are_injected_into_runtime_prompt_memory(
