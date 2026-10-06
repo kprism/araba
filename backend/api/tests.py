@@ -2920,3 +2920,65 @@ class MissionApiErrorClassificationTests(TestCase):
             "재시도",
             response.data["message"],
         )
+
+
+class CurrentRequestIsolationTests(TestCase):
+    def test_old_mobile_format_does_not_make_stale_target_explicit(
+        self,
+    ):
+        from api.services.mission_service import (
+            _current_request_text,
+            _normalize_search_scope,
+        )
+
+        request_text = (
+            "[현재 요청]\\n"
+            "창원에서 임플란트 가능한 치과 몇 군데 알아봐.\\n\\n"
+            "[대화 문맥 - 참고용]\\n"
+            '{"category":"자동차","subject":"타이어 교체",'
+            '"target_business":"예전타이어점"}'
+        )
+
+        current = _current_request_text(
+            request_text
+        )
+        self.assertEqual(
+            current,
+            "창원에서 임플란트 가능한 치과 몇 군데 알아봐.",
+        )
+
+        mission = _normalize_search_scope(
+            {
+                "search_mode": "follow_up_detail",
+                "target_business": "예전타이어점",
+                "ready_to_research": True,
+            },
+            request_text,
+        )
+
+        self.assertIsNone(
+            mission["target_business"],
+        )
+        self.assertEqual(
+            mission["search_mode"],
+            "category_discovery",
+        )
+
+    def test_new_mobile_format_keeps_only_current_request_block(
+        self,
+    ):
+        from api.services.mission_service import (
+            _current_request_text,
+        )
+
+        request_text = (
+            "[대화 문맥 - 참고용]\\n"
+            '{"category":"자동차","subject":"타이어 교체"}\\n\\n'
+            "[현재 요청]\\n"
+            "창원에서 임플란트 가능한 치과 몇 군데 알아봐."
+        )
+
+        self.assertEqual(
+            _current_request_text(request_text),
+            "창원에서 임플란트 가능한 치과 몇 군데 알아봐.",
+        )
