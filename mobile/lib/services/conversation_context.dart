@@ -22,27 +22,51 @@ class ConversationContext {
         _known['location']?.toString().trim() ?? '';
 
     return [
-      '[현재 요청]',
-      text,
-      '',
       '[대화 문맥 - 참고용]',
       if (knownLocation.isNotEmpty)
         '[대화 문맥] 이미 확인된 지역: $knownLocation',
       jsonEncode(_known),
       '',
       '판단 규칙:',
-      '1. 현재 요청에서 사용자가 최종적으로 원하는 결과와 판단을 먼저 해석하세요.',
-      '2. 지역·업종·상호명은 목적을 해결하기 위한 조건이며, 그 자체를 목적처럼 다루지 마세요.',
-      '3. 대화 문맥은 현재 요청과 충돌하지 않는 정보만 재사용하고, 이미 확인된 정보는 다시 묻지 마세요.',
-      '4. 현재 요청이 업종 전체/지역 전체 후보를 요구하면 과거 특정 업체를 버리세요.',
-      '5. "그곳", "아까 그 치과", "거기"처럼 명백한 후속표현일 때만 특정 대상을 이어가세요.',
-      '6. 현재 요청에 새 대상이나 새 범위가 나오면 그것이 최우선입니다.',
+      '1. 아래 [현재 요청]이 항상 최우선입니다.',
+      '2. 현재 요청에서 사용자가 최종적으로 원하는 결과와 판단을 먼저 해석하세요.',
+      '3. 지역·업종·상호명은 목적을 해결하기 위한 조건이며, 그 자체를 목적처럼 다루지 마세요.',
+      '4. 대화 문맥은 현재 요청과 충돌하지 않는 정보만 재사용하고, 이미 확인된 정보는 다시 묻지 마세요.',
+      '5. 현재 요청이 새로운 업종·주제·지역을 명시하면 이전 주제의 category, subject, target_business, constraints, attributes를 승계하지 마세요.',
+      '6. "그곳", "그중", "아까", "거기"처럼 명백한 후속표현일 때만 이전 특정 대상을 이어가세요.',
+      '',
+      '[현재 요청]',
+      text,
     ].join('\n');
   }
 
   void rememberMission(
     Map<String, dynamic> mission,
   ) {
+    final previousCategory =
+        _known['category']?.toString().trim() ?? '';
+    final nextCategory =
+        mission['category']?.toString().trim() ?? '';
+
+    if (previousCategory.isNotEmpty &&
+        nextCategory.isNotEmpty &&
+        previousCategory != nextCategory) {
+      for (final key in [
+        'subcategories',
+        'subject',
+        'target_business',
+        'attributes',
+        'constraints',
+        'comparison',
+        'user_goal',
+        'decision_needed',
+        'expected_answer',
+        'search_mode',
+        'intent',
+      ]) {
+        _known.remove(key);
+      }
+    }
     final searchMode =
         mission['search_mode']?.toString().trim() ?? '';
 
