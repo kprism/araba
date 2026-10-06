@@ -457,7 +457,7 @@ class LiveVoiceService {
     } catch (_) {}
 
     onStatus(
-      '마이크 꺼짐 · ARABA 음성은 계속',
+      '마이크 꺼짐 · ARABA 음성 계속',
     );
   }
 
