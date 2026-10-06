@@ -19,8 +19,8 @@ KAKAO_ADDRESS_SEARCH_URL = (
 
 # 첫 응답을 상세검증 전체에 묶어두면 모바일 조회 타임아웃이 발생할 수 있다.
 # 상위 후보만 빠르게 상세검증하고 나머지는 후보 자체를 먼저 반환한다.
-FAST_DETAIL_ENRICH_LIMIT = 4
-MAX_KAKAO_QUERY_ATTEMPTS = 5
+FAST_DETAIL_ENRICH_LIMIT = 2
+MAX_KAKAO_QUERY_ATTEMPTS = 3
 
 
 class ResearchConfigurationError(ValueError):
