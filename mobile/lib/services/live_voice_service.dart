@@ -36,8 +36,12 @@ class LiveVoiceService {
   bool _started = false;
   bool _closing = false;
   Timer? _disconnectTimer;
+  Timer? _missionFallbackTimer;
   RTCPeerConnectionState? _connectionState;
   int _clientEventSequence = 0;
+  bool _missionInFlight = false;
+  String _lastMissionTranscript = '';
+  DateTime? _lastMissionStartedAt;
 
   LiveVoiceService({
     required this.api,
@@ -231,6 +235,7 @@ class LiveVoiceService {
         if (delta.isNotEmpty) {
           _userTranscript += delta;
           onTranscript(isUser: true, delta: delta);
+          _scheduleMissionFallback();
         }
         break;
       case 'session.output_transcript.delta':
@@ -245,6 +250,8 @@ class LiveVoiceService {
           final delegationId =
               delegation['id']?.toString().trim() ?? '';
           if (delegationId.isNotEmpty) {
+            _missionFallbackTimer?.cancel();
+            _missionFallbackTimer = null;
             unawaited(_handleDelegation(delegationId));
           }
         }
@@ -264,11 +271,62 @@ class LiveVoiceService {
     }
   }
 
-  Future<void> _handleDelegation(String delegationId) async {
+  void _scheduleMissionFallback() {
+    _missionFallbackTimer?.cancel();
+
+    if (!_started || _closing) return;
+
+    _missionFallbackTimer = Timer(
+      const Duration(seconds: 2),
+      () {
+        _missionFallbackTimer = null;
+        unawaited(_handleTranscriptFallback());
+      },
+    );
+  }
+
+  bool _isRecentMissionTurn() {
+    final startedAt = _lastMissionStartedAt;
+    if (startedAt == null ||
+        _lastMissionTranscript.isEmpty) {
+      return false;
+    }
+
+    return DateTime.now().difference(startedAt) <
+        const Duration(seconds: 12);
+  }
+
+  Future<void> _handleTranscriptFallback() async {
+    if (_missionInFlight) {
+      if (_userTranscript.trim().isNotEmpty) {
+        _scheduleMissionFallback();
+      }
+      return;
+    }
+
     final latestUserText = _userTranscript.trim();
+    if (latestUserText.isEmpty) return;
+
     _userTranscript = '';
 
+    await _processMission(
+      latestUserText: latestUserText,
+    );
+  }
+
+  Future<void> _handleDelegation(String delegationId) async {
+    final latestUserText = _userTranscript.trim();
+
     if (latestUserText.isEmpty) {
+      if (_missionInFlight || _isRecentMissionTurn()) {
+        _sendEvent({
+          'type': 'session.commentary.append',
+          'delegation_id': delegationId,
+          'content': 'ARABA 조사 엔진에서 이미 요청을 처리하고 있습니다.',
+        });
+        return;
+      }
+
       _sendEvent({
         'type': 'session.commentary.append',
         'delegation_id': delegationId,
@@ -276,6 +334,31 @@ class LiveVoiceService {
       });
       return;
     }
+
+    if (_missionInFlight) {
+      _sendEvent({
+        'type': 'session.commentary.append',
+        'delegation_id': delegationId,
+        'content': 'ARABA 조사 엔진에서 이미 요청을 처리하고 있습니다.',
+      });
+      return;
+    }
+
+    _userTranscript = '';
+
+    await _processMission(
+      latestUserText: latestUserText,
+      delegationId: delegationId,
+    );
+  }
+
+  Future<void> _processMission({
+    required String latestUserText,
+    String? delegationId,
+  }) async {
+    _missionInFlight = true;
+    _lastMissionTranscript = latestUserText;
+    _lastMissionStartedAt = DateTime.now();
 
     try {
       final rawRequestText = _pendingRequestContext == null
@@ -290,12 +373,14 @@ class LiveVoiceService {
         rawRequestText,
       );
 
-      _sendEvent({
-        'type': 'session.thinking.append',
-        'event_id': _nextClientEventId('mission_thinking'),
-        'delegation_id': delegationId,
-        'content': 'ARABA 조사 엔진이 요청을 구조화하고 있습니다.',
-      });
+      if (delegationId != null) {
+        _sendEvent({
+          'type': 'session.thinking.append',
+          'event_id': _nextClientEventId('mission_thinking'),
+          'delegation_id': delegationId,
+          'content': 'ARABA 조사 엔진이 요청을 구조화하고 있습니다.',
+        });
+      }
 
       final result = await api.createMission(
         requestText,
@@ -312,54 +397,78 @@ class LiveVoiceService {
       conversationContext.rememberMission(mission);
       onMission(mission, requestText);
 
-      final summary = mission['summary']?.toString().trim() ?? '';
-      final ready = mission['ready_to_research'] == true;
-      final questions = mission['clarification_questions'];
+      final summary =
+          mission['summary']?.toString().trim() ?? '';
+      final ready =
+          mission['ready_to_research'] == true;
+      final questions =
+          mission['clarification_questions'];
 
-      if (!ready && questions is List && questions.isNotEmpty) {
+      if (!ready &&
+          questions is List &&
+          questions.isNotEmpty) {
         final first = questions.first;
         if (first is Map) {
-          final question = first['question']?.toString().trim() ?? '';
+          final question =
+              first['question']?.toString().trim() ?? '';
           final options = first['options'];
           final optionText = options is List
-              ? options.map((item) => item.toString()).join(', ')
+              ? options
+                  .map((item) => item.toString())
+                  .join(', ')
               : '';
 
           _pendingRequestContext = requestText;
 
-          _sendEvent({
-            'type': 'session.commentary.append',
-            'delegation_id': delegationId,
-            'content': [
-              if (summary.isNotEmpty) summary,
-              if (question.isNotEmpty) question,
-              if (optionText.isNotEmpty) '선택 가능: $optionText',
-            ].join(' '),
-          });
+          if (delegationId != null) {
+            _sendEvent({
+              'type': 'session.commentary.append',
+              'delegation_id': delegationId,
+              'content': [
+                if (summary.isNotEmpty) summary,
+                if (question.isNotEmpty) question,
+                if (optionText.isNotEmpty)
+                  '선택 가능: $optionText',
+              ].join(' '),
+            });
+          }
           return;
         }
       }
 
       _pendingRequestContext = null;
 
-      _sendEvent({
-        'type': 'session.commentary.append',
-        'event_id': _nextClientEventId('mission_ready'),
-        'delegation_id': delegationId,
-        'content': summary.isEmpty
-            ? '조건 정리가 끝났습니다. 바로 알아볼게요.'
-            : '$summary. 조건 정리가 끝났습니다. 바로 알아볼게요.',
-      });
+      if (delegationId != null) {
+        _sendEvent({
+          'type': 'session.commentary.append',
+          'event_id':
+              _nextClientEventId('mission_ready'),
+          'delegation_id': delegationId,
+          'content': summary.isEmpty
+              ? '조건 정리가 끝났습니다. 바로 알아볼게요.'
+              : '$summary. 조건 정리가 끝났습니다. 바로 알아볼게요.',
+        });
+      }
     } catch (error) {
       final message = error is ArabaApiException
           ? error.message
           : 'ARABA 조사 엔진 처리 중 오류가 발생했습니다.';
 
-      _sendEvent({
-        'type': 'session.commentary.append',
-        'delegation_id': delegationId,
-        'content': '조사 엔진을 호출했지만 오류가 발생했습니다. $message',
-      });
+      if (delegationId != null) {
+        _sendEvent({
+          'type': 'session.commentary.append',
+          'delegation_id': delegationId,
+          'content': '조사 엔진을 호출했지만 오류가 발생했습니다. $message',
+        });
+      } else {
+        onError(message);
+      }
+    } finally {
+      _missionInFlight = false;
+
+      if (_userTranscript.trim().isNotEmpty) {
+        _scheduleMissionFallback();
+      }
     }
   }
 
@@ -430,6 +539,9 @@ class LiveVoiceService {
     _started = false;
     _disconnectTimer?.cancel();
     _disconnectTimer = null;
+    _missionFallbackTimer?.cancel();
+    _missionFallbackTimer = null;
+    _missionInFlight = false;
     _connectionState = null;
 
     try {
