@@ -658,6 +658,7 @@ class _HomeScreenState extends State<HomeScreen>
         _addAssistantMessage(
           text: detail,
           badge: '상세 확인',
+          businesses: [selected],
         );
         _speakProgress(detail);
         return;
