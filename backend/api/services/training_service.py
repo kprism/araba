@@ -221,6 +221,24 @@ CORE_CURRICULUM = [
             "example": "후보 8곳 -> 상위 4곳 우선 검증 + 나머지 후보 즉시 반환",
         },
     },
+    {
+        "key": "observed_request_processing_failure",
+        "group": "observed_failure",
+        "title": "관찰실패 · Mission 처리경로 오류",
+        "request": "사용자 요청을 이해하고 조사로 넘기는 과정에서 처리 오류가 발생함",
+        "goal": "일반 사용자 요청 경로에서는 학습데이터 DB 쓰기를 하지 않고, 일시적 AI 호출 실패는 제한적으로 재시도하며 원인을 구분해 전달한다.",
+        "difficulty": "어려움",
+        "expected_behaviors": [
+            "Mission 생성의 규칙 조회는 읽기 전용이어야 한다.",
+            "일시적 외부 AI 연결 실패는 한 번만 재시도한다.",
+            "인증 오류·시간초과·연결 오류를 서로 다른 원인으로 사용자에게 안내한다.",
+        ],
+        "rule": {
+            "trigger": "사용자 요청 이해 단계에서 원인 불명의 처리 오류가 발생하거나 런타임 경로가 학습 DB 갱신과 결합되어 있다.",
+            "instruction": "실시간 Mission 처리경로를 읽기 전용으로 유지하고, 외부 AI의 일시적 실패는 제한 재시도하며 인증·시간초과·연결 실패를 구분한다. 훈련 데이터 저장은 사용자 요청 경로와 분리한다.",
+            "example": "요청 이해 -> 규칙 read-only -> AI 일시실패 1회 재시도 -> 구체 오류 또는 Mission 반환",
+        },
+    },
 
 ]
 
@@ -746,6 +764,46 @@ def _diagnose_core_case(item):
         detail = {
             "detail_enrichment_limit": FAST_DETAIL_ENRICH_LIMIT,
             "max_kakao_query_attempts": MAX_KAKAO_QUERY_ATTEMPTS,
+        }
+
+    elif key == "observed_request_processing_failure":
+        from unittest.mock import Mock
+
+        from .mission_service import (
+            _create_mission_response,
+        )
+
+        before_rules = TrainingRule.objects.count()
+        before_scenarios = TrainingScenario.objects.count()
+        active_rules_text(limit=30)
+        after_rules = TrainingRule.objects.count()
+        after_scenarios = TrainingScenario.objects.count()
+
+        expected = Mock()
+        expected.output_text = "{}"
+        client = Mock()
+        client.responses.create.side_effect = [
+            RuntimeError("temporary"),
+            expected,
+        ]
+        response = _create_mission_response(
+            client,
+            instructions="test",
+            request_text="테스트 요청",
+        )
+
+        passed = (
+            before_rules == after_rules
+            and before_scenarios == after_scenarios
+            and response is expected
+            and client.responses.create.call_count == 2
+        )
+        detail = {
+            "rules_before": before_rules,
+            "rules_after": after_rules,
+            "scenarios_before": before_scenarios,
+            "scenarios_after": after_scenarios,
+            "mission_attempts": client.responses.create.call_count,
         }
 
     else:
