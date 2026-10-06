@@ -121,6 +121,8 @@ class ArabaApi {
         body: jsonEncode({'request': request}),
       ),
       timeout: const Duration(seconds: 35),
+      retries: 2,
+      retryServerErrors: true,
     );
 
     return _decode(response);
@@ -143,6 +145,8 @@ class ArabaApi {
         body: jsonEncode({'mission': mission}),
       ),
       timeout: const Duration(seconds: 32),
+      retries: 2,
+      retryServerErrors: true,
     );
 
     return _decode(response);
@@ -407,13 +411,27 @@ class ArabaApi {
     Future<http.Response> Function() action, {
     required Duration timeout,
     int retries = 0,
+    bool retryServerErrors = false,
   }) async {
     for (var attempt = 0; attempt <= retries; attempt++) {
       try {
-        return await action().timeout(timeout);
+        final response = await action().timeout(timeout);
+
+        if (retryServerErrors &&
+            response.statusCode >= 500 &&
+            attempt < retries) {
+          await Future<void>.delayed(
+            Duration(milliseconds: 700 * (attempt + 1)),
+          );
+          continue;
+        }
+
+        return response;
       } on TimeoutException {
         if (attempt < retries) {
-          await Future<void>.delayed(const Duration(milliseconds: 700));
+          await Future<void>.delayed(
+            Duration(milliseconds: 700 * (attempt + 1)),
+          );
           continue;
         }
         throw const ArabaApiException(
@@ -421,7 +439,9 @@ class ArabaApi {
         );
       } on http.ClientException {
         if (attempt < retries) {
-          await Future<void>.delayed(const Duration(milliseconds: 700));
+          await Future<void>.delayed(
+            Duration(milliseconds: 700 * (attempt + 1)),
+          );
           continue;
         }
         throw const ArabaApiException(
