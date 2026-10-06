@@ -17,6 +17,10 @@ KAKAO_ADDRESS_SEARCH_URL = (
     "https://dapi.kakao.com/v2/local/search/address.json"
 )
 
+# 첫 응답을 상세검증 전체에 묶어두면 모바일 조회 타임아웃이 발생할 수 있다.
+# 상위 후보만 빠르게 상세검증하고 나머지는 후보 자체를 먼저 반환한다.
+FAST_DETAIL_ENRICH_LIMIT = 4
+
 
 class ResearchConfigurationError(ValueError):
     pass
@@ -800,7 +804,7 @@ def search_real_businesses(
             if canonical_location:
                 search_mission["location"] = canonical_location
 
-    for query in _search_queries(search_mission):
+    for query in _search_queries(search_mission)[:5]:
         try:
             response = httpx.get(
                 KAKAO_LOCAL_SEARCH_URL,
@@ -855,8 +859,8 @@ def search_real_businesses(
                     ),
                 },
                 timeout=httpx.Timeout(
-                    5.0,
-                    connect=2.0,
+                    3.5,
+                    connect=1.5,
                 ),
             )
         except httpx.HTTPError as exc:
@@ -971,17 +975,54 @@ def search_real_businesses(
         if business["name"]
     ]
 
-    kakao_businesses = (
+    detail_targets = kakao_businesses[
+        :FAST_DETAIL_ENRICH_LIMIT
+    ]
+    deferred_targets = kakao_businesses[
+        FAST_DETAIL_ENRICH_LIMIT:
+    ]
+
+    enriched_primary = (
         enrich_businesses_with_kakao_pages(
-            kakao_businesses
+            detail_targets
         )
     )
 
-    businesses = enrich_businesses_with_naver(
-        kakao_businesses,
+    for item in deferred_targets:
+        item["kakao_page_checked"] = False
+
+    kakao_businesses = [
+        *enriched_primary,
+        *deferred_targets,
+    ]
+
+    naver_primary = enrich_businesses_with_naver(
+        kakao_businesses[
+            :FAST_DETAIL_ENRICH_LIMIT
+        ],
         client_id=naver_client_id,
         client_secret=naver_client_secret,
     )
+
+    deferred_naver = []
+    for item in kakao_businesses[
+        FAST_DETAIL_ENRICH_LIMIT:
+    ]:
+        deferred_naver.append(
+            {
+                **item,
+                "naver": {
+                    "matched": False,
+                    "page_checked": False,
+                    "status": "deferred_fast_response",
+                },
+            }
+        )
+
+    businesses = [
+        *naver_primary,
+        *deferred_naver,
+    ]
 
     naver_matched_count = sum(
         1
@@ -1022,6 +1063,11 @@ def search_real_businesses(
         "evaluation": evaluation,
         "naver_matched_count": naver_matched_count,
         "naver_page_checked_count": naver_page_checked_count,
+        "detail_enrichment_limit": FAST_DETAIL_ENRICH_LIMIT,
+        "detail_deferred_count": max(
+            0,
+            len(businesses) - FAST_DETAIL_ENRICH_LIMIT,
+        ),
         "kakao_photo_count": sum(
             1
             for item in businesses
