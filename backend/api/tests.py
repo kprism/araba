@@ -2500,28 +2500,28 @@ class CoreTrainingCurriculumTests(TestCase):
 
         self.assertEqual(
             len(CORE_CURRICULUM),
-            12,
+            13,
         )
         self.assertEqual(
             len(first),
-            12,
+            13,
         )
         self.assertEqual(
             len(second),
-            12,
+            13,
         )
         self.assertEqual(
             TrainingScenario.objects.filter(
                 category="범용",
             ).count(),
-            12,
+            13,
         )
         self.assertEqual(
             TrainingRule.objects.filter(
                 source="core_curriculum",
                 active=True,
             ).count(),
-            12,
+            13,
         )
 
     def test_core_curriculum_contains_five_historical_and_five_future_cases(
@@ -2560,7 +2560,7 @@ class CoreTrainingCurriculumTests(TestCase):
         ]
         self.assertEqual(
             len(observed),
-            2,
+            3,
         )
 
     def test_all_curriculum_cases_run_as_training_and_pass_current_guards(
@@ -2575,7 +2575,7 @@ class CoreTrainingCurriculumTests(TestCase):
 
         self.assertEqual(
             len(runs),
-            12,
+            13,
         )
         self.assertTrue(
             all(
@@ -2594,7 +2594,7 @@ class CoreTrainingCurriculumTests(TestCase):
             TrainingRun.objects.filter(
                 mode="curriculum_regression",
             ).count(),
-            12,
+            13,
         )
         self.assertTrue(
             all(
@@ -2623,7 +2623,7 @@ class CoreTrainingCurriculumTests(TestCase):
         )
         self.assertEqual(
             response.data["trained"],
-            12,
+            13,
         )
         self.assertEqual(
             response.data["historical_count"],
@@ -2635,11 +2635,11 @@ class CoreTrainingCurriculumTests(TestCase):
         )
         self.assertEqual(
             response.data["observed_failure_count"],
-            2,
+            3,
         )
         self.assertEqual(
             response.data["passed"],
-            12,
+            13,
         )
         self.assertEqual(
             response.data["failed"],
