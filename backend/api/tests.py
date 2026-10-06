@@ -3466,6 +3466,57 @@ class FastMissionRoutingTests(TestCase):
             ],
         )
 
+    @patch(
+        "api.services.mission_service.active_rules_text"
+    )
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_administrative_fast_route_accepts_natural_voice_variants(
+        self,
+        mocked_openai,
+        mocked_rules,
+    ):
+        from api.services.mission_service import (
+            create_mission,
+        )
+
+        variants = [
+            "어, 창원시 의창구 중동 치과 몇 군데 찾아줘",
+            "그럼 창원시 의창구 중동의 치과 몇 군데 찾아줘요",
+            "혹시 창원시 의창구 중동에 있는 치과 몇 군데 찾아줘",
+            "창원시 의창구 중동에서 치과를 몇 군데 알아봐 줘",
+        ]
+
+        for request_text in variants:
+            with self.subTest(request_text=request_text):
+                diagnostics = {}
+                mission = create_mission(
+                    request_text,
+                    "sk-test",
+                    diagnostics=diagnostics,
+                )
+
+                self.assertEqual(
+                    mission["location"],
+                    "창원시 의창구 중동",
+                )
+                self.assertEqual(
+                    mission["search_terms"],
+                    ["치과"],
+                )
+                self.assertEqual(
+                    diagnostics["route"],
+                    "administrative_place",
+                )
+                self.assertEqual(
+                    diagnostics["openai_elapsed_ms"],
+                    0,
+                )
+
+        mocked_openai.assert_not_called()
+        mocked_rules.assert_not_called()
+
     def test_general_question_does_not_use_fast_place_route(
         self,
     ):

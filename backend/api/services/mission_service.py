@@ -297,15 +297,32 @@ def _has_follow_up_reference(text):
 
 
 
-def _clean_fast_place_subject(value):
+def _normalize_fast_place_request(value):
     text = " ".join(
         str(value or "").split()
     ).strip(" ?!.,")
+    text = re.sub(
+        r"^(?:(?:어|음|저기|자|그럼|그러면|혹시|그리고|그다음)\s*[,.:;]?\s*)+",
+        "",
+        text,
+    ).strip()
+    return text
+
+
+def _clean_fast_place_subject(value):
+    text = _normalize_fast_place_request(
+        value
+    )
     if not text:
         return ""
 
     text = re.sub(
-        r"\s*(?:좀\s*)?(?:알아봐(?:줘)?|찾아봐(?:줘)?|찾아줘|검색해줘|추천해줘|보여줘)(?:요)?\s*$",
+        r"^(?:에\s*)?(?:있는|위치한|소재한)\s+",
+        "",
+        text,
+    ).strip()
+    text = re.sub(
+        r"\s*(?:좀\s*)?(?:알아봐(?:\s*줘)?|찾아(?:봐)?(?:\s*줘)?|검색해(?:\s*줘)?|추천해(?:\s*줘)?|보여(?:\s*줘)?|알려(?:\s*줘)?)(?:요)?\s*$",
         "",
         text,
     ).strip()
@@ -324,8 +341,12 @@ def _clean_fast_place_subject(value):
         "",
         text,
     ).strip()
+    text = re.sub(
+        r"(?:을|를)\s*$",
+        "",
+        text,
+    ).strip()
     return text
-
 
 def _build_fast_place_mission(
     location,
@@ -469,6 +490,9 @@ def _fast_reference_place_mission(request_text):
     for current in _fast_request_candidates(
         request_text
     ):
+        current = _normalize_fast_place_request(
+            current
+        )
         compact = _compact_text(current)
 
         if not any(
@@ -525,12 +549,15 @@ _ADMIN_LOCATION_PATTERN = (
 
 def _fast_administrative_place_mission(request_text):
     """
-    '창원시 의창구 중동에 치과 몇 군데 찾아줘'처럼
-    행정구역과 찾을 업종이 모두 명확한 요청도 LLM 없이 바로 조사한다.
+    행정구역과 찾을 업종이 명확한 장소 요청은 말투 차이가 있어도
+    LLM 없이 바로 조사 Mission으로 만든다.
     """
     for current in _fast_request_candidates(
         request_text
     ):
+        current = _normalize_fast_place_request(
+            current
+        )
         compact = _compact_text(current)
 
         if not any(
@@ -541,21 +568,29 @@ def _fast_administrative_place_mission(request_text):
                 "검색",
                 "추천",
                 "보여줘",
+                "알려줘",
             )
         ):
             continue
 
         match = re.match(
             rf"^\s*(?P<location>{_ADMIN_LOCATION_PATTERN})"
-            r"(?:에|에서)\s*(?P<subject>.+?)\s*$",
+            r"(?:(?:에|에서|의|내|안에서|쪽에)\s*)?"
+            r"(?P<subject>.+?)\s*$",
             current,
         )
         if match is None:
             continue
 
+        subject = _clean_fast_place_subject(
+            match.group("subject")
+        )
+        if not subject:
+            continue
+
         mission = _build_fast_place_mission(
             match.group("location"),
-            match.group("subject"),
+            subject,
             location_type="administrative_area",
             search_mode="category_discovery",
             radius_hint_km=None,
