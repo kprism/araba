@@ -590,9 +590,11 @@ def _mission_keywords(mission):
         else []
     )
 
-    # 세부업종이 있으면 가장 강한 분류 신호로 사용한다.
-    # 없을 때만 검색어, subject 순으로 내려간다.
-    values = subcategories or search_terms
+    # 검색 적합성은 사용자가 실제로 찾으려는 업종/서비스 검색어를
+    # 우선한다. "임플란트", "야간진료"처럼 세부조건만으로
+    # 정상 업체 전체를 탈락시키지 않도록 subcategories는
+    # 검색어가 없을 때의 보조 신호로만 사용한다.
+    values = search_terms or subcategories
     if not values:
         values = [
             str(
