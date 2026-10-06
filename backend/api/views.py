@@ -888,6 +888,65 @@ def training_run_auto(request):
 
 
 @api_view(["POST"])
+def training_core_curriculum(request):
+    from .services.training_service import (
+        CORE_CURRICULUM,
+        run_core_curriculum_diagnostics,
+    )
+
+    try:
+        runs = run_core_curriculum_diagnostics()
+        passed = sum(
+            1
+            for run in runs
+            if run.score >= 100
+        )
+
+        return Response(
+            {
+                "ok": True,
+                "trained": len(runs),
+                "passed": passed,
+                "failed": len(runs) - passed,
+                "historical_count": sum(
+                    1
+                    for item in CORE_CURRICULUM
+                    if item["group"] == "historical_failure"
+                ),
+                "future_complex_count": sum(
+                    1
+                    for item in CORE_CURRICULUM
+                    if item["group"] == "future_complex"
+                ),
+                "runs": [
+                    {
+                        "id": run.id,
+                        "scenario": (
+                            run.scenario.title
+                            if run.scenario
+                            else None
+                        ),
+                        "score": run.score,
+                        "mistakes": run.mistakes,
+                    }
+                    for run in runs
+                ],
+            }
+        )
+    except Exception as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "핵심 훈련 커리큘럼 실행 중 오류가 발생했습니다: "
+                    f"{exc}"
+                ),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["POST"])
 def training_feedback(request):
     from .services.training_service import (
         save_training_rule,
