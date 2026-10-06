@@ -918,6 +918,11 @@ def training_core_curriculum(request):
                     for item in CORE_CURRICULUM
                     if item["group"] == "future_complex"
                 ),
+                "observed_failure_count": sum(
+                    1
+                    for item in CORE_CURRICULUM
+                    if item["group"] == "observed_failure"
+                ),
                 "runs": [
                     {
                         "id": run.id,
