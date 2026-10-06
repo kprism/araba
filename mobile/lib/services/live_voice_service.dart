@@ -31,6 +31,9 @@ class LiveVoiceService {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   RTCDataChannel? _events;
+  RTCRtpSender? _microphoneSender;
+  MediaStreamTrack? _microphoneTrack;
+  bool _microphoneAttached = false;
 
   String _userTranscript = '';
   String? _pendingRequestContext;
@@ -77,8 +80,16 @@ class LiveVoiceService {
       _localStream = stream;
 
       for (final track in stream.getAudioTracks()) {
-        await peerConnection.addTrack(track, stream);
+        final sender = await peerConnection.addTrack(
+          track,
+          stream,
+        );
+        _microphoneTrack ??= track;
+        _microphoneSender ??= sender;
       }
+      _microphoneAttached =
+          _microphoneSender != null &&
+          _microphoneTrack != null;
 
       await Helper.setSpeakerphoneOnButPreferBluetooth();
 
@@ -429,19 +440,38 @@ class LiveVoiceService {
   }
 
   Future<void> pauseAudio() async {
-    for (final track
-        in _localStream?.getAudioTracks() ??
-            <MediaStreamTrack>[]) {
-      track.enabled = false;
+    final sender = _microphoneSender;
+
+    if (
+        sender != null &&
+        _microphoneAttached
+    ) {
+      await sender.replaceTrack(null);
+      _microphoneAttached = false;
     }
-    onStatus('마이크 꺼짐 · ARABA 연결 유지');
+
+    // 송신 트랙만 분리한다. 로컬/원격 오디오 세션은 그대로 두어
+    // ARABA의 Live 브리핑 음성은 계속 재생되게 한다.
+    try {
+      await Helper.setSpeakerphoneOnButPreferBluetooth();
+    } catch (_) {}
+
+    onStatus(
+      '마이크 꺼짐 · ARABA 음성은 계속',
+    );
   }
 
   Future<void> resumeAudio() async {
-    for (final track
-        in _localStream?.getAudioTracks() ??
-            <MediaStreamTrack>[]) {
-      track.enabled = true;
+    final sender = _microphoneSender;
+    final track = _microphoneTrack;
+
+    if (
+        sender != null &&
+        track != null &&
+        !_microphoneAttached
+    ) {
+      await sender.replaceTrack(track);
+      _microphoneAttached = true;
     }
 
     try {
@@ -512,6 +542,9 @@ class LiveVoiceService {
     _missionFallbackTimer = null;
     _missionInFlight = false;
     _connectionState = null;
+    _microphoneAttached = false;
+    _microphoneSender = null;
+    _microphoneTrack = null;
 
     try {
       await _events?.close();

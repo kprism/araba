@@ -5,6 +5,7 @@ import httpx
 
 from .kakao_place_service import enrich_businesses_with_kakao_pages
 from .naver_place_service import enrich_businesses_with_naver
+from .web_place_enrichment_service import enrich_businesses_with_web
 from .research_evaluation_service import (
     evaluate_research_result,
 )
@@ -1138,6 +1139,13 @@ def search_real_businesses(
         *deferred_naver,
     ]
 
+    businesses = enrich_businesses_with_web(
+        businesses,
+        mission,
+        client_id=naver_client_id,
+        client_secret=naver_client_secret,
+    )
+
     naver_matched_count = sum(
         1
         for item in businesses
@@ -1165,6 +1173,7 @@ def search_real_businesses(
         "source": "kakao+naver",
         "primary_source": "kakao",
         "secondary_source": "naver_place",
+        "fallback_source": "naver_blog+web",
         "search_query": selected_query,
         "search_mode": str(
             mission.get("search_mode")
@@ -1192,6 +1201,13 @@ def search_real_businesses(
             ).strip()
             and item.get("image_source")
             == "kakao_place"
+        ),
+        "web_enriched_count": sum(
+            1
+            for item in businesses
+            if isinstance(item.get("web"), dict)
+            and item["web"].get("status")
+            == "matched"
         ),
         "reference_origin": reference_origin,
         "resolved_location_type": (

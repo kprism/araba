@@ -1059,6 +1059,80 @@ class NaverPlaceServiceTests(TestCase):
         )
 
 
+class WebPlaceEnrichmentTests(TestCase):
+    def test_missing_keywords_include_card_detail_fields(self):
+        from api.services.web_place_enrichment_service import (
+            _missing_keywords,
+        )
+
+        result = _missing_keywords(
+            {
+                "name": "테스트치과",
+                "address": "창원시 의창구 중동",
+                "phone": "",
+                "image_url": None,
+                "naver": {
+                    "opening_hours": [],
+                    "parking_available": None,
+                    "prices": [],
+                },
+            },
+            {
+                "required_facts": ["영업시간"],
+                "constraints": [],
+            },
+        )
+
+        self.assertIn("영업시간", result)
+        self.assertIn("주차", result)
+        self.assertIn("가격", result)
+        self.assertIn("사진", result)
+        self.assertIn("전화번호", result)
+
+    def test_web_evidence_extracts_hours_parking_and_prices(self):
+        from api.services.web_place_enrichment_service import (
+            _extract_hours,
+            _extract_parking,
+            _extract_prices,
+        )
+
+        text = (
+            "영업시간: 평일 09:00-18:00 "
+            "건물 내 주차 가능 "
+            "스케일링 50,000원"
+        )
+
+        self.assertTrue(_extract_hours(text))
+        self.assertTrue(_extract_parking(text))
+        prices = _extract_prices(text)
+        self.assertTrue(prices)
+        self.assertEqual(
+            prices[0]["price"],
+            "50,000원",
+        )
+
+    def test_private_or_local_urls_are_blocked(self):
+        from api.services.web_place_enrichment_service import (
+            _safe_public_url,
+        )
+
+        self.assertFalse(
+            _safe_public_url(
+                "http://127.0.0.1/admin"
+            )
+        )
+        self.assertFalse(
+            _safe_public_url(
+                "http://localhost/test"
+            )
+        )
+        self.assertTrue(
+            _safe_public_url(
+                "https://blog.naver.com/example"
+            )
+        )
+
+
 class NaverParkingExtractionTests(TestCase):
     def test_explicit_parking_available_is_detected(self):
         from api.services.naver_place_service import (

@@ -1731,6 +1731,25 @@ class _BusinessCards extends StatelessWidget {
                 ?.toString()
                 .trim() ??
             '';
+    final webValue = business['web'];
+    final web = webValue is Map
+        ? Map<String, dynamic>.from(webValue)
+        : <String, dynamic>{};
+    final rawSources = web['sources'];
+    final webSources = rawSources is List
+        ? rawSources
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList()
+        : <Map<String, dynamic>>[];
+    final webSourceUrl = webSources.isNotEmpty
+        ? webSources.first['url']?.toString().trim() ?? ''
+        : '';
+    final priceLink =
+        (naver['price_link'] ?? web['price_link'])
+                ?.toString()
+                .trim() ??
+            '';
     final rawHours = naver['opening_hours'];
     final openingHours = rawHours is List
         ? rawHours
@@ -1847,7 +1866,11 @@ class _BusinessCards extends StatelessWidget {
                                       : (
                                           imageSource == 'naver_place'
                                               ? '네이버 플레이스 사진'
-                                              : '업체 사진'
+                                              : (
+                                                  imageSource == 'web_evidence'
+                                                      ? '웹 확인 사진'
+                                                      : '업체 사진'
+                                                )
                                         ),
                                   style: const TextStyle(
                                     color: Colors.white,
@@ -2001,6 +2024,45 @@ class _BusinessCards extends StatelessWidget {
                             ),
                           ),
                         ],
+                        if (priceLink.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  _openPlace(priceLink),
+                              icon: const Icon(
+                                Icons.receipt_long_outlined,
+                              ),
+                              label: const Text(
+                                '가격 정보 출처 보기',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize:
+                                    const Size.fromHeight(48),
+                              ),
+                            ),
+                          ),
+                        ] else if (webSourceUrl.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  _openPlace(webSourceUrl),
+                              icon: const Icon(
+                                Icons.language_rounded,
+                              ),
+                              label: const Text(
+                                '웹 보강 출처 보기',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize:
+                                    const Size.fromHeight(48),
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         Text(
                           naver['matched'] == true
@@ -2047,7 +2109,7 @@ class _BusinessCards extends StatelessWidget {
     );
 
     return SizedBox(
-      height: hasMock ? 472 : 454,
+      height: hasMock ? 560 : 542,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: businesses.length,
@@ -2104,6 +2166,30 @@ class _BusinessCards extends StatelessWidget {
                     .map((item) => Map<String, dynamic>.from(item))
                     .toList()
               : <Map<String, dynamic>>[];
+          final parkingAvailable =
+              naver['parking_available'];
+          final priceLink =
+              naver['price_link']?.toString().trim() ?? '';
+          final webValue = business['web'];
+          final web = webValue is Map
+              ? Map<String, dynamic>.from(webValue)
+              : <String, dynamic>{};
+          final webSourcesValue = web['sources'];
+          final webSources = webSourcesValue is List
+              ? webSourcesValue
+                  .whereType<Map>()
+                  .map(
+                    (item) =>
+                        Map<String, dynamic>.from(item),
+                  )
+                  .toList()
+              : <Map<String, dynamic>>[];
+          final webSourceUrl = webSources.isNotEmpty
+              ? webSources.first['url']
+                      ?.toString()
+                      .trim() ??
+                  ''
+              : '';
 
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
@@ -2112,7 +2198,7 @@ class _BusinessCards extends StatelessWidget {
               business,
             ),
             child: Container(
-            width: hasMock ? 286 : 258,
+            width: hasMock ? 300 : 282,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
@@ -2193,7 +2279,11 @@ class _BusinessCards extends StatelessWidget {
                                     : (
                                         imageSource == 'naver_place'
                                             ? '네이버 플레이스 사진'
-                                            : '업체 사진'
+                                            : (
+                                                imageSource == 'web_evidence'
+                                                    ? '웹 확인 사진'
+                                                    : '업체 사진'
+                                              )
                                       ),
                                 style: const TextStyle(
                                   color: Colors.white,
@@ -2430,6 +2520,37 @@ class _BusinessCards extends StatelessWidget {
                             ],
                           ),
                         ],
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.local_parking_outlined,
+                              size: 15,
+                              color: Color(0xFF667085),
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                parkingAvailable == true
+                                    ? '주차 가능'
+                                    : (
+                                        parkingAvailable == false
+                                            ? '주차 불가'
+                                            : '주차 정보 확인 필요'
+                                      ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: parkingAvailable == null
+                                      ? const Color(0xFF98A2B3)
+                                      : const Color(0xFF344054),
+                                  fontSize: 11.3,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                         if (address.isNotEmpty) ...[
                           const SizedBox(height: 7),
                           Row(
@@ -2519,13 +2640,39 @@ class _BusinessCards extends StatelessWidget {
                                 style: TextButton.styleFrom(
                                   visualDensity: VisualDensity.compact,
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 5,
+                                    horizontal: 4,
                                   ),
                                 ),
                                 child: const Text(
                                   '네이버',
                                   style: TextStyle(
-                                    fontSize: 11,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            if (
+                              priceLink.isNotEmpty ||
+                              webSourceUrl.isNotEmpty
+                            )
+                              TextButton(
+                                onPressed: () => _openPlace(
+                                  priceLink.isNotEmpty
+                                      ? priceLink
+                                      : webSourceUrl,
+                                ),
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                  ),
+                                ),
+                                child: Text(
+                                  priceLink.isNotEmpty
+                                      ? '가격표'
+                                      : '웹',
+                                  style: const TextStyle(
+                                    fontSize: 10.5,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
