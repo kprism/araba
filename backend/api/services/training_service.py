@@ -278,7 +278,7 @@ def _ensure_core_scenario(item):
         "difficulty": item["difficulty"],
         "expected_behaviors": item["expected_behaviors"],
         "provider_profile": {
-            "curriculum": "goal-first-v1",
+            "curriculum": "intent-router-v2",
             "group": item["group"],
         },
     }
@@ -410,7 +410,7 @@ def _diagnose_core_case(item):
         intent = _normalize_intent(
             {
                 "intent": "place_search",
-                "goal": "중동 치과 찾기",
+                "goal": "창원시 의창구 중동에서 치과 후보 찾기",
                 "location": {
                     "value": "창원시 의창구 중동",
                     "type": "administrative_area",
@@ -430,15 +430,12 @@ def _diagnose_core_case(item):
                 "direct_answer": None,
             }
         )
-        result = _mission_from_intent(
-            intent
-        )
+        result = _mission_from_intent(intent)
         passed = (
             result.get("target_business") is None
             and result.get("search_mode")
             == "category_discovery"
-            and result.get("category")
-            == "치과"
+            and result.get("search_terms") == ["치과"]
         )
         detail = {
             "target_business": result.get(
@@ -447,10 +444,11 @@ def _diagnose_core_case(item):
             "search_mode": result.get(
                 "search_mode"
             ),
-            "category": result.get(
-                "category"
+            "search_terms": result.get(
+                "search_terms"
             ),
         }
+
     elif key == "historical_live_claim_without_work":
         from .live_service import LIVE_SYSTEM_PROMPT
 
@@ -854,6 +852,7 @@ def _diagnose_core_case(item):
 
     elif key == "observed_cross_topic_context_leak":
         from .mission_service import (
+            INTENT_SYSTEM_PROMPT,
             _mission_from_intent,
             _normalize_intent,
         )
@@ -863,7 +862,7 @@ def _diagnose_core_case(item):
                 "intent": "place_search",
                 "goal": "창원에서 임플란트 가능한 치과 찾기",
                 "location": {
-                    "value": "창원",
+                    "value": "창원시",
                     "type": "administrative_area",
                     "explicit": True,
                 },
@@ -881,32 +880,31 @@ def _diagnose_core_case(item):
                 "direct_answer": None,
             }
         )
-        mission = _mission_from_intent(
-            intent
-        )
+        mission = _mission_from_intent(intent)
 
         passed = (
-            mission.get("category") == "치과"
+            "[현재 요청]이 있으면 그것이 항상 최우선"
+            in INTENT_SYSTEM_PROMPT
+            and mission.get("category") == "치과"
             and mission.get("target_business") is None
             and mission.get("search_mode")
             == "category_discovery"
-            and mission.get("search_terms")
-            == ["치과"]
+            and mission.get("constraints")
+            == ["임플란트 가능"]
         )
         detail = {
-            "category": mission.get(
-                "category"
-            ),
+            "category": mission.get("category"),
             "target_business": mission.get(
                 "target_business"
             ),
             "search_mode": mission.get(
                 "search_mode"
             ),
-            "search_terms": mission.get(
-                "search_terms"
+            "constraints": mission.get(
+                "constraints"
             ),
         }
+
     else:
         passed = False
         detail = {

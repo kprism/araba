@@ -2561,7 +2561,7 @@ class SearchIntentBreadthTests(TestCase):
                 "intent": "place_search",
                 "search_mode": "category_discovery",
                 "location": "",
-                "subject": "임플란트 가능한 치과",
+                "subject": "치과",
                 "search_terms": ["치과"],
                 "constraints": ["임플란트 가능"],
                 "requested_count": 5,
@@ -2922,6 +2922,7 @@ class FastFirstResearchResponseTests(TestCase):
         result = search_real_businesses(
             {
                 "search_mode": "category_discovery",
+                "requested_count": 8,
                 "category": "",
                 "subcategories": [],
                 "location": "",
