@@ -1074,7 +1074,7 @@ def search_real_businesses(
                 if key and key not in collected:
                     collected[key] = item
 
-            if len(collected) >= 12:
+            if len(collected) >= 6:
                 break
         elif filtered:
             documents = filtered
