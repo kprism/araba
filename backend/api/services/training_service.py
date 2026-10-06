@@ -239,6 +239,24 @@ CORE_CURRICULUM = [
             "example": "요청 이해 -> 규칙 read-only -> AI 일시실패 1회 재시도 -> 구체 오류 또는 Mission 반환",
         },
     },
+    {
+        "key": "observed_cross_topic_context_leak",
+        "group": "observed_failure",
+        "title": "관찰실패 · 이전 주제가 새 질문을 오염",
+        "request": "타이어를 찾은 다음 '창원에서 임플란트 가능한 치과 몇 군데 알아봐'라고 새 주제로 전환",
+        "goal": "같은 채팅에서 새 업종·주제로 넘어가면 현재 요청을 독립된 최우선 입력으로 해석하고 이전 업체·업종·제약을 제거한다.",
+        "difficulty": "어려움",
+        "expected_behaviors": [
+            "현재 요청 블록을 과거 대화 문맥과 정확히 분리한다.",
+            "새 질문에 과거 target_business가 명시된 것으로 오인하지 않는다.",
+            "새 category가 들어오면 이전 주제의 subject, target_business, constraints, attributes를 승계하지 않는다.",
+        ],
+        "rule": {
+            "trigger": "같은 채팅에서 사용자가 이전 업종과 다른 새 업종·주제·범위를 명시한다.",
+            "instruction": "현재 요청을 최우선 독립 입력으로 분리하고, 명백한 후속표현이 없으면 이전 target_business와 주제별 제약·속성을 버린다. 새 업종을 과거 문맥과 섞지 않는다.",
+            "example": "타이어 검색 후 '창원에서 임플란트 가능한 치과' -> 자동차/타이어 문맥 제거 후 치과 새 조사",
+        },
+    },
 
 ]
 
@@ -804,6 +822,49 @@ def _diagnose_core_case(item):
             "scenarios_before": before_scenarios,
             "scenarios_after": after_scenarios,
             "mission_attempts": client.responses.create.call_count,
+        }
+
+    elif key == "observed_cross_topic_context_leak":
+        from .mission_service import (
+            _current_request_text,
+            _normalize_search_scope,
+        )
+
+        request_text = (
+            "[현재 요청]\\n"
+            "창원에서 임플란트 가능한 치과 몇 군데 알아봐.\\n\\n"
+            "[대화 문맥 - 참고용]\\n"
+            '{"category":"자동차","subject":"타이어 교체",'
+            '"target_business":"예전타이어점"}'
+        )
+
+        current = _current_request_text(
+            request_text
+        )
+        mission = _normalize_search_scope(
+            {
+                "search_mode": "follow_up_detail",
+                "target_business": "예전타이어점",
+                "ready_to_research": True,
+            },
+            request_text,
+        )
+
+        passed = (
+            current
+            == "창원에서 임플란트 가능한 치과 몇 군데 알아봐."
+            and mission.get("target_business") is None
+            and mission.get("search_mode")
+            == "category_discovery"
+        )
+        detail = {
+            "current_request": current,
+            "target_business": mission.get(
+                "target_business"
+            ),
+            "search_mode": mission.get(
+                "search_mode"
+            ),
         }
 
     else:
