@@ -508,7 +508,7 @@ def _fast_reference_place_mission(request_text):
             continue
 
         match = re.match(
-            r"^\s*(?P<location>.+?)\s*(?:주변|근처|인근)(?:에|에서)?\s*(?P<subject>.+?)\s*$",
+            r"^\s*(?P<location>.+?)\s*(?:주변|근처|인근)(?:에서|에)?\s*(?P<subject>.+?)\s*$",
             current,
         )
         if match is None:
@@ -575,7 +575,7 @@ def _fast_administrative_place_mission(request_text):
 
         match = re.match(
             rf"^\s*(?P<location>{_ADMIN_LOCATION_PATTERN})"
-            r"(?:(?:에|에서|의|내|안에서|쪽에)\s*)?"
+            r"(?:(?:안에서|에서|쪽에|에|의|내)\s*)?"
             r"(?P<subject>.+?)\s*$",
             current,
         )
