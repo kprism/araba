@@ -57,6 +57,8 @@ class ConversationContext {
         'target_business',
         'attributes',
         'constraints',
+        'criteria',
+        'task_state',
         'comparison',
         'user_goal',
         'decision_needed',
@@ -128,6 +130,8 @@ class ConversationContext {
       'subject',
       'target_business',
       'comparison',
+      'criteria',
+      'task_state',
       'user_goal',
       'decision_needed',
       'expected_answer',
@@ -216,6 +220,20 @@ class ConversationContext {
               .take(4)
               .toList()
           : <String>[];
+      final rawPrices = naver['prices'];
+      final prices = rawPrices is List
+          ? rawPrices
+              .whereType<Map>()
+              .take(3)
+              .map(
+                (item) => {
+                  'name': item['name']?.toString().trim() ?? '',
+                  'price': item['price']?.toString().trim() ?? '',
+                  'currency': item['currency']?.toString().trim() ?? '',
+                },
+              )
+              .toList()
+          : <Map<String, dynamic>>[];
 
       summarized.add({
         'rank': index + 1,
@@ -230,6 +248,8 @@ class ConversationContext {
         if (naver.containsKey('parking_available'))
           'parking_available':
               naver['parking_available'],
+        if (prices.isNotEmpty)
+          'prices': prices,
       });
     }
 
