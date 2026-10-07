@@ -854,12 +854,6 @@ class _HomeScreenState extends State<HomeScreen>
         );
       }
 
-      if (kakaoRestApiKey == null) {
-        throw const ArabaApiException(
-          'MY의 관리자 API 설정에서 Kakao REST API Key를 먼저 등록해주세요.',
-        );
-      }
-
       final naverCredentials = await _naverStore.read();
 
       _updateResearchStage(
