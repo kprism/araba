@@ -707,6 +707,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // Reuse the visible result set for contextual comparison follow-ups.
   bool _isRecentPlaceComparison(
     Map<String, dynamic> mission,
   ) {
