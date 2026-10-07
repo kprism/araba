@@ -784,6 +784,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _runRecentPlaceComparison(
     Map<String, dynamic> mission,
+    int revision,
   ) async {
     final candidates = _lastBusinesses
         .map((item) => Map<String, dynamic>.from(item))
@@ -799,6 +800,7 @@ class _HomeScreenState extends State<HomeScreen>
     final naverCredentials = await _naverStore.read();
     _updateResearchStage(
       '직전 업체를 새로 검색하지 않고 조건별 근거를 판정하는 중…',
+      revision: revision,
     );
 
     final result = await _api.enrichBusinesses(
@@ -808,6 +810,10 @@ class _HomeScreenState extends State<HomeScreen>
       naverClientId: naverCredentials?.clientId,
       naverClientSecret: naverCredentials?.clientSecret,
     );
+
+    if (!mounted || revision != _researchRevision) {
+      return;
+    }
 
     final selected = _businessesFrom(result);
     final rawMatching = result['matching'];
@@ -845,16 +851,25 @@ class _HomeScreenState extends State<HomeScreen>
       );
     }
 
-    final answer = summary.isNotEmpty
-        ? summary
+    final namedAnswer = _namedMatchAnswer(selected);
+    final answer = namedAnswer.isNotEmpty
+        ? namedAnswer
         : (
-            answerReady
-                ? '조건을 모두 만족하는 업체 $matchedCount곳을 확인했어요.'
-                : '조건을 판정했지만 아직 최종 확정할 근거가 부족해요.'
+            summary.isNotEmpty
+                ? summary
+                : (
+                    answerReady
+                        ? '조건을 모두 만족하는 업체 ${matchedCount}곳을 확인했어요.'
+                        : '조건을 판정했지만 아직 최종 확정할 근거가 부족해요.'
+                  )
           );
+    final summaryLine = summary.isNotEmpty &&
+            summary != answer
+        ? '\n$summary'
+        : '';
 
     _addAssistantMessage(
-      text: '$answer\n'
+      text: '$answer$summaryLine\n'
           '조건충족 $matchedCount · 미확인 $unverifiedCount · '
           '불일치 $excludedCount',
       badge: answerReady
