@@ -455,6 +455,7 @@ def research_enrich(request):
         "parking": 0,
         "prices": 0,
         "photos": 0,
+        "image_candidates": 0,
     }
     for item in result:
         naver = item.get("naver") or {}
@@ -466,6 +467,11 @@ def research_enrich(request):
         )
         counts["prices"] += bool(naver.get("prices"))
         counts["photos"] += bool(item.get("image_url"))
+        openai_web = item.get("openai_web") or {}
+        if isinstance(openai_web, dict):
+            counts["image_candidates"] += int(
+                openai_web.get("image_result_count") or 0
+            )
 
     return Response(
         {

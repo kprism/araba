@@ -211,6 +211,14 @@ def _walk_results(value, found):
         }:
             found.append(dict(value))
 
+        if value_type == "url":
+            url = _safe_url(value.get("url"))
+            if url:
+                found.append({
+                    "type": "search_source",
+                    "url": url,
+                })
+
         annotations = value.get("annotations")
         if isinstance(annotations, list):
             for annotation in annotations:
@@ -249,6 +257,20 @@ def _search_results(response):
 
 
 def _source_urls(parsed, raw_results):
+    actual = []
+    for item in raw_results:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "image_result":
+            continue
+        for key in ("url", "source_website_url"):
+            url = _safe_url(item.get(key))
+            if url and url not in actual:
+                actual.append(url)
+
+    if actual:
+        return actual[:8]
+
     urls = []
     raw_sources = parsed.get("source_urls")
     if isinstance(raw_sources, list):
@@ -259,47 +281,38 @@ def _source_urls(parsed, raw_results):
     return urls[:8]
 
 
-def _business_name_variants(value):
-    compact = _normalize(value)
-    if not compact:
-        return []
-
-    variants = [compact]
-    suffixes = (
-        "치과의원",
-        "한의원",
-        "의원",
-        "병원",
-        "치과",
-        "클리닉",
-        "센터",
-    )
-
-    for suffix in suffixes:
-        suffix_compact = _normalize(suffix)
-        if (
-            compact.endswith(suffix_compact)
-            and len(compact) > len(suffix_compact) + 1
-        ):
-            stripped = compact[: -len(suffix_compact)]
-            if stripped and stripped not in variants:
-                variants.append(stripped)
-
-    return variants
-
-
 def _image_candidate(
     business,
     raw_results,
     *,
     verified_source_urls=None,
+    single_business_search=False,
 ):
-    name = _normalize(
-        business.get("name")
-    )
     name_variants = _business_name_variants(
         business.get("name")
     )
+    category = _normalize(
+        business.get("description")
+        or business.get("category")
+    )
+    address = _normalize(
+        business.get("address")
+        or business.get("road_address")
+    )
+    address_tokens = [
+        _normalize(token)
+        for token in re.findall(
+            r"[0-9A-Za-z가-힣]{2,}",
+            str(
+                business.get("address")
+                or business.get("road_address")
+                or ""
+            ),
+        )
+        if token.endswith(
+            ("시", "군", "구", "동", "로", "길")
+        )
+    ]
     verified_sources = {
         str(value or "").strip()
         for value in (
@@ -312,24 +325,10 @@ def _image_candidate(
         )
         if str(value or "").strip()
     }
-    category = _normalize(
-        business.get("description")
-        or business.get("category")
-    )
-    tokens = [
-        _normalize(token)
-        for token in re.findall(
-            r"[0-9A-Za-z가-힣]{2,}",
-            str(
-                business.get("name")
-                or ""
-            ),
-        )
-    ]
 
     ranked = []
 
-    for item in raw_results:
+    for order, item in enumerate(raw_results):
         if item.get("type") != "image_result":
             continue
 
@@ -337,10 +336,12 @@ def _image_candidate(
             item.get("image_url")
             or item.get("thumbnail_url")
         )
-
         if not image_url:
             continue
 
+        source_url = _safe_url(
+            item.get("source_website_url")
+        )
         caption = " ".join(
             str(item.get(key) or "")
             for key in (
@@ -350,59 +351,64 @@ def _image_candidate(
             )
         )
         compact = _normalize(caption)
-        score = 0
 
-        source_url = _safe_url(
-            item.get("source_website_url")
-        )
         name_match = any(
             variant and variant in compact
             for variant in name_variants
         )
-        verified_source_match = (
+        source_match = (
             source_url is not None
             and source_url in verified_sources
         )
-
-        # Each search call now targets one business only.
-        # Accept either a business-name variant in the image metadata or
-        # an image coming from a source page already verified for that business.
-        if not name_match and not verified_source_match:
-            continue
-
-        score += 100 if name_match else 70
-
-        score += sum(
-            8
-            for token in tokens
-            if token and token in compact
+        location_match = any(
+            token and token in compact
+            for token in address_tokens
+        )
+        category_match = (
+            bool(category)
+            and category in compact
         )
 
-        if category and category in compact:
-            score += 4
+        score = 0
+        if name_match:
+            score += 100
+        if source_match:
+            score += 60
+        if location_match:
+            score += 20
+        if category_match:
+            score += 12
 
-        if score > 0:
-            ranked.append(
-                (
-                    score,
-                    image_url,
-                    source_url,
-                    _clean_text(
-                        item.get("caption")
-                    ),
-                )
+        # One web search call is dedicated to exactly one verified business.
+        # If image metadata is sparse, prefer the top search image instead of
+        # throwing every image away. Explicit conflicting signals still lose.
+        if (
+            score == 0
+            and single_business_search
+            and order == 0
+        ):
+            score = 5
+
+        if score <= 0:
+            continue
+
+        ranked.append(
+            (
+                score,
+                -order,
+                image_url,
+                source_url,
+                _clean_text(
+                    item.get("caption")
+                ),
             )
+        )
 
     if not ranked:
         return None
 
-    ranked.sort(
-        key=lambda item: item[0],
-        reverse=True,
-    )
-
-    _, image_url, source_url, caption = ranked[0]
-
+    ranked.sort(reverse=True)
+    _, _, image_url, source_url, caption = ranked[0]
     return {
         "image_url": image_url,
         "source_url": source_url,
@@ -530,7 +536,7 @@ def _build_batch_prompt(
         "각 업체마다 업체명과 주소/지역이 같은 곳인지 먼저 검증한다.\n"
         "반드시 각 업체마다 정확한 상호명과 지역/주소를 함께 넣어 웹검색을 수행한다. "
         "필요 정보가 첫 검색에서 확인되지 않으면 영업시간·주차·가격·사진 키워드를 붙여 추가 검색한다.\n"
-        "입력된 모든 업체를 각각 확인하고 일부만 조사한 뒤 끝내지 않는다.\n"
+        "입력된 모든 업체를 각각 확인하고 일부만 조사한 뒤 끝내지 않는다.\n"        "각 업체의 정확한 상호명과 주소로 사진 검색도 반드시 수행하고, 외관·내부·진료실 등 실제 업체 사진을 우선한다.\n"
         "동명이거나 다른 지역이면 identity_match=false로 표시한다.\n"
         "공식 홈페이지, 네이버/카카오 장소정보, 업체가 직접 등록한 페이지를 우선하고, "
         "그 다음 신뢰할 수 있는 웹페이지와 블로그를 참고한다.\n"
@@ -702,6 +708,7 @@ def _apply_one_result(
         item,
         raw_results,
         verified_source_urls=sources,
+        single_business_search=True,
     )
 
     if (
@@ -736,6 +743,13 @@ def _apply_one_result(
         or bool(image)
     )
 
+    image_result_count = sum(
+        1
+        for value in raw_results
+        if isinstance(value, dict)
+        and value.get("type") == "image_result"
+    )
+
     item["openai_web"] = {
         "status": (
             "matched"
@@ -750,6 +764,7 @@ def _apply_one_result(
         "prices_found": bool(prices),
         "phone_found": bool(phone),
         "image_found": bool(image),
+        "image_result_count": image_result_count,
     }
 
     return item
@@ -796,7 +811,10 @@ def _enrich_batch(batch, mission, key):
                     },
                 }
             ],
-            include=["web_search_call.results"],
+            include=[
+                "web_search_call.results",
+                "web_search_call.action.sources",
+            ],
             input=_build_batch_prompt(batch, mission),
             text={
                 "format": {
