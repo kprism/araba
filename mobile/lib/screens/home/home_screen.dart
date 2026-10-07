@@ -661,6 +661,21 @@ class _HomeScreenState extends State<HomeScreen>
               ? (result['representative_photo_count'] as num)
                   .round()
               : 0;
+      final openingHoursCount =
+          result['opening_hours_count'] is num
+              ? (result['opening_hours_count'] as num)
+                  .round()
+              : 0;
+      final parkingInfoCount =
+          result['parking_info_count'] is num
+              ? (result['parking_info_count'] as num)
+                  .round()
+              : 0;
+      final priceInfoCount =
+          result['price_info_count'] is num
+              ? (result['price_info_count'] as num)
+                  .round()
+              : 0;
       final rawWebStatuses =
           result['openai_web_status_counts'];
       final webStatuses = rawWebStatuses is Map
@@ -678,6 +693,8 @@ class _HomeScreenState extends State<HomeScreen>
           webStatusCount('identity_not_confirmed');
       final webNotReturned =
           webStatusCount('not_returned');
+      final webNoDetail =
+          webStatusCount('no_detail_found');
 
       final evaluationValue =
           result['evaluation'];
@@ -701,9 +718,6 @@ class _HomeScreenState extends State<HomeScreen>
                   )
                   .toList()
               : <String>[];
-      final answerReady =
-          evaluation['answer_ready'] == true;
-
       _updateResearchStage(
         '영업시간·주차·가격·사진을 웹에서 확인하는 중…',
       );
@@ -748,6 +762,15 @@ class _HomeScreenState extends State<HomeScreen>
           '웹검색으로 $openAiWebEnriched곳의 부족정보를 보강했어요.',
         if (representativePhotos > 0)
           '대표사진 $representativePhotos곳을 확보했어요.',
+        '상세정보는 영업시간 $openingHoursCount/${businesses.length}, '
+            '주차 $parkingInfoCount/${businesses.length}, '
+            '가격 $priceInfoCount/${businesses.length}, '
+            '사진 $representativePhotos/${businesses.length} 확인.',
+        if (
+          openAiWebEnriched == 0 &&
+          webNoDetail > 0
+        )
+          '동일 업체는 찾았지만 상세정보를 확인하지 못한 곳이 $webNoDetail곳 있어요.',
         if (
           openAiWebEnriched == 0 &&
           webProviderErrors > 0
@@ -768,20 +791,35 @@ class _HomeScreenState extends State<HomeScreen>
 
       final searchDetail = searchQuery.isEmpty
           ? ''
-          : '\\n\\n검색 기준: $searchQuery';
+          : '\n\n검색 기준: $searchQuery';
 
-      final evidenceDetail = missingFacts.isEmpty
-          ? (
-              answerReady
-                  ? '\\n\\n현재 답에 필요한 핵심 사실까지 확인됐어요.'
-                  : ''
-            )
-          : '\\n\\n아직 확인이 필요한 정보: ${missingFacts.join(' · ')}';
+      final evidenceDetail = [
+        '\n\n상세정보 확인: 영업시간 $openingHoursCount/${businesses.length}'
+            ' · 주차 $parkingInfoCount/${businesses.length}'
+            ' · 가격 $priceInfoCount/${businesses.length}'
+            ' · 사진 $representativePhotos/${businesses.length}',
+        if (missingFacts.isNotEmpty)
+          '\n아직 확인이 필요한 정보: ${missingFacts.join(' · ')}',
+      ].join();
 
-      final spokenSummary = missingFacts.isEmpty
-          ? sourceSummary
-          : '$sourceSummary 아직 ${missingFacts.join(', ')} 확인이 더 필요해요.';
-
+      final missionLocation =
+          mission['location']?.toString().trim() ?? '';
+      final missionCategory =
+          mission['category']?.toString().trim() ?? '업체';
+      final locationContext = mission['location_context'];
+      final locationType = locationContext is Map
+          ? locationContext['type']?.toString().trim() ?? ''
+          : '';
+      final spokenLocation = missionLocation.isEmpty
+          ? ''
+          : (
+              locationType == 'reference_point'
+                  ? '$missionLocation 주변에서 '
+                  : '$missionLocation에서 '
+            );
+      final spokenSummary =
+          '$spokenLocation$missionCategory ${businesses.length}곳을 확인했어요. '
+          '검증된 결과를 화면 카드로 보여드릴게요.';
       _addAssistantMessage(
         text:
             '$sourceSummary$evidenceDetail$searchDetail',
@@ -3081,7 +3119,7 @@ class _ClarificationCard extends StatelessWidget {
   }
 }
 
-class _InlineStatusText extends StatelessWidget {
+class _InlineStatusText extends StatefulWidget {
   final String text;
 
   const _InlineStatusText({
@@ -3089,26 +3127,68 @@ class _InlineStatusText extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(
-        left: 43,
-        right: 34,
-        bottom: 12,
+  State<_InlineStatusText> createState() =>
+      _InlineStatusTextState();
+}
+
+class _InlineStatusTextState
+    extends State<_InlineStatusText>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(
+        milliseconds: 650,
       ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Color(0xFF667085),
-          fontSize: 13,
-          height: 1.35,
-          fontWeight: FontWeight.w500,
+    );
+    _opacity = Tween<double>(
+      begin: 0.35,
+      end: 1.0,
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeInOut,
+      ),
+    );
+    _controller.repeat(
+      reverse: true,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: Padding(
+        padding: const EdgeInsets.only(
+          left: 43,
+          right: 34,
+          bottom: 12,
+        ),
+        child: Text(
+          widget.text,
+          style: const TextStyle(
+            color: Color(0xFF667085),
+            fontSize: 13,
+            height: 1.35,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );
   }
 }
-
 class _LivePanel extends StatelessWidget {
   final String status;
   final bool active;
