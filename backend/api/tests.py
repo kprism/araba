@@ -1915,6 +1915,7 @@ class ProgressivePlaceResearchTests(TestCase):
             "parking": 1,
             "prices": 0,
             "photos": 1,
+            "image_candidates": 0,
         })
         self.assertEqual(response.data["detail_status"], "complete")
 

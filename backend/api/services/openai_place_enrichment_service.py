@@ -281,6 +281,35 @@ def _source_urls(parsed, raw_results):
     return urls[:8]
 
 
+def _business_name_variants(value):
+    compact = _normalize(value)
+    if not compact:
+        return []
+
+    variants = [compact]
+    suffixes = (
+        "치과의원",
+        "한의원",
+        "의원",
+        "병원",
+        "치과",
+        "클리닉",
+        "센터",
+    )
+
+    for suffix in suffixes:
+        normalized_suffix = _normalize(suffix)
+        if (
+            compact.endswith(normalized_suffix)
+            and len(compact) > len(normalized_suffix) + 1
+        ):
+            stripped = compact[: -len(normalized_suffix)]
+            if stripped and stripped not in variants:
+                variants.append(stripped)
+
+    return variants
+
+
 def _image_candidate(
     business,
     raw_results,
