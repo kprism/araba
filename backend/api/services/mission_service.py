@@ -715,35 +715,150 @@ def _fast_recent_place_comparison(user_request):
     ):
         return None
 
-    comparison = None
+    criteria = []
     facts = []
+    comparison = "criteria_filter"
+
+    def add_fact(value):
+        if value not in facts:
+            facts.append(value)
+
+    def add_criterion(
+        field,
+        operator,
+        value,
+        label,
+    ):
+        key = (field, operator, str(value))
+        if any(
+            (
+                item.get("field"),
+                item.get("operator"),
+                str(item.get("value")),
+            )
+            == key
+            for item in criteria
+        ):
+            return
+
+        criteria.append(
+            {
+                "id": f"c{len(criteria) + 1}",
+                "field": field,
+                "operator": operator,
+                "value": value,
+                "required": True,
+                "label": label,
+            }
+        )
 
     if re.search(
         r"가장늦|제일늦|늦게까지|늦게하는|늦은",
         compact,
     ):
         comparison = "latest_closing"
-        facts = ["영업시간"]
-    elif re.search(
-        r"주차.*(되는|가능)|주차되는",
+        add_fact("영업시간")
+        add_criterion(
+            "closing_time",
+            "max",
+            None,
+            "가장 늦게 영업",
+        )
+
+    if re.search(
+        r"주차.*(되는|가능)|주차되는|주차가능",
         compact,
     ):
-        comparison = "parking_available"
-        facts = ["주차"]
-    elif re.search(
+        if comparison == "criteria_filter":
+            comparison = "parking_available"
+        add_fact("주차")
+        add_criterion(
+            "parking_available",
+            "eq",
+            True,
+            "주차 가능",
+        )
+
+    if re.search(
         r"가장가까|제일가까|가까운",
         compact,
     ):
-        comparison = "nearest"
-        facts = ["거리"]
-    elif re.search(
+        if comparison == "criteria_filter":
+            comparison = "nearest"
+        add_fact("거리")
+        add_criterion(
+            "distance_m",
+            "min",
+            None,
+            "가장 가까운 곳",
+        )
+
+    if re.search(
         r"가장저렴|제일저렴|가장싼|제일싼",
         compact,
     ):
-        comparison = "lowest_price"
-        facts = ["가격"]
+        if comparison == "criteria_filter":
+            comparison = "lowest_price"
+        add_fact("가격")
+        add_criterion(
+            "price",
+            "min",
+            None,
+            "가장 저렴한 곳",
+        )
 
-    if comparison is None:
+    time_match = re.search(
+        r"(?:저녁|밤)?(\d{1,2})시(?:이후|넘어서|넘게|까지)",
+        compact,
+    )
+    if time_match:
+        hour = int(time_match.group(1))
+        if 1 <= hour <= 11:
+            hour += 12
+        if 0 <= hour <= 23:
+            threshold = f"{hour:02d}:00"
+            add_fact("영업시간")
+            add_criterion(
+                "closing_time",
+                "gte",
+                threshold,
+                f"{threshold} 이후까지 영업",
+            )
+
+    price_match = re.search(
+        r"(\d+(?:\.\d+)?)(만원|만|원)?(?:이하|미만|이내|안쪽)",
+        compact,
+    )
+    if price_match:
+        amount = float(price_match.group(1))
+        unit = price_match.group(2) or ""
+        if unit in {"만원", "만"}:
+            amount *= 10000
+        if amount.is_integer():
+            amount = int(amount)
+        add_fact("가격")
+        add_criterion(
+            "price",
+            "lte",
+            amount,
+            f"{amount:g}원 이하"
+            if isinstance(amount, float)
+            else f"{amount}원 이하",
+        )
+
+    if re.search(
+        r"(예약|접수).*(가능|되는)|(가능|되는).*(예약|접수)",
+        compact,
+    ):
+        add_fact("예약 가능 여부")
+        add_criterion(
+            "availability",
+            "eq",
+            True,
+            "예약 가능",
+        )
+
+    if not criteria:
         return None
 
     category = (
@@ -768,56 +883,11 @@ def _fast_recent_place_comparison(user_request):
         "attributes": {
             "reuse_recent_results": True,
         },
-        "constraints": [],
-        "criteria": (
-            [
-                {
-                    "id": "c1",
-                    "field": "closing_time",
-                    "operator": "max",
-                    "value": None,
-                    "required": True,
-                    "label": "가장 늦게 영업",
-                }
-            ]
-            if comparison == "latest_closing"
-            else (
-                [
-                    {
-                        "id": "c1",
-                        "field": "parking_available",
-                        "operator": "eq",
-                        "value": True,
-                        "required": True,
-                        "label": "주차 가능",
-                    }
-                ]
-                if comparison == "parking_available"
-                else (
-                    [
-                        {
-                            "id": "c1",
-                            "field": "distance_m",
-                            "operator": "min",
-                            "value": None,
-                            "required": True,
-                            "label": "가장 가까운 곳",
-                        }
-                    ]
-                    if comparison == "nearest"
-                    else [
-                        {
-                            "id": "c1",
-                            "field": "price",
-                            "operator": "min",
-                            "value": None,
-                            "required": True,
-                            "label": "가장 저렴한 곳",
-                        }
-                    ]
-                )
-            )
-        ),
+        "constraints": [
+            item["label"]
+            for item in criteria
+        ],
+        "criteria": criteria,
         "comparison": comparison,
         "search_terms": [category],
         "requested_count": len(recent),
@@ -829,8 +899,8 @@ def _fast_recent_place_comparison(user_request):
         "ready_to_research": True,
         "user_goal": current,
         "decision_needed": (
-            "직전에 확인한 장소들만 비교해서 "
-            "사용자 조건에 가장 맞는 곳을 고른다."
+            "직전에 확인한 장소들만 대상으로 모든 필수 조건을 "
+            "교집합 판정해서 가장 적합한 곳을 고른다."
         ),
         "known_facts": {
             "recent_result_count": len(recent),
@@ -840,8 +910,8 @@ def _fast_recent_place_comparison(user_request):
             {
                 "step": 1,
                 "goal": (
-                    "직전 장소 결과의 필요한 정보만 "
-                    "보강하고 다시 검색하지 않는다."
+                    "직전 장소 결과의 필요한 정보만 보강하고 "
+                    "업체별 조건 판정표를 만든다."
                 ),
                 "tool": "recent_place_results",
                 "when": "항상",
@@ -849,7 +919,9 @@ def _fast_recent_place_comparison(user_request):
         ],
         "completion_criteria": [
             "직전 장소 결과 밖의 새 업체를 섞지 않는다.",
-            "비교 근거와 선택된 업체를 함께 제시한다.",
+            "모든 필수 조건을 업체별로 match/fail/unknown으로 판정한다.",
+            "모든 필수 조건이 match인 업체만 확정 추천한다.",
+            "근거가 없는 조건은 unknown으로 남기고 추측하지 않는다.",
         ],
         "confidence_target": "high",
         "location_context": {
@@ -863,8 +935,9 @@ def _fast_recent_place_comparison(user_request):
             "intent": "place_search",
             "sort": comparison,
             "requested_facts": facts,
+            "criteria": criteria,
         },
-        "brain_version": "recent-comparison-fast-v1",
+        "brain_version": "recent-comparison-fast-v2",
     }
 
 
