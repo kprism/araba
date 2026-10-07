@@ -154,7 +154,7 @@ class ArabaApi {
 
   Future<Map<String, dynamic>> searchBusinesses(
     Map<String, dynamic> mission, {
-    required String kakaoRestApiKey,
+    String? kakaoRestApiKey,
     required String openAiApiKey,
     String? naverClientId,
     String? naverClientSecret,
