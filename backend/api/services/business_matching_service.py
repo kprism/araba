@@ -452,7 +452,10 @@ def match_businesses(mission, businesses):
             }
         )
 
-    display = matched if matched else unverified
+    # Never present unverified candidates as if they satisfied the filter.
+    # They remain in matching.unverified_businesses for follow-up evidence work,
+    # but the visible recommendation set contains confirmed matches only.
+    display = matched
     answer_ready = bool(matched)
 
     if matched:
