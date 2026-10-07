@@ -40,6 +40,11 @@ urlpatterns = [
         name="research-search",
     ),
     path(
+        "research/enrich/",
+        views.research_enrich,
+        name="research-enrich",
+    ),
+    path(
         "research/mock-call/",
         views.mock_call_compare,
         name="mock-call-compare",

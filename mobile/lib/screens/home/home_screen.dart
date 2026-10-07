@@ -51,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _micEnabled = false;
   bool _sending = false;
   bool _researching = false;
+  int _researchRevision = 0;
   bool _userBrowsingHistory = false;
   String _liveStatus = '';
   String _researchStage = '';
@@ -577,12 +578,99 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
+  Future<void> _enrichVisibleCards(
+    Map<String, dynamic> mission,
+    List<Map<String, dynamic>> initialBusinesses,
+    int messageIndex,
+    int revision, {
+    required String openAiApiKey,
+    String? naverClientId,
+    String? naverClientSecret,
+  }) async {
+    try {
+      final result = await _api.enrichBusinesses(
+        mission,
+        initialBusinesses,
+        openAiApiKey: openAiApiKey,
+        naverClientId: naverClientId,
+        naverClientSecret: naverClientSecret,
+      );
+
+      if (!mounted || revision != _researchRevision) return;
+      final updated = _businessesFrom(result);
+      if (updated.isEmpty ||
+          updated.length != initialBusinesses.length ||
+          messageIndex >= _messages.length) {
+        return;
+      }
+
+      // Never replace a confirmed Kakao candidate with a different place.
+      for (var index = 0; index < updated.length; index++) {
+        final originalName =
+            initialBusinesses[index]['name']?.toString() ?? '';
+        final updatedName = updated[index]['name']?.toString() ?? '';
+        if (originalName != updatedName) return;
+      }
+
+      final rawCoverage = result['coverage'];
+      final coverage = rawCoverage is Map
+          ? Map<String, dynamic>.from(rawCoverage)
+          : <String, dynamic>{};
+      int count(String key) {
+        final raw = coverage[key];
+        return raw is num ? raw.round() : 0;
+      }
+
+      final hours = count('hours');
+      final parking = count('parking');
+      final prices = count('prices');
+      final photos = count('photos');
+      final total = updated.length;
+      final anyDetails = hours + parking + prices + photos > 0;
+
+      _lastBusinesses = updated;
+      _conversationContext.rememberBusinessResults(
+        mission,
+        updated,
+      );
+
+      setState(() {
+        final message = _messages[messageIndex];
+        message.businesses = updated;
+        message.badge = anyDetails
+            ? '상세정보 보강 완료'
+            : '상세정보 추가 확인 필요';
+        message.text =
+            '업체 $total곳의 실제 정보를 확인했어요.\n'
+            '영업시간 $hours/$total · 주차 $parking/$total · '
+            '가격 $prices/$total · 사진 $photos/$total\n'
+            + (anyDetails
+                ? '각 카드에 확인된 정보를 반영했어요.'
+                : '출처에서 확인되지 않은 정보는 임의로 채우지 않았어요.');
+      });
+    } catch (error) {
+      if (!mounted ||
+          revision != _researchRevision ||
+          messageIndex >= _messages.length) {
+        return;
+      }
+      setState(() {
+        _messages[messageIndex].badge = '상세정보 보강 실패';
+        _messages[messageIndex].text =
+            '기본 업체 카드는 확인했지만 상세정보 추가 조회에 실패했어요. '
+            '카드를 눌러 카카오·네이버 원본 정보를 확인할 수 있어요.';
+      });
+    }
+  }
+
   Future<void> _runRealResearch(
     Map<String, dynamic> mission,
   ) async {
     if (_researching) return;
 
     _startResearchProgress();
+    final researchRevision = ++_researchRevision;
+    final quickCards = !_isDetailFollowUp(mission);
 
     try {
       final openAiApiKey = await _keyStore.read();
@@ -614,6 +702,7 @@ class _HomeScreenState extends State<HomeScreen>
         openAiApiKey: openAiApiKey,
         naverClientId: naverCredentials?.clientId,
         naverClientSecret: naverCredentials?.clientSecret,
+        quickCards: quickCards,
       );
       final businesses = _businessesFrom(result);
       final searchQuery =
@@ -638,6 +727,33 @@ class _HomeScreenState extends State<HomeScreen>
           badge: '검색 결과 없음',
         );
         _speakProgress(noResult);
+        return;
+      }
+
+      if (quickCards) {
+        final messageIndex = _messages.length;
+        _addAssistantMessage(
+          text: '조건에 맞는 업체 ${businesses.length}곳을 찾았어요. '
+              '기본 카드를 먼저 보여드리고, '
+              '사진·영업시간·주차·가격을 추가 확인하고 있어요.',
+          badge: '상세정보 확인 중',
+          businesses: businesses,
+        );
+        _speakProgress(
+          '요청한 지역에서 ${businesses.length}곳을 찾았어요. '
+          '카드를 보여드리고 상세정보를 더 확인할게요.',
+        );
+        unawaited(
+          _enrichVisibleCards(
+            mission,
+            businesses,
+            messageIndex,
+            researchRevision,
+            openAiApiKey: openAiApiKey,
+            naverClientId: naverCredentials?.clientId,
+            naverClientSecret: naverCredentials?.clientSecret,
+          ),
+        );
         return;
       }
 
@@ -1515,8 +1631,8 @@ class _Message {
   final Map<String, dynamic>? mission;
   final String? requestContext;
   final bool isError;
-  final String? badge;
-  final List<Map<String, dynamic>>? businesses;
+  String? badge;
+  List<Map<String, dynamic>>? businesses;
   final String? actionQuestion;
   final List<String>? actions;
 

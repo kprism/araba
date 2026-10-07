@@ -158,6 +158,7 @@ class ArabaApi {
     required String openAiApiKey,
     String? naverClientId,
     String? naverClientSecret,
+    bool quickCards = false,
   }) async {
     final response = await _request(
       () => http.post(
@@ -168,13 +169,43 @@ class ArabaApi {
           naverClientId: naverClientId,
           naverClientSecret: naverClientSecret,
         ),
-        body: jsonEncode({'mission': mission}),
+        body: jsonEncode({
+          'mission': mission,
+          'quick_cards': quickCards,
+        }),
       ),
       timeout: const Duration(seconds: 45),
       retries: 0,
       retryServerErrors: false,
     );
 
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> enrichBusinesses(
+    Map<String, dynamic> mission,
+    List<Map<String, dynamic>> businesses, {
+    required String openAiApiKey,
+    String? naverClientId,
+    String? naverClientSecret,
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/research/enrich/'),
+        headers: _headers(
+          apiKey: openAiApiKey,
+          naverClientId: naverClientId,
+          naverClientSecret: naverClientSecret,
+        ),
+        body: jsonEncode({
+          'mission': mission,
+          'businesses': businesses,
+        }),
+      ),
+      timeout: const Duration(seconds: 55),
+      retries: 0,
+      retryServerErrors: false,
+    );
     return _decode(response);
   }
 

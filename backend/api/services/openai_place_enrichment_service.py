@@ -17,6 +17,72 @@ WEB_ENRICH_TIMEOUT_SECONDS = 28.0
 WEB_ENRICH_LIMIT = 5
 
 
+# Responses Structured Outputs: every returned fact has a stable field.
+# The schema guarantees structure, not truth. Verify identity and sources below.
+PLACE_DETAILS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "businesses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "index": {"type": "integer"},
+                    "business_name": {"type": "string"},
+                    "identity_match": {"type": "boolean"},
+                    "opening_hours": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "parking_available": {
+                        "type": ["boolean", "null"],
+                    },
+                    "parking_text": {
+                        "type": ["string", "null"],
+                    },
+                    "prices": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "name": {"type": ["string", "null"]},
+                                "price": {"type": "string"},
+                                "currency": {"type": "string"},
+                            },
+                            "required": ["name", "price", "currency"],
+                        },
+                    },
+                    "phone": {"type": ["string", "null"]},
+                    "address": {"type": ["string", "null"]},
+                    "price_link": {"type": ["string", "null"]},
+                    "source_urls": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": [
+                    "index",
+                    "business_name",
+                    "identity_match",
+                    "opening_hours",
+                    "parking_available",
+                    "parking_text",
+                    "prices",
+                    "phone",
+                    "address",
+                    "price_link",
+                    "source_urls",
+                ],
+            },
+        }
+    },
+    "required": ["businesses"],
+}
+
+
 def _clean_text(value):
     text = str(value or "").strip()
     return text or None
@@ -255,8 +321,11 @@ def _image_candidate(
         compact = _normalize(caption)
         score = 0
 
-        if name and name in compact:
-            score += 100
+        # Category-only matches can attach a different clinic's photo.
+        # Require the actual business name in the result caption.
+        if not name or name not in compact:
+            continue
+        score += 100
 
         score += sum(
             8
@@ -472,18 +541,24 @@ def _apply_one_result(
 
     identity_match = (
         parsed.get("identity_match") is True
-        and (
-            not returned_name
-            or returned_name == expected_name
-            or returned_name in expected_name
-            or expected_name in returned_name
-        )
+        and bool(returned_name)
+        and returned_name == expected_name
     )
 
     sources = _source_urls(
         parsed,
         raw_results,
     )
+
+    # Do not copy model-suggested facts with no traceable source at all.
+    # The URL is retained on the card for user verification.
+    if identity_match and not sources:
+        item["openai_web"] = {
+            "status": "missing_sources",
+            "matched": False,
+            "sources": [],
+        }
+        return item
 
     if not identity_match:
         item["openai_web"] = {
@@ -735,6 +810,14 @@ def enrich_businesses_with_openai_web(
                 primary,
                 mission,
             ),
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "araba_place_details",
+                    "strict": True,
+                    "schema": PLACE_DETAILS_SCHEMA,
+                }
+            },
             max_output_tokens=3000,
         )
     except Exception as exc:

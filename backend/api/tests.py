@@ -1596,6 +1596,144 @@ class KakaoPlaceServiceTests(TestCase):
         self.assertIsNone(result["image_url"])
 
 
+class ProgressivePlaceResearchTests(TestCase):
+    @patch(
+        "api.services.research_service.enrich_place_businesses"
+    )
+    @patch(
+        "api.services.research_service.httpx.get"
+    )
+    def test_quick_cards_skip_slow_web_enrichment(
+        self,
+        mocked_get,
+        mocked_enrich,
+    ):
+        from api.services.research_service import search_real_businesses
+
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "meta": {"total_count": 1},
+            "documents": [{
+                "id": "123",
+                "place_name": "중동치과",
+                "category_name": "의료,건강 > 치과",
+                "phone": "055-123-4567",
+                "address_name": "경남 창원시 의창구 중동 1",
+                "road_address_name": "경남 창원시 의창구 중동로 1",
+                "x": "128.64",
+                "y": "35.25",
+                "place_url": "https://place.map.kakao.com/123",
+            }],
+        }
+        mocked_get.return_value = response
+        result = search_real_businesses(
+            {
+                "search_mode": "category_discovery",
+                "location": "",
+                "category": "치과",
+                "subject": "치과",
+                "search_terms": ["치과"],
+                "requested_count": 5,
+            },
+            api_key="kakao-test",
+            openai_api_key="openai-test",
+            quick_cards=True,
+        )
+        self.assertEqual(result["detail_status"], "pending")
+        self.assertEqual(result["displayed_count"], 1)
+        self.assertEqual(
+            result["businesses"][0]["name"], "중동치과"
+        )
+        mocked_enrich.assert_not_called()
+
+    def test_enrich_endpoint_rejects_missing_openai_key(self):
+        response = self.client.post(
+            "/api/research/enrich/",
+            {
+                "mission": {"category": "치과"},
+                "businesses": [
+                    {"name": "중동치과", "address": "창원시 중동"}
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 401)
+
+    @patch(
+        "api.services.research_service.enrich_place_businesses"
+    )
+    def test_enrich_endpoint_returns_coverage_and_same_candidates(
+        self,
+        mocked_enrich,
+    ):
+        mocked_enrich.return_value = [{
+            "name": "중동치과",
+            "address": "창원시 중동",
+            "phone": "055-123-4567",
+            "image_url": "https://example.com/clinic.jpg",
+            "naver": {
+                "opening_hours": ["평일 09:00-18:00"],
+                "parking_available": True,
+                "prices": [],
+            },
+        }]
+        response = self.client.post(
+            "/api/research/enrich/",
+            {
+                "mission": {"category": "치과"},
+                "businesses": [
+                    {"name": "중동치과", "address": "창원시 중동"}
+                ],
+            },
+            format="json",
+            HTTP_X_OPENAI_API_KEY="sk-test",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["coverage"], {
+            "hours": 1,
+            "parking": 1,
+            "prices": 0,
+            "photos": 1,
+        })
+        self.assertEqual(response.data["detail_status"], "complete")
+
+    def test_json_schema_requires_complete_place_fields(self):
+        from api.services.openai_place_enrichment_service import (
+            PLACE_DETAILS_SCHEMA,
+        )
+
+        item = PLACE_DETAILS_SCHEMA["properties"]["businesses"]["items"]
+        self.assertFalse(item["additionalProperties"])
+        self.assertEqual(
+            set(item["properties"]),
+            set(item["required"]),
+        )
+
+    def test_web_facts_without_sources_are_rejected(self):
+        from api.services.openai_place_enrichment_service import (
+            _apply_one_result,
+        )
+
+        result = _apply_one_result(
+            {
+                "name": "중동치과",
+                "address": "창원시 중동",
+                "naver": {"opening_hours": []},
+            },
+            {
+                "business_name": "중동치과",
+                "identity_match": True,
+                "opening_hours": ["09:00~18:00"],
+                "source_urls": [],
+            },
+            [],
+        )
+        self.assertEqual(
+            result["openai_web"]["status"], "missing_sources"
+        )
+        self.assertEqual(result["naver"]["opening_hours"], [])
+
+
 class ResearchSearchApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()

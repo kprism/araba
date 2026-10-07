@@ -881,6 +881,76 @@ def _requested_result_count(mission):
 
     return max(1, min(value, 10))
 
+def enrich_place_businesses(
+    businesses,
+    mission,
+    *,
+    naver_client_id=None,
+    naver_client_secret=None,
+    openai_api_key=None,
+):
+    """Enrich already verified Kakao candidates without searching again."""
+    if not isinstance(businesses, list):
+        raise ValueError("업체 목록이 필요합니다.")
+    if not isinstance(mission, dict):
+        raise ValueError("검색 조건이 필요합니다.")
+
+    safe = [
+        dict(item)
+        for item in businesses[:10]
+        if isinstance(item, dict)
+        and str(item.get("name") or "").strip()
+        and str(item.get("address") or "").strip()
+    ]
+    if not safe:
+        return []
+
+    detail_targets = safe[:FAST_DETAIL_ENRICH_LIMIT]
+    deferred_targets = safe[FAST_DETAIL_ENRICH_LIMIT:]
+
+    enriched_primary = enrich_businesses_with_kakao_pages(
+        detail_targets
+    )
+    for item in deferred_targets:
+        item["kakao_page_checked"] = False
+
+    kakao_businesses = [
+        *enriched_primary,
+        *deferred_targets,
+    ]
+    naver_primary = enrich_businesses_with_naver(
+        kakao_businesses[:FAST_DETAIL_ENRICH_LIMIT],
+        client_id=naver_client_id,
+        client_secret=naver_client_secret,
+    )
+    deferred_naver = [
+        {
+            **item,
+            "naver": {
+                "matched": False,
+                "page_checked": False,
+                "status": "deferred_fast_response",
+            },
+        }
+        for item in kakao_businesses[FAST_DETAIL_ENRICH_LIMIT:]
+    ]
+    enriched = [
+        *naver_primary,
+        *deferred_naver,
+    ]
+    enriched = enrich_businesses_with_web(
+        enriched,
+        mission,
+        client_id=naver_client_id,
+        client_secret=naver_client_secret,
+    )
+    return enrich_businesses_with_openai_web(
+        enriched,
+        mission,
+        api_key=openai_api_key,
+    )
+
+
 def search_real_businesses(
     mission,
     api_key=None,
@@ -888,6 +958,7 @@ def search_real_businesses(
     naver_client_id=None,
     naver_client_secret=None,
     openai_api_key=None,
+    quick_cards=False,
 ):
     resolved_api_key = str(api_key or "").strip()
     if not resolved_api_key:
@@ -1146,67 +1217,16 @@ def search_real_businesses(
         if business["name"]
     ]
 
-    detail_targets = kakao_businesses[
-        :FAST_DETAIL_ENRICH_LIMIT
-    ]
-    deferred_targets = kakao_businesses[
-        FAST_DETAIL_ENRICH_LIMIT:
-    ]
-
-    enriched_primary = (
-        enrich_businesses_with_kakao_pages(
-            detail_targets
+    if quick_cards:
+        businesses = kakao_businesses
+    else:
+        businesses = enrich_place_businesses(
+            kakao_businesses,
+            mission,
+            naver_client_id=naver_client_id,
+            naver_client_secret=naver_client_secret,
+            openai_api_key=openai_api_key,
         )
-    )
-
-    for item in deferred_targets:
-        item["kakao_page_checked"] = False
-
-    kakao_businesses = [
-        *enriched_primary,
-        *deferred_targets,
-    ]
-
-    naver_primary = enrich_businesses_with_naver(
-        kakao_businesses[
-            :FAST_DETAIL_ENRICH_LIMIT
-        ],
-        client_id=naver_client_id,
-        client_secret=naver_client_secret,
-    )
-
-    deferred_naver = []
-    for item in kakao_businesses[
-        FAST_DETAIL_ENRICH_LIMIT:
-    ]:
-        deferred_naver.append(
-            {
-                **item,
-                "naver": {
-                    "matched": False,
-                    "page_checked": False,
-                    "status": "deferred_fast_response",
-                },
-            }
-        )
-
-    businesses = [
-        *naver_primary,
-        *deferred_naver,
-    ]
-
-    businesses = enrich_businesses_with_web(
-        businesses,
-        mission,
-        client_id=naver_client_id,
-        client_secret=naver_client_secret,
-    )
-
-    businesses = enrich_businesses_with_openai_web(
-        businesses,
-        mission,
-        api_key=openai_api_key,
-    )
 
     naver_matched_count = sum(
         1
@@ -1232,7 +1252,8 @@ def search_real_businesses(
     )
 
     return {
-        "source": "kakao+naver",
+        "source": "kakao" if quick_cards else "kakao+naver",
+        "detail_status": "pending" if quick_cards else "complete",
         "primary_source": "kakao",
         "secondary_source": "naver_place",
         "fallback_source": "naver_blog+web",

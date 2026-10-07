@@ -410,6 +410,73 @@ def live_outbound_call(request):
 
 
 @api_view(["POST"])
+def research_enrich(request):
+    """Second phase: enrich only the Kakao-verified card candidates."""
+    from .services.research_service import enrich_place_businesses
+
+    mission = request.data.get("mission")
+    businesses = request.data.get("businesses")
+
+    if not isinstance(mission, dict):
+        return Response(
+            {"ok": False, "message": "검색 조건이 필요합니다."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if (
+        not isinstance(businesses, list)
+        or not 0 < len(businesses) <= 10
+        or any(
+            not isinstance(item, dict)
+            or not str(item.get("name") or "").strip()
+            or not str(item.get("address") or "").strip()
+            for item in businesses
+        )
+    ):
+        return Response(
+            {"ok": False, "message": "검증된 업체 1~10곳이 필요합니다."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not _request_api_key(request):
+        return Response(
+            {"ok": False, "message": "OpenAI API Key가 필요합니다."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    result = enrich_place_businesses(
+        businesses,
+        mission,
+        naver_client_id=_request_naver_client_id(request),
+        naver_client_secret=_request_naver_client_secret(request),
+        openai_api_key=_request_api_key(request),
+    )
+    counts = {
+        "hours": 0,
+        "parking": 0,
+        "prices": 0,
+        "photos": 0,
+    }
+    for item in result:
+        naver = item.get("naver") or {}
+        if not isinstance(naver, dict):
+            naver = {}
+        counts["hours"] += bool(naver.get("opening_hours"))
+        counts["parking"] += isinstance(
+            naver.get("parking_available"), bool
+        )
+        counts["prices"] += bool(naver.get("prices"))
+        counts["photos"] += bool(item.get("image_url"))
+
+    return Response(
+        {
+            "ok": True,
+            "businesses": result,
+            "detail_status": "complete",
+            "coverage": counts,
+        }
+    )
+
+
+@api_view(["POST"])
 def research_search(request):
     from .services.research_service import (
         ResearchConfigurationError,
@@ -435,6 +502,7 @@ def research_search(request):
             naver_client_id=_request_naver_client_id(request),
             naver_client_secret=_request_naver_client_secret(request),
             openai_api_key=_request_api_key(request),
+            quick_cards=request.data.get("quick_cards") is True,
         )
         return Response(
             {
