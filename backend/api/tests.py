@@ -19,6 +19,30 @@ class ApiTests(TestCase):
             "ARABA API",
         )
 
+    def test_onboarding_schema_catalog(self):
+        response = self.client.get(
+            "/api/schemas/onboarding/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(
+            response.data["user_signup"]["schema_id"],
+            "araba.user.signup.v1",
+        )
+        self.assertEqual(
+            response.data["business_signup"]["schema_id"],
+            "araba.business.signup.v1",
+        )
+        self.assertIn(
+            "agent_authority",
+            response.data["business_data"]["top_level"],
+        )
+        self.assertIn(
+            "주민등록번호",
+            response.data["user_signup"]["do_not_collect_by_default"],
+        )
+
     @patch(
         "api.views.get_openai_status",
         return_value={
@@ -1882,6 +1906,213 @@ class RecentPlaceComparisonRoutingTests(TestCase):
         self.assertIsNone(
             _fast_recent_place_comparison(request)
         )
+
+
+class StructuredBusinessMatchingTests(TestCase):
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_recent_places_multi_condition_builds_task_state_without_openai(
+        self,
+        mocked_openai,
+    ):
+        from api.services.mission_service import create_mission
+
+        request = """[대화 문맥 - 참고용]
+{"category":"치과","location":"창원시 의창구 중동","recent_place_results":[{"name":"A치과"},{"name":"B치과"}]}
+
+[현재 요청]
+그중 주차되고 저녁 8시 이후까지 하는 곳만 골라줘"""
+
+        diagnostics = {}
+        mission = create_mission(
+            request,
+            api_key="sk-test",
+            diagnostics=diagnostics,
+        )
+
+        fields = {
+            item["field"]: item
+            for item in mission["criteria"]
+        }
+        self.assertEqual(
+            fields["parking_available"]["value"],
+            True,
+        )
+        self.assertEqual(
+            fields["closing_time"]["operator"],
+            "gte",
+        )
+        self.assertEqual(
+            fields["closing_time"]["value"],
+            "20:00",
+        )
+        self.assertEqual(
+            mission["task_state"]["candidate_scope"],
+            "recent_results",
+        )
+        self.assertEqual(
+            mission["task_state"]["stage"],
+            "research_ready",
+        )
+        self.assertEqual(
+            diagnostics["route"],
+            "recent_place_comparison",
+        )
+        mocked_openai.assert_not_called()
+
+    def test_matching_engine_uses_intersection_of_all_required_conditions(
+        self,
+    ):
+        from api.services.business_matching_service import (
+            match_businesses,
+        )
+
+        mission = {
+            "criteria": [
+                {
+                    "id": "parking",
+                    "field": "parking_available",
+                    "operator": "eq",
+                    "value": True,
+                    "required": True,
+                    "label": "주차 가능",
+                },
+                {
+                    "id": "late",
+                    "field": "closing_time",
+                    "operator": "gte",
+                    "value": "20:00",
+                    "required": True,
+                    "label": "20시 이후 영업",
+                },
+                {
+                    "id": "price",
+                    "field": "price",
+                    "operator": "lte",
+                    "value": 100000,
+                    "required": True,
+                    "label": "10만원 이하",
+                },
+            ]
+        }
+        businesses = [
+            {
+                "id": "a",
+                "name": "A치과",
+                "naver": {
+                    "parking_available": True,
+                    "opening_hours": ["월 09:00-21:00"],
+                    "prices": [
+                        {
+                            "name": "검사",
+                            "price": "90,000원",
+                            "currency": "KRW",
+                        }
+                    ],
+                },
+            },
+            {
+                "id": "b",
+                "name": "B치과",
+                "naver": {
+                    "parking_available": True,
+                    "opening_hours": ["월 09:00-19:00"],
+                    "prices": [
+                        {
+                            "name": "검사",
+                            "price": "80,000원",
+                            "currency": "KRW",
+                        }
+                    ],
+                },
+            },
+            {
+                "id": "c",
+                "name": "C치과",
+                "naver": {
+                    "parking_available": False,
+                    "opening_hours": ["월 09:00-22:00"],
+                    "prices": [
+                        {
+                            "name": "검사",
+                            "price": "70,000원",
+                            "currency": "KRW",
+                        }
+                    ],
+                },
+            },
+            {
+                "id": "d",
+                "name": "D치과",
+                "naver": {
+                    "parking_available": True,
+                    "opening_hours": ["월 09:00-21:00"],
+                    "prices": [],
+                },
+            },
+        ]
+
+        result = match_businesses(
+            mission,
+            businesses,
+        )
+
+        self.assertEqual(
+            [item["name"] for item in result["matched_businesses"]],
+            ["A치과"],
+        )
+        self.assertEqual(
+            [item["name"] for item in result["unverified_businesses"]],
+            ["D치과"],
+        )
+        self.assertEqual(
+            {
+                item["name"]
+                for item in result["excluded_businesses"]
+            },
+            {"B치과", "C치과"},
+        )
+        self.assertTrue(result["answer_ready"])
+
+    def test_unknown_required_fact_is_never_treated_as_match(
+        self,
+    ):
+        from api.services.business_matching_service import (
+            match_businesses,
+        )
+
+        result = match_businesses(
+            {
+                "criteria": [
+                    {
+                        "id": "parking",
+                        "field": "parking_available",
+                        "operator": "eq",
+                        "value": True,
+                        "required": True,
+                        "label": "주차 가능",
+                    }
+                ]
+            },
+            [
+                {
+                    "id": "x",
+                    "name": "정보미확인치과",
+                    "naver": {},
+                }
+            ],
+        )
+
+        self.assertEqual(
+            result["matched_count"],
+            0,
+        )
+        self.assertEqual(
+            result["unverified_count"],
+            1,
+        )
+        self.assertFalse(result["answer_ready"])
 
 
 class ProgressivePlaceResearchTests(TestCase):

@@ -10,6 +10,11 @@ urlpatterns = [
         name="health",
     ),
     path(
+        "schemas/onboarding/",
+        views.onboarding_schemas,
+        name="onboarding-schemas",
+    ),
+    path(
         "settings/openai/",
         views.openai_status,
         name="openai-status",

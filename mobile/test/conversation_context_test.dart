@@ -99,6 +99,13 @@ void main() {
         'naver': {
           'opening_hours': ['월 09:00-18:00'],
           'parking_available': true,
+          'prices': [
+            {
+              'name': '검사',
+              'price': '90,000원',
+              'currency': 'KRW',
+            },
+          ],
         },
       },
       {
@@ -128,7 +135,45 @@ void main() {
     (results.first as Map)['parking_available'],
     isTrue,
   );
+  expect(
+    ((results.first as Map)['prices'] as List).first,
+    containsPair('price', '90,000원'),
+  );
   expect(history.length, 1);
+});
+
+test('task state and structured criteria are kept in conversation context', () {
+  final context = ConversationContext();
+
+  context.rememberMission({
+    'category': '치과',
+    'location': '창원시',
+    'criteria': [
+      {
+        'id': 'c1',
+        'field': 'parking_available',
+        'operator': 'eq',
+        'value': true,
+        'required': true,
+      },
+    ],
+    'task_state': {
+      'version': 'task-state-v1',
+      'stage': 'research_ready',
+      'candidate_scope': 'new_search',
+    },
+  });
+
+  final snapshot = context.snapshot;
+
+  expect(
+    (snapshot['criteria'] as List).length,
+    1,
+  );
+  expect(
+    (snapshot['task_state'] as Map)['stage'],
+    'research_ready',
+  );
 });
 
 test('place search history keeps recent categories for later follow-up', () {

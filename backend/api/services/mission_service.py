@@ -36,6 +36,15 @@ INTENT_SYSTEM_PROMPT = """
   "target_business": "특정 상호/시설이면 정확한 이름, 아니면 null",
   "count": 5,
   "constraints": ["검색 후 추가로 확인할 조건"],
+  "criteria": [
+    {
+      "field": "parking_available|closing_time|opening_time|price|distance_m|availability|stock|service|rating|custom",
+      "operator": "eq|contains|gte|lte|min|max|exists",
+      "value": true,
+      "required": true,
+      "label": "사용자 조건을 사람이 읽을 수 있는 문장"
+    }
+  ],
   "attributes": {},
   "requested_facts": ["사용자가 실제로 알고 싶은 세부 정보"],
   "sort": "relevance|distance|rating|price|none",
@@ -52,6 +61,15 @@ INTENT_SYSTEM_PROMPT = """
 3. 서비스 조건을 업종에 섞지 않는다.
    예: "임플란트 가능한 치과" -> category="치과", constraints=["임플란트 가능"].
    "조용한 식당" -> category="식당", constraints=["조용한"].
+3-1. 사용자가 후보를 고르기 위한 조건을 말하면 criteria에도 구조화한다.
+   예: "주차되고 8시 이후까지 하는 치과" ->
+   criteria=[
+     {"field":"parking_available","operator":"eq","value":true,"required":true,"label":"주차 가능"},
+     {"field":"closing_time","operator":"gte","value":"20:00","required":true,"label":"20시 이후 영업"}
+   ].
+   "10만원 이하"는 field="price", operator="lte", value=100000 으로 만든다.
+   "가장 늦게", "가장 싸게", "가장 가까운"처럼 순위를 고르는 조건은 각각 operator="max" 또는 "min"으로 만든다.
+   데이터로 판정할 수 없는 주관 조건은 field="custom"으로 남기고 추측하지 않는다.
 4. 시/군/구/읍/면/동 같은 행정구역 자체가 범위면 administrative_area다.
    "창원시청 주변", "서울역 근처"처럼 특정 장소를 기준으로 찾으면 reference_point다.
 5. 사용자가 특정 상호나 시설 하나를 직접 지목하면 target_business에 정확히 넣는다.
@@ -112,6 +130,98 @@ def _clean_list(value):
             result.append(text)
 
     return result
+
+
+def _clean_criteria(value):
+    if not isinstance(value, list):
+        return []
+
+    allowed_operators = {
+        "eq",
+        "contains",
+        "gte",
+        "lte",
+        "min",
+        "max",
+        "exists",
+    }
+    result = []
+
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+
+        field = str(item.get("field") or "").strip()
+        operator = str(item.get("operator") or "eq").strip().lower()
+        if not field or operator not in allowed_operators:
+            continue
+
+        raw_value = item.get("value")
+        if isinstance(raw_value, (dict, list)):
+            continue
+
+        label = str(item.get("label") or "").strip()
+        result.append(
+            {
+                "id": str(item.get("id") or f"c{index + 1}"),
+                "field": field,
+                "operator": operator,
+                "value": raw_value,
+                "required": item.get("required") is not False,
+                "label": label or field,
+            }
+        )
+
+    return result[:12]
+
+
+def _task_state_for(mission):
+    criteria = mission.get("criteria")
+    if not isinstance(criteria, list):
+        criteria = []
+
+    if mission.get("response_mode") == "clarify":
+        stage = "needs_clarification"
+    elif mission.get("ready_to_research") is True:
+        stage = "research_ready"
+    else:
+        stage = "answer_ready"
+
+    attributes = mission.get("attributes")
+    reuse_recent = (
+        isinstance(attributes, dict)
+        and attributes.get("reuse_recent_results") is True
+    )
+
+    return {
+        "version": "task-state-v1",
+        "goal": str(
+            mission.get("user_goal")
+            or mission.get("summary")
+            or mission.get("title")
+            or ""
+        ).strip(),
+        "stage": stage,
+        "intent": str(mission.get("intent") or "").strip(),
+        "category": mission.get("category"),
+        "location": mission.get("location"),
+        "target_business": mission.get("target_business"),
+        "requested_count": mission.get("requested_count"),
+        "constraints": list(mission.get("constraints") or []),
+        "criteria": [dict(item) for item in criteria if isinstance(item, dict)],
+        "required_facts": list(mission.get("required_facts") or []),
+        "candidate_scope": (
+            "recent_results"
+            if reuse_recent
+            else "new_search"
+        ),
+    }
+
+
+def _attach_task_state(mission):
+    mission = dict(mission)
+    mission["task_state"] = _task_state_for(mission)
+    return mission
 
 
 def _parse_intent_json(raw):
@@ -192,6 +302,9 @@ def _normalize_intent(value):
         "count": count,
         "constraints": _clean_list(
             value.get("constraints")
+        ),
+        "criteria": _clean_criteria(
+            value.get("criteria")
         ),
         "attributes": dict(attributes),
         "requested_facts": _clean_list(
@@ -284,6 +397,7 @@ def _place_mission(intent):
         "target_business": target_business,
         "attributes": intent["attributes"],
         "constraints": intent["constraints"],
+        "criteria": list(intent.get("criteria") or []),
         "comparison": intent["sort"],
         "search_terms": search_terms,
         "requested_count": requested_count,
@@ -368,6 +482,7 @@ def _place_detail_mission(intent):
             "target_business": None,
             "attributes": intent["attributes"],
             "constraints": intent["constraints"],
+            "criteria": list(intent.get("criteria") or []),
             "comparison": "none",
             "search_terms": [],
             "requested_count": 1,
@@ -409,6 +524,7 @@ def _place_detail_mission(intent):
         "target_business": target,
         "attributes": intent["attributes"],
         "constraints": intent["constraints"],
+        "criteria": list(intent.get("criteria") or []),
         "comparison": "none",
         "search_terms": [target],
         "requested_count": 1,
@@ -468,6 +584,7 @@ def _non_place_mission(intent):
             "target_business": intent["target_business"],
             "attributes": intent["attributes"],
             "constraints": intent["constraints"],
+            "criteria": list(intent.get("criteria") or []),
             "comparison": intent["sort"],
             "search_terms": [],
             "requested_count": intent["count"],
@@ -522,6 +639,7 @@ def _non_place_mission(intent):
         "target_business": intent["target_business"],
         "attributes": intent["attributes"],
         "constraints": intent["constraints"],
+        "criteria": list(intent.get("criteria") or []),
         "comparison": intent["sort"],
         "search_terms": [],
         "requested_count": intent["count"],
@@ -600,35 +718,150 @@ def _fast_recent_place_comparison(user_request):
     ):
         return None
 
-    comparison = None
+    criteria = []
     facts = []
+    comparison = "criteria_filter"
+
+    def add_fact(value):
+        if value not in facts:
+            facts.append(value)
+
+    def add_criterion(
+        field,
+        operator,
+        value,
+        label,
+    ):
+        key = (field, operator, str(value))
+        if any(
+            (
+                item.get("field"),
+                item.get("operator"),
+                str(item.get("value")),
+            )
+            == key
+            for item in criteria
+        ):
+            return
+
+        criteria.append(
+            {
+                "id": f"c{len(criteria) + 1}",
+                "field": field,
+                "operator": operator,
+                "value": value,
+                "required": True,
+                "label": label,
+            }
+        )
 
     if re.search(
         r"가장늦|제일늦|늦게까지|늦게하는|늦은",
         compact,
     ):
         comparison = "latest_closing"
-        facts = ["영업시간"]
-    elif re.search(
-        r"주차.*(되는|가능)|주차되는",
+        add_fact("영업시간")
+        add_criterion(
+            "closing_time",
+            "max",
+            None,
+            "가장 늦게 영업",
+        )
+
+    if re.search(
+        r"주차.*(되는|되고|되며|가능|있고|있는)|주차되는|주차되고|주차가능",
         compact,
     ):
-        comparison = "parking_available"
-        facts = ["주차"]
-    elif re.search(
+        if comparison == "criteria_filter":
+            comparison = "parking_available"
+        add_fact("주차")
+        add_criterion(
+            "parking_available",
+            "eq",
+            True,
+            "주차 가능",
+        )
+
+    if re.search(
         r"가장가까|제일가까|가까운",
         compact,
     ):
-        comparison = "nearest"
-        facts = ["거리"]
-    elif re.search(
+        if comparison == "criteria_filter":
+            comparison = "nearest"
+        add_fact("거리")
+        add_criterion(
+            "distance_m",
+            "min",
+            None,
+            "가장 가까운 곳",
+        )
+
+    if re.search(
         r"가장저렴|제일저렴|가장싼|제일싼",
         compact,
     ):
-        comparison = "lowest_price"
-        facts = ["가격"]
+        if comparison == "criteria_filter":
+            comparison = "lowest_price"
+        add_fact("가격")
+        add_criterion(
+            "price",
+            "min",
+            None,
+            "가장 저렴한 곳",
+        )
 
-    if comparison is None:
+    time_match = re.search(
+        r"(?:저녁|밤)?(\d{1,2})시(?:이후|넘어서|넘게|까지)",
+        compact,
+    )
+    if time_match:
+        hour = int(time_match.group(1))
+        if 1 <= hour <= 11:
+            hour += 12
+        if 0 <= hour <= 23:
+            threshold = f"{hour:02d}:00"
+            add_fact("영업시간")
+            add_criterion(
+                "closing_time",
+                "gte",
+                threshold,
+                f"{threshold} 이후까지 영업",
+            )
+
+    price_match = re.search(
+        r"(\d+(?:\.\d+)?)(만원|만|원)?(?:이하|미만|이내|안쪽)",
+        compact,
+    )
+    if price_match:
+        amount = float(price_match.group(1))
+        unit = price_match.group(2) or ""
+        if unit in {"만원", "만"}:
+            amount *= 10000
+        if amount.is_integer():
+            amount = int(amount)
+        add_fact("가격")
+        add_criterion(
+            "price",
+            "lte",
+            amount,
+            f"{amount:g}원 이하"
+            if isinstance(amount, float)
+            else f"{amount}원 이하",
+        )
+
+    if re.search(
+        r"(예약|접수).*(가능|되는)|(가능|되는).*(예약|접수)",
+        compact,
+    ):
+        add_fact("예약 가능 여부")
+        add_criterion(
+            "availability",
+            "eq",
+            True,
+            "예약 가능",
+        )
+
+    if not criteria:
         return None
 
     category = (
@@ -653,7 +886,11 @@ def _fast_recent_place_comparison(user_request):
         "attributes": {
             "reuse_recent_results": True,
         },
-        "constraints": [],
+        "constraints": [
+            item["label"]
+            for item in criteria
+        ],
+        "criteria": criteria,
         "comparison": comparison,
         "search_terms": [category],
         "requested_count": len(recent),
@@ -665,8 +902,8 @@ def _fast_recent_place_comparison(user_request):
         "ready_to_research": True,
         "user_goal": current,
         "decision_needed": (
-            "직전에 확인한 장소들만 비교해서 "
-            "사용자 조건에 가장 맞는 곳을 고른다."
+            "직전에 확인한 장소들만 대상으로 모든 필수 조건을 "
+            "교집합 판정해서 가장 적합한 곳을 고른다."
         ),
         "known_facts": {
             "recent_result_count": len(recent),
@@ -676,8 +913,8 @@ def _fast_recent_place_comparison(user_request):
             {
                 "step": 1,
                 "goal": (
-                    "직전 장소 결과의 필요한 정보만 "
-                    "보강하고 다시 검색하지 않는다."
+                    "직전 장소 결과의 필요한 정보만 보강하고 "
+                    "업체별 조건 판정표를 만든다."
                 ),
                 "tool": "recent_place_results",
                 "when": "항상",
@@ -685,7 +922,9 @@ def _fast_recent_place_comparison(user_request):
         ],
         "completion_criteria": [
             "직전 장소 결과 밖의 새 업체를 섞지 않는다.",
-            "비교 근거와 선택된 업체를 함께 제시한다.",
+            "모든 필수 조건을 업체별로 match/fail/unknown으로 판정한다.",
+            "모든 필수 조건이 match인 업체만 확정 추천한다.",
+            "근거가 없는 조건은 unknown으로 남기고 추측하지 않는다.",
         ],
         "confidence_target": "high",
         "location_context": {
@@ -699,8 +938,9 @@ def _fast_recent_place_comparison(user_request):
             "intent": "place_search",
             "sort": comparison,
             "requested_facts": facts,
+            "criteria": criteria,
         },
-        "brain_version": "recent-comparison-fast-v1",
+        "brain_version": "recent-comparison-fast-v2",
     }
 
 
@@ -740,7 +980,7 @@ def create_mission(
         diagnostics["stage"] = "fast_route_complete"
         diagnostics["route"] = "recent_place_comparison"
         diagnostics["openai_elapsed_ms"] = 0
-        return fast_comparison
+        return _attach_task_state(fast_comparison)
 
     diagnostics["architecture"] = "intent_router_v2"
     diagnostics["stage"] = "intent_core_request"
@@ -781,4 +1021,6 @@ def create_mission(
     diagnostics["stage"] = "route_intent"
     diagnostics["route"] = intent["intent"]
 
-    return _mission_from_intent(intent)
+    return _attach_task_state(
+        _mission_from_intent(intent)
+    )
