@@ -413,6 +413,7 @@ def live_outbound_call(request):
 def research_enrich(request):
     """Second phase: enrich only the Kakao-verified card candidates."""
     from .services.research_service import enrich_place_businesses
+    from .services.business_matching_service import match_businesses
 
     mission = request.data.get("mission")
     businesses = request.data.get("businesses")
@@ -450,6 +451,11 @@ def research_enrich(request):
         openai_api_key=_request_api_key(request),
         gpt_direct=True,
     )
+    matching = match_businesses(
+        mission,
+        result,
+    )
+    display_result = matching["display_businesses"]
     counts = {
         "hours": 0,
         "parking": 0,
@@ -457,7 +463,7 @@ def research_enrich(request):
         "photos": 0,
         "image_candidates": 0,
     }
-    for item in result:
+    for item in display_result:
         naver = item.get("naver") or {}
         if not isinstance(naver, dict):
             naver = {}
@@ -476,7 +482,8 @@ def research_enrich(request):
     return Response(
         {
             "ok": True,
-            "businesses": result,
+            "businesses": display_result,
+            "matching": matching,
             "detail_status": "complete",
             "coverage": counts,
         }
