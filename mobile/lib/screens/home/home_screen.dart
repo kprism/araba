@@ -598,18 +598,20 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (!mounted || revision != _researchRevision) return;
       final updated = _businessesFrom(result);
-      if (updated.isEmpty ||
-          updated.length != initialBusinesses.length ||
-          messageIndex >= _messages.length) {
+      if (messageIndex >= _messages.length) {
         return;
       }
 
-      // Never replace a confirmed Kakao candidate with a different place.
-      for (var index = 0; index < updated.length; index++) {
-        final originalName =
-            initialBusinesses[index]['name']?.toString() ?? '';
-        final updatedName = updated[index]['name']?.toString() ?? '';
-        if (originalName != updatedName) return;
+      // Matching may intentionally remove candidates, but it must never
+      // introduce a place that was not in the Kakao-verified candidate set.
+      final originalNames = initialBusinesses
+          .map((item) => item['name']?.toString().trim() ?? '')
+          .where((name) => name.isNotEmpty)
+          .toSet();
+      for (final business in updated) {
+        final updatedName =
+            business['name']?.toString().trim() ?? '';
+        if (!originalNames.contains(updatedName)) return;
       }
 
       final rawCoverage = result['coverage'];
@@ -671,10 +673,24 @@ class _HomeScreenState extends State<HomeScreen>
         }
       }
 
-      _lastBusinesses = updated;
+      final rawMatching = result['matching'];
+      final matching = rawMatching is Map
+          ? Map<String, dynamic>.from(rawMatching)
+          : <String, dynamic>{};
+      final rawCriteria = matching['criteria'];
+      final hasCriteria =
+          rawCriteria is List && rawCriteria.isNotEmpty;
+      final answerReady = matching['answer_ready'] == true;
+      final matchingSummary =
+          matching['summary']?.toString().trim() ?? '';
+
+      final remembered = updated.isNotEmpty
+          ? updated
+          : initialBusinesses;
+      _lastBusinesses = remembered;
       _conversationContext.rememberBusinessResults(
         mission,
-        updated,
+        remembered,
       );
 
       final detailStatus = anyDetails
@@ -683,10 +699,22 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         final message = _messages[messageIndex];
         message.businesses = updated;
-        message.badge = anyDetails
-            ? '상세정보 보강 완료'
-            : '상세정보 추가 확인 필요';
+        message.badge = hasCriteria
+            ? (
+                answerReady
+                    ? '조건 판정 완료'
+                    : '조건 근거 추가 확인 필요'
+              )
+            : (
+                anyDetails
+                    ? '상세정보 보강 완료'
+                    : '상세정보 추가 확인 필요'
+              );
+        final matchingText = hasCriteria && matchingSummary.isNotEmpty
+            ? '$matchingSummary\n'
+            : '';
         message.text =
+            '$matchingText'
             '업체 $total곳의 실제 정보를 확인했어요.\n'
             '영업시간 $hours/$total · 주차 $parking/$total · '
             '가격 $prices/$total · 사진 $photos/$total\n'
@@ -720,180 +748,87 @@ class _HomeScreenState extends State<HomeScreen>
     return mode == 'comparison' && reuse;
   }
 
-  List<String> _openingHours(
-    Map<String, dynamic> business,
-  ) {
-    final rawNaver = business['naver'];
-    final naver = rawNaver is Map
-        ? Map<String, dynamic>.from(rawNaver)
-        : <String, dynamic>{};
-    final raw = naver['opening_hours'];
-    return raw is List
-        ? raw
-            .map((item) => item.toString().trim())
-            .where((item) => item.isNotEmpty)
-            .toList()
-        : <String>[];
-  }
-
-  ({int minutes, String time})? _latestClosing(
-    Map<String, dynamic> business,
-  ) {
-    final hours = _openingHours(business);
-    if (hours.isEmpty) return null;
-
-    final pattern = RegExp(
-      r'(\d{1,2}):(\d{2})\s*[~\-–]\s*(\d{1,2}):(\d{2})',
-    );
-    int? latest;
-
-    for (final text in hours) {
-      for (final match in pattern.allMatches(text)) {
-        final hour = int.tryParse(match.group(3) ?? '');
-        final minute = int.tryParse(match.group(4) ?? '');
-        if (hour == null || minute == null) continue;
-        final value = hour * 60 + minute;
-        if (latest == null || value > latest) {
-          latest = value;
-        }
-      }
-    }
-
-    if (latest == null) return null;
-    final hour = (latest ~/ 60).toString().padLeft(2, '0');
-    final minute = (latest % 60).toString().padLeft(2, '0');
-    return (
-      minutes: latest,
-      time: '$hour:$minute',
-    );
-  }
-
   Future<void> _runRecentPlaceComparison(
     Map<String, dynamic> mission,
   ) async {
-    var candidates = _lastBusinesses
+    final candidates = _lastBusinesses
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
-    final comparison =
-        mission['comparison']?.toString().trim() ?? '';
-    final facts = mission['required_facts'];
-    final required = facts is List
-        ? facts.map((item) => item.toString()).join(' ')
-        : '';
 
-    if (
-      comparison == 'latest_closing' ||
-      RegExp(r'영업시간|운영시간').hasMatch(required)
-    ) {
-      final missingHours = candidates.any(
-        (item) => _openingHours(item).isEmpty,
+    final openAiApiKey = await _keyStore.read();
+    if (openAiApiKey == null) {
+      throw const ArabaApiException(
+        'MY에서 OpenAI API Key를 먼저 저장해주세요.',
       );
-
-      if (missingHours) {
-        final openAiApiKey = await _keyStore.read();
-        if (openAiApiKey != null) {
-          final naverCredentials = await _naverStore.read();
-          _updateResearchStage(
-            '직전 업체들의 영업시간을 다시 확인하는 중…',
-          );
-          final result = await _api.enrichBusinesses(
-            mission,
-            candidates,
-            openAiApiKey: openAiApiKey,
-            naverClientId: naverCredentials?.clientId,
-            naverClientSecret: naverCredentials?.clientSecret,
-          );
-          final enriched = _businessesFrom(result);
-          if (enriched.length == candidates.length) {
-            candidates = enriched;
-            _lastBusinesses = enriched;
-            _conversationContext.rememberBusinessResults(
-              mission,
-              enriched,
-            );
-          }
-        }
-      }
-
-      final ranked = <({
-        Map<String, dynamic> business,
-        int minutes,
-        String time,
-      })>[];
-
-      for (final business in candidates) {
-        final closing = _latestClosing(business);
-        if (closing == null) continue;
-        ranked.add((
-          business: business,
-          minutes: closing.minutes,
-          time: closing.time,
-        ));
-      }
-
-      if (ranked.isEmpty) {
-        const text =
-            '아까 찾은 업체들의 영업시간을 비교하려고 했지만 '
-            '확인 가능한 마감시간이 없었어요.';
-        _addAssistantMessage(
-          text: text,
-          badge: '비교 결과 없음',
-          businesses: candidates,
-        );
-        _speakProgress(text);
-        return;
-      }
-
-      ranked.sort(
-        (a, b) => b.minutes.compareTo(a.minutes),
-      );
-      final bestMinutes = ranked.first.minutes;
-      final winners = ranked
-          .where(
-            (item) => item.minutes == bestMinutes,
-          )
-          .toList();
-      final names = winners
-          .map(
-            (item) =>
-                item.business['name']?.toString().trim() ??
-                '해당 업체',
-          )
-          .join(', ');
-      final bestTime = winners.first.time;
-      final answer = winners.length == 1
-          ? '$names이 확인된 진료시간 기준으로 '
-              '가장 늦게 $bestTime까지 진료해요.'
-          : '$names이 확인된 진료시간 기준으로 '
-              '가장 늦은 $bestTime까지 진료해요.';
-
-      final winnerBusinesses = winners
-          .map((item) => item.business)
-          .toList();
-
-      if (winnerBusinesses.length == 1) {
-        _conversationContext.rememberBusiness(
-          winnerBusinesses.first,
-        );
-      }
-
-      _addAssistantMessage(
-        text: answer,
-        badge: '비교 결과',
-        businesses: winnerBusinesses,
-      );
-      _speakProgress(answer);
-      return;
     }
 
-    const unsupported =
-        '아까 찾은 업체들을 이어서 비교할 수는 있지만, '
-        '이번 비교 조건은 아직 처리 규칙이 준비되지 않았어요.';
-    _addAssistantMessage(
-      text: unsupported,
-      badge: '비교 조건 확인 필요',
-      businesses: candidates,
+    final naverCredentials = await _naverStore.read();
+    _updateResearchStage(
+      '직전 업체를 새로 검색하지 않고 조건별 근거를 판정하는 중…',
     );
+
+    final result = await _api.enrichBusinesses(
+      mission,
+      candidates,
+      openAiApiKey: openAiApiKey,
+      naverClientId: naverCredentials?.clientId,
+      naverClientSecret: naverCredentials?.clientSecret,
+    );
+
+    final selected = _businessesFrom(result);
+    final rawMatching = result['matching'];
+    final matching = rawMatching is Map
+        ? Map<String, dynamic>.from(rawMatching)
+        : <String, dynamic>{};
+
+    final summary =
+        matching['summary']?.toString().trim() ?? '';
+    final answerReady = matching['answer_ready'] == true;
+    final matchedCount = matching['matched_count'] is num
+        ? (matching['matched_count'] as num).round()
+        : selected.length;
+    final unverifiedCount =
+        matching['unverified_count'] is num
+            ? (matching['unverified_count'] as num).round()
+            : 0;
+    final excludedCount =
+        matching['excluded_count'] is num
+            ? (matching['excluded_count'] as num).round()
+            : 0;
+
+    final remembered = selected.isNotEmpty
+        ? selected
+        : candidates;
+    _lastBusinesses = remembered;
+    _conversationContext.rememberBusinessResults(
+      mission,
+      remembered,
+    );
+
+    if (selected.length == 1) {
+      _conversationContext.rememberBusiness(
+        selected.first,
+      );
+    }
+
+    final answer = summary.isNotEmpty
+        ? summary
+        : (
+            answerReady
+                ? '조건을 모두 만족하는 업체 $matchedCount곳을 확인했어요.'
+                : '조건을 판정했지만 아직 최종 확정할 근거가 부족해요.'
+          );
+
+    _addAssistantMessage(
+      text: '$answer\n'
+          '조건충족 $matchedCount · 미확인 $unverifiedCount · '
+          '불일치 $excludedCount',
+      badge: answerReady
+          ? '조건 비교 완료'
+          : '조건 근거 추가 확인 필요',
+      businesses: selected,
+    );
+    _speakProgress(answer);
   }
 
   Future<void> _runRealResearch(
