@@ -717,6 +717,20 @@ class _HomeScreenState extends State<HomeScreen>
       final answerReady = matching['answer_ready'] == true;
       final matchingSummary =
           matching['summary']?.toString().trim() ?? '';
+      final matchedCount = matching['matched_count'] is num
+          ? (matching['matched_count'] as num).round()
+          : updated.length;
+      final unverifiedCount =
+          matching['unverified_count'] is num
+              ? (matching['unverified_count'] as num).round()
+              : 0;
+      final excludedCount =
+          matching['excluded_count'] is num
+              ? (matching['excluded_count'] as num).round()
+              : 0;
+      final namedAnswer = hasCriteria
+          ? _namedMatchAnswer(updated)
+          : '';
 
       final remembered = updated.isNotEmpty
           ? updated
@@ -744,16 +758,34 @@ class _HomeScreenState extends State<HomeScreen>
                     ? '상세정보 보강 완료'
                     : '상세정보 추가 확인 필요'
               );
-        final matchingText = hasCriteria && matchingSummary.isNotEmpty
-            ? '$matchingSummary\n'
+        final decisionText = hasCriteria
+            ? [
+                if (namedAnswer.isNotEmpty) namedAnswer,
+                if (matchingSummary.isNotEmpty &&
+                    matchingSummary != namedAnswer)
+                  matchingSummary,
+                '조건충족 $matchedCount · 미확인 $unverifiedCount · '
+                    '불일치 $excludedCount',
+              ].join('\n')
             : '';
         message.text =
-            '$matchingText'
+            '${decisionText.isEmpty ? '' : '$decisionText\n'}'
             '업체 $total곳의 실제 정보를 확인했어요.\n'
             '영업시간 $hours/$total · 주차 $parking/$total · '
             '가격 $prices/$total · 사진 $photos/$total\n'
             '$detailStatus';
       });
+
+      if (hasCriteria) {
+        final spokenResult = namedAnswer.isNotEmpty
+            ? namedAnswer
+            : (
+                matchingSummary.isNotEmpty
+                    ? matchingSummary
+                    : '조건을 확인했지만 확정해서 추천할 업체는 아직 없어요.'
+              );
+        _speakProgress(spokenResult);
+      }
     } catch (error) {
       if (!mounted ||
           revision != _researchRevision ||
