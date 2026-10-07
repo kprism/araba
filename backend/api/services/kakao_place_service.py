@@ -201,6 +201,18 @@ def _enrich_one_business(business):
     item["kakao_page_checked"] = (
         page.get("checked") is True
     )
+    item["kakao_photo_status"] = (
+        "found"
+        if page.get("image_url")
+        else (
+            "no_image_in_page"
+            if page.get("checked") is True
+            else (
+                page.get("reason")
+                or "page_unavailable"
+            )
+        )
+    )
 
     image_url = str(
         page.get("image_url") or ""
@@ -254,6 +266,7 @@ def enrich_businesses_with_kakao_pages(
                 results[index] = {
                     **safe[index],
                     "kakao_page_checked": False,
+                    "kakao_photo_status": "page_error",
                 }
 
     return [

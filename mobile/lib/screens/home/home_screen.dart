@@ -1751,6 +1751,45 @@ class _StatusBadge extends StatelessWidget {
   }
 }
 
+class _BusinessImageFallback extends StatelessWidget {
+  final String message;
+  final double iconSize;
+
+  const _BusinessImageFallback({
+    required this.message,
+    this.iconSize = 38,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xFFEEF4FF),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.storefront_rounded,
+              size: iconSize,
+              color: const Color(0xFF3157D5),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xFF667085),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _BusinessCards extends StatelessWidget {
   final List<Map<String, dynamic>> businesses;
 
@@ -1946,15 +1985,9 @@ class _BusinessCards extends StatelessWidget {
                               error,
                               stackTrace,
                             ) {
-                              return const ColoredBox(
-                                color: Color(0xFFEEF4FF),
-                                child: Center(
-                                  child: Icon(
-                                    Icons.storefront_rounded,
-                                    size: 54,
-                                    color: Color(0xFF3157D5),
-                                  ),
-                                ),
+                              return const _BusinessImageFallback(
+                                message: '사진 주소는 있지만 이미지를 불러오지 못했어요',
+                                iconSize: 54,
                               );
                             },
                           ),
@@ -2387,28 +2420,16 @@ class _BusinessCards extends StatelessWidget {
                             error,
                             stackTrace,
                           ) {
-                            return const ColoredBox(
-                              color: Color(0xFFEEF4FF),
-                              child: Center(
-                                child: Icon(
-                                  Icons.storefront_rounded,
-                                  size: 38,
-                                  color: Color(0xFF3157D5),
-                                ),
-                              ),
+                            return const _BusinessImageFallback(
+                              message: '이미지 로딩 실패',
+                              iconSize: 38,
                             );
                           },
                         )
                       else
-                        const ColoredBox(
-                          color: Color(0xFFEEF4FF),
-                          child: Center(
-                            child: Icon(
-                              Icons.storefront_rounded,
-                              size: 38,
-                              color: Color(0xFF3157D5),
-                            ),
-                          ),
+                        const _BusinessImageFallback(
+                          message: '업체 사진 정보 없음',
+                          iconSize: 38,
                         ),
                       if (imageUrl.isNotEmpty)
                         Positioned(

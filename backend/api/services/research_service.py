@@ -1264,6 +1264,21 @@ def search_real_businesses(
             and item.get("image_source")
             == "kakao_place"
         ),
+        "kakao_photo_status_counts": {
+            status: sum(
+                1
+                for item in businesses
+                if item.get("kakao_photo_status") == status
+            )
+            for status in (
+                "found",
+                "no_image_in_page",
+                "page_fetch_failed",
+                "page_unavailable",
+                "page_error",
+                "not_kakao_place_url",
+            )
+        },
         "web_enriched_count": sum(
             1
             for item in businesses
