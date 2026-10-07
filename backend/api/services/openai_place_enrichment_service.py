@@ -13,7 +13,7 @@ WEB_ENRICH_MODEL = (
     ).strip()
     or "gpt-6-luna"
 )
-WEB_ENRICH_TIMEOUT_SECONDS = 22.0
+WEB_ENRICH_TIMEOUT_SECONDS = 28.0
 WEB_ENRICH_LIMIT = 5
 
 
@@ -338,6 +338,37 @@ def _clean_prices(value):
     return prices
 
 
+def _web_user_location(mission):
+    location = str(
+        mission.get("location") or ""
+    ).strip()
+
+    value = {
+        "type": "approximate",
+        "country": "KR",
+    }
+
+    city_match = re.search(
+        r"([가-힣]{2,}(?:특별시|광역시|시))",
+        location,
+    )
+    if city_match:
+        value["city"] = city_match.group(1)
+    elif location.startswith("서울"):
+        value["city"] = "서울"
+    elif location.startswith("부산"):
+        value["city"] = "부산"
+
+    region_match = re.search(
+        r"([가-힣]{2,}(?:특별자치도|도))",
+        location,
+    )
+    if region_match:
+        value["region"] = region_match.group(1)
+
+    return value
+
+
 def _build_batch_prompt(
     businesses,
     mission,
@@ -387,6 +418,9 @@ def _build_batch_prompt(
     return (
         "한국의 실제 업체 여러 곳을 웹에서 확인한다.\n\n"
         "각 업체마다 업체명과 주소/지역이 같은 곳인지 먼저 검증한다.\n"
+        "반드시 각 업체마다 정확한 상호명과 지역/주소를 함께 넣어 웹검색을 수행한다. "
+        "필요 정보가 첫 검색에서 확인되지 않으면 영업시간·주차·가격·사진 키워드를 붙여 추가 검색한다.\n"
+        "입력된 모든 업체를 각각 확인하고 일부만 조사한 뒤 끝내지 않는다.\n"
         "동명이거나 다른 지역이면 identity_match=false로 표시한다.\n"
         "공식 홈페이지, 네이버/카카오 장소정보, 업체가 직접 등록한 페이지를 우선하고, "
         "그 다음 신뢰할 수 있는 웹페이지와 블로그를 참고한다.\n"
@@ -573,18 +607,31 @@ def _apply_one_result(
         )
 
     item["naver"] = naver
-    item["openai_web"] = {
-        "status": "matched",
-        "matched": True,
-        "sources": sources,
-        "opening_hours_found": bool(
-            opening_hours
-        ),
-        "parking_found": isinstance(
+
+    detail_found = (
+        bool(opening_hours)
+        or isinstance(
             parking_available,
             bool,
+        )
+        or bool(prices)
+        or bool(phone)
+        or bool(image)
+    )
+
+    item["openai_web"] = {
+        "status": (
+            "matched"
+            if detail_found
+            else "no_detail_found"
         ),
+        "matched": detail_found,
+        "identity_confirmed": True,
+        "sources": sources,
+        "opening_hours_found": bool(opening_hours),
+        "parking_found": isinstance(parking_available, bool),
         "prices_found": bool(prices),
+        "phone_found": bool(phone),
         "image_found": bool(image),
     }
 
@@ -661,19 +708,22 @@ def enrich_businesses_with_openai_web(
         response = client.responses.create(
             model=WEB_ENRICH_MODEL,
             reasoning={
-                "effort": "low",
+                "effort": "medium",
             },
             tools=[
                 {
                     "type": "web_search",
                     "search_context_size":
-                        "medium",
+                        "high",
+                    "external_web_access": True,
+                    "user_location":
+                        _web_user_location(mission),
                     "search_content_types": [
                         "image",
                         "text",
                     ],
                     "image_settings": {
-                        "max_results": 10,
+                        "max_results": 15,
                         "caption": True,
                     },
                 }
@@ -685,7 +735,7 @@ def enrich_businesses_with_openai_web(
                 primary,
                 mission,
             ),
-            max_output_tokens=2200,
+            max_output_tokens=3000,
         )
     except Exception as exc:
         error_name = (

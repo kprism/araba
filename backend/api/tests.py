@@ -1059,6 +1059,52 @@ class NaverPlaceServiceTests(TestCase):
         )
 
 
+class PlaceCategoryAliasTests(TestCase):
+    def test_restaurant_matches_kakao_food_group(self):
+        from api.services.research_service import (
+            _matches_mission,
+        )
+
+        self.assertTrue(
+            _matches_mission(
+                {
+                    "place_name": "창원한식",
+                    "category_name": "음식점 > 한식",
+                    "category_group_code": "FD6",
+                },
+                {
+                    "search_terms": ["식당"],
+                    "subcategories": ["식당"],
+                    "category": "식당",
+                    "subject": "식당",
+                    "location": "",
+                },
+            )
+        )
+
+    def test_dentist_does_not_accept_unrelated_hospital(self):
+        from api.services.research_service import (
+            _matches_mission,
+        )
+
+        self.assertFalse(
+            _matches_mission(
+                {
+                    "place_name": "중동내과",
+                    "category_name": "의료 > 병원 > 내과",
+                    "category_group_code": "HP8",
+                },
+                {
+                    "search_terms": ["치과"],
+                    "subcategories": ["치과"],
+                    "category": "치과",
+                    "subject": "치과",
+                    "location": "",
+                },
+            )
+        )
+
+
 class OpenAIPlaceEnrichmentTests(TestCase):
     def test_missing_fields_detect_card_gaps(self):
         from api.services.openai_place_enrichment_service import (
@@ -1289,6 +1335,70 @@ class OpenAIPlaceEnrichmentTests(TestCase):
         self.assertTrue(
             result[0]["naver"]["parking_available"],
         )
+
+    @patch(
+        "api.services.openai_place_enrichment_service.OpenAI"
+    )
+    def test_identity_only_is_not_counted_as_enriched(
+        self,
+        mocked_openai,
+    ):
+        from api.services.openai_place_enrichment_service import (
+            enrich_businesses_with_openai_web,
+        )
+
+        response = Mock(
+            output_text=json.dumps(
+                {
+                    "businesses": [
+                        {
+                            "index": 0,
+                            "business_name": "A치과",
+                            "identity_match": True,
+                            "opening_hours": [],
+                            "parking_available": None,
+                            "parking_text": None,
+                            "prices": [],
+                            "phone": None,
+                            "address": None,
+                            "price_link": None,
+                            "source_urls": [
+                                "https://example.com/a"
+                            ],
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        )
+        response.model_dump.return_value = {"output": []}
+        mocked_openai.return_value.responses.create.return_value = response
+
+        result = enrich_businesses_with_openai_web(
+            [
+                {
+                    "name": "A치과",
+                    "address": "창원시 의창구 중동",
+                    "naver": {
+                        "opening_hours": [],
+                        "parking_available": None,
+                        "prices": [],
+                    },
+                }
+            ],
+            {
+                "location": "창원시 의창구 중동",
+                "constraints": [],
+            },
+            api_key="sk-test",
+        )
+
+        self.assertFalse(result[0]["openai_web"]["matched"])
+        self.assertEqual(
+            result[0]["openai_web"]["status"],
+            "no_detail_found",
+        )
+
 
 class WebPlaceEnrichmentTests(TestCase):
     def test_missing_keywords_include_card_detail_fields(self):

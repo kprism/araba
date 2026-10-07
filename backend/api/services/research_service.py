@@ -741,6 +741,55 @@ def _mission_keywords(mission):
     return keywords[:12]
 
 
+KAKAO_CATEGORY_GROUP_ALIASES = {
+    "식당": {"FD6"},
+    "음식점": {"FD6"},
+    "맛집": {"FD6"},
+    "밥집": {"FD6"},
+    "레스토랑": {"FD6"},
+    "카페": {"CE7"},
+    "커피": {"CE7"},
+    "병원": {"HP8"},
+    "약국": {"PM9"},
+    "주차장": {"PK6"},
+    "주유소": {"OL7"},
+    "은행": {"BK9"},
+    "마트": {"MT1"},
+    "편의점": {"CS2"},
+    "학교": {"SC4"},
+    "학원": {"AC5"},
+    "지하철역": {"SW8"},
+    "부동산": {"AG2"},
+    "공공기관": {"PO3"},
+    "관광지": {"AT4"},
+    "호텔": {"AD5"},
+    "숙박": {"AD5"},
+}
+
+
+def _matches_kakao_category_group(
+    document,
+    keywords,
+):
+    group_code = str(
+        document.get("category_group_code") or ""
+    ).strip()
+
+    if not group_code:
+        return False
+
+    expected_codes = set()
+    for keyword in keywords:
+        expected_codes.update(
+            KAKAO_CATEGORY_GROUP_ALIASES.get(
+                keyword,
+                set(),
+            )
+        )
+
+    return bool(expected_codes) and group_code in expected_codes
+
+
 def _matches_mission(document, mission):
     target_business = _effective_target_business(
         mission
@@ -769,9 +818,12 @@ def _matches_mission(document, mission):
         ]
     )
 
-    # 지역명만 같은 아파트·학교·공원 등이 섞이지 않도록
-    # 사용자가 요청한 실제 업종/서비스 핵심어가
-    # 상호 또는 카카오 업종분류에 반드시 포함돼야 한다.
+    if _matches_kakao_category_group(
+        document,
+        keywords,
+    ):
+        return True
+
     return any(
         keyword in haystack
         for keyword in keywords
@@ -1249,6 +1301,7 @@ def search_real_businesses(
                 "provider_error",
                 "identity_not_confirmed",
                 "not_returned",
+                "no_detail_found",
                 "not_configured",
                 "not_needed",
                 "deferred_fast_response",
@@ -1261,6 +1314,26 @@ def search_real_businesses(
             if str(
                 item.get("image_url") or ""
             ).strip()
+        ),
+        "opening_hours_count": sum(
+            1
+            for item in businesses
+            if isinstance(item.get("naver"), dict)
+            and isinstance(item["naver"].get("opening_hours"), list)
+            and bool(item["naver"].get("opening_hours"))
+        ),
+        "parking_info_count": sum(
+            1
+            for item in businesses
+            if isinstance(item.get("naver"), dict)
+            and isinstance(item["naver"].get("parking_available"), bool)
+        ),
+        "price_info_count": sum(
+            1
+            for item in businesses
+            if isinstance(item.get("naver"), dict)
+            and isinstance(item["naver"].get("prices"), list)
+            and bool(item["naver"].get("prices"))
         ),
         "reference_origin": reference_origin,
         "resolved_location_type": (
