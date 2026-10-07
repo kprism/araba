@@ -337,7 +337,7 @@ def _normalize_intent(value):
 
 
 SELF_CORRECTION_RE = re.compile(
-    r"([0-9a-zA-Z가-힣]{2,20}?)(?:이|가)?\\s*(?:아니고|말고)\\s*[,，]?\\s*([0-9a-zA-Z가-힣]{2,20})"
+    r"([0-9a-zA-Z가-힣]{2,20}?)(?:이|가)?\s*(?:아니고|말고)\s*[,，]?\s*([0-9a-zA-Z가-힣]{2,20})"
 )
 
 FOOD_PLACE_TERMS = {
