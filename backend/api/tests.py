@@ -1597,6 +1597,9 @@ class KakaoPlaceServiceTests(TestCase):
 
 
 class ProgressivePlaceResearchTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
     @patch(
         "api.services.research_service.enrich_place_businesses"
     )

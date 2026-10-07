@@ -634,6 +634,9 @@ class _HomeScreenState extends State<HomeScreen>
         updated,
       );
 
+      final detailStatus = anyDetails
+          ? '각 카드에 확인된 정보를 반영했어요.'
+          : '출처에서 확인되지 않은 정보는 임의로 채우지 않았어요.';
       setState(() {
         final message = _messages[messageIndex];
         message.businesses = updated;
@@ -644,9 +647,7 @@ class _HomeScreenState extends State<HomeScreen>
             '업체 $total곳의 실제 정보를 확인했어요.\n'
             '영업시간 $hours/$total · 주차 $parking/$total · '
             '가격 $prices/$total · 사진 $photos/$total\n'
-            + (anyDetails
-                ? '각 카드에 확인된 정보를 반영했어요.'
-                : '출처에서 확인되지 않은 정보는 임의로 채우지 않았어요.');
+            '$detailStatus';
       });
     } catch (error) {
       if (!mounted ||
