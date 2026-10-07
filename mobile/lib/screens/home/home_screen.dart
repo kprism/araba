@@ -563,19 +563,53 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  void _updateResearchStage(String stage) {
-    if (!mounted || !_researching) return;
+  void _updateResearchStage(
+    String stage, {
+    int? revision,
+  }) {
+    if (!mounted ||
+        !_researching ||
+        (revision != null && revision != _researchRevision)) {
+      return;
+    }
     setState(() => _researchStage = stage);
     _toBottom();
   }
 
-  void _stopResearchProgress() {
-    if (!mounted) return;
+  void _stopResearchProgress({
+    int? revision,
+  }) {
+    if (!mounted ||
+        (revision != null && revision != _researchRevision)) {
+      return;
+    }
 
     setState(() {
       _researching = false;
       _researchStage = '';
     });
+  }
+
+  List<String> _businessNames(
+    List<Map<String, dynamic>> businesses,
+  ) {
+    return businesses
+        .map((item) => item['name']?.toString().trim() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toList();
+  }
+
+  String _namedMatchAnswer(
+    List<Map<String, dynamic>> businesses,
+  ) {
+    final names = _businessNames(businesses);
+    if (names.isEmpty) {
+      return '';
+    }
+    if (names.length == 1) {
+      return '조건에 맞는 곳은 ${names.first}입니다.';
+    }
+    return '조건에 맞는 곳은 ${names.join(' · ')}입니다.';
   }
 
   Future<void> _enrichVisibleCards(
