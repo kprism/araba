@@ -1360,8 +1360,7 @@ class _HomeScreenState extends State<HomeScreen>
         .map((item) => Map<String, dynamic>.from(item))
         .where((item) {
           final question = item['question']?.toString().trim() ?? '';
-          final options = item['options'];
-          return question.isNotEmpty && options is List && options.isNotEmpty;
+          return question.isNotEmpty;
         })
         .toList();
   }
@@ -1375,6 +1374,13 @@ class _HomeScreenState extends State<HomeScreen>
     final clarifications = _clarifications(mission);
 
     if (clarifications.isNotEmpty) {
+      final question =
+          clarifications.first['question']?.toString().trim() ?? '';
+      if (question.isNotEmpty) {
+        return summary.isEmpty
+            ? question
+            : '$summary\n\n$question';
+      }
       return summary.isEmpty
           ? '한 가지만 더 알려주세요.'
           : '$summary\n\n한 가지만 더 알려주세요.';
@@ -1570,15 +1576,6 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _send() async {
-    if (_researching) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('현재 알아보는 작업을 진행하고 있어요.'),
-        ),
-      );
-      return;
-    }
-
     final text = _controller.text.trim();
 
     if (text.isEmpty) {
@@ -1643,7 +1640,7 @@ class _HomeScreenState extends State<HomeScreen>
     required String displayText,
     required String requestText,
   }) async {
-    if (_sending || _researching) return;
+    if (_sending) return;
 
     setState(() {
       _messages.add(
@@ -1879,10 +1876,9 @@ class _HomeScreenState extends State<HomeScreen>
                   listening:
                       _liveActive && _micEnabled,
                   sending:
-                      _sending || _liveConnecting || _researching,
+                      _sending || _liveConnecting,
                   micDisabled:
-                      _liveConnecting ||
-                      (_researching && !_liveActive),
+                      _liveConnecting,
                   onImage: _showImageSourcePicker,
                   onMic: _toggleLiveVoice,
                   onSend: _send,
