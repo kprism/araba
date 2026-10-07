@@ -891,7 +891,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ? summary
                 : (
                     answerReady
-                        ? '조건을 모두 만족하는 업체 ${matchedCount}곳을 확인했어요.'
+                        ? '조건을 모두 만족하는 업체 $matchedCount곳을 확인했어요.'
                         : '조건을 판정했지만 아직 최종 확정할 근거가 부족해요.'
                   )
           );
