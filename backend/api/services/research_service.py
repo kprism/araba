@@ -1073,16 +1073,19 @@ def search_real_businesses(
             if isinstance(raw_terms, list)
             else []
         )
+        coordinate_fallback = None
         for raw_term in [
             *coordinate_terms,
             str(mission.get("category") or "").strip(),
         ]:
             for term in _compact_term_variants(raw_term):
                 if term and term not in search_queries:
-                    search_queries.insert(1, term)
+                    coordinate_fallback = term
                     break
-            if len(search_queries) > 1 and search_queries[1] == raw_term:
+            if coordinate_fallback:
                 break
+        if coordinate_fallback:
+            search_queries.insert(1, coordinate_fallback)
 
     for query in search_queries[:MAX_KAKAO_QUERY_ATTEMPTS]:
         try:
