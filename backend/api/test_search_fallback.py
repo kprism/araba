@@ -62,7 +62,7 @@ class SearchFallbackTests(TestCase):
                 "subject": "치과",
                 "search_terms": ["치과"],
                 "subcategories": ["치과"],
-                "requested_count": 5,
+                "requested_count": 1,
             },
             api_key="kakao-test",
             quick_cards=True,
