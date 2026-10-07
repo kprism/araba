@@ -1814,6 +1814,76 @@ class DirectGptPlaceEnrichmentTests(TestCase):
         gpt.assert_called_once()
 
 
+class RecentPlaceComparisonRoutingTests(TestCase):
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_recent_places_latest_closing_bypasses_openai(
+        self,
+        mocked_openai,
+    ):
+        from api.services.mission_service import create_mission
+
+        request = """[대화 문맥 - 참고용]
+{"category":"치과","location":"창원시 의창구 중동","recent_place_results":[{"name":"A치과","opening_hours":["월 09:00~18:00"]},{"name":"B치과","opening_hours":["화 09:00~21:00"]}]}
+
+[현재 요청]
+아까 찾은 치과 중에서 저녁 가장 늦게까지 하는 치과 좀 알아봐줘"""
+
+        diagnostics = {}
+        mission = create_mission(
+            request,
+            api_key="sk-test",
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(
+            mission["search_mode"],
+            "comparison",
+        )
+        self.assertEqual(
+            mission["comparison"],
+            "latest_closing",
+        )
+        self.assertTrue(
+            mission["attributes"]["reuse_recent_results"],
+        )
+        self.assertEqual(
+            mission["required_facts"],
+            ["영업시간"],
+        )
+        self.assertEqual(
+            diagnostics["route"],
+            "recent_place_comparison",
+        )
+        self.assertEqual(
+            diagnostics["openai_elapsed_ms"],
+            0,
+        )
+        mocked_openai.assert_not_called()
+
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_new_place_request_does_not_use_recent_comparison(
+        self,
+        mocked_openai,
+    ):
+        from api.services.mission_service import (
+            _fast_recent_place_comparison,
+        )
+
+        request = """[대화 문맥 - 참고용]
+{"category":"치과","location":"창원시 의창구 중동","recent_place_results":[{"name":"A치과"}]}
+
+[현재 요청]
+창원시청 주변 식당 5곳 찾아줘"""
+
+        self.assertIsNone(
+            _fast_recent_place_comparison(request)
+        )
+
+
 class ProgressivePlaceResearchTests(TestCase):
     def setUp(self):
         self.client = APIClient()

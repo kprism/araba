@@ -553,6 +553,156 @@ def _mission_from_intent(intent):
     return _non_place_mission(intent)
 
 
+def _split_contextual_request(value):
+    text = str(value or "").strip()
+    marker = "[현재 요청]"
+    if marker not in text:
+        return {}, text
+
+    context_part, current = text.rsplit(marker, 1)
+    current = current.strip()
+
+    start = context_part.find("{")
+    if start < 0:
+        return {}, current
+
+    decoder = json.JSONDecoder()
+    try:
+        context, _ = decoder.raw_decode(
+            context_part[start:]
+        )
+    except (json.JSONDecodeError, ValueError):
+        return {}, current
+
+    return (
+        context if isinstance(context, dict) else {},
+        current,
+    )
+
+
+def _fast_recent_place_comparison(user_request):
+    context, current = _split_contextual_request(
+        user_request
+    )
+    recent = context.get("recent_place_results")
+    if not isinstance(recent, list) or not recent:
+        return None
+
+    compact = re.sub(
+        r"\s+",
+        "",
+        str(current or ""),
+    )
+    if not re.search(
+        r"그중|그중에서|아까|찾은.*중|이중|이곳중",
+        compact,
+    ):
+        return None
+
+    comparison = None
+    facts = []
+
+    if re.search(
+        r"가장늦|제일늦|늦게까지|늦게하는|늦은",
+        compact,
+    ):
+        comparison = "latest_closing"
+        facts = ["영업시간"]
+    elif re.search(
+        r"주차.*(되는|가능)|주차되는",
+        compact,
+    ):
+        comparison = "parking_available"
+        facts = ["주차"]
+    elif re.search(
+        r"가장가까|제일가까|가까운",
+        compact,
+    ):
+        comparison = "nearest"
+        facts = ["거리"]
+    elif re.search(
+        r"가장저렴|제일저렴|가장싼|제일싼",
+        compact,
+    ):
+        comparison = "lowest_price"
+        facts = ["가격"]
+
+    if comparison is None:
+        return None
+
+    category = (
+        _clean_text(context.get("category"))
+        or "장소"
+    )
+    location = _clean_text(context.get("location"))
+
+    return {
+        "title": current,
+        "summary": current,
+        "category": category,
+        "subcategories": [category],
+        "intent": "place_search",
+        "search_mode": "comparison",
+        "response_mode": "research",
+        "direct_answer": None,
+        "location": location,
+        "location_explicit": False,
+        "subject": category,
+        "target_business": None,
+        "attributes": {
+            "reuse_recent_results": True,
+        },
+        "constraints": [],
+        "comparison": comparison,
+        "search_terms": [category],
+        "requested_count": len(recent),
+        "required_facts": facts,
+        "needs_fresh_data": True,
+        "may_need_phone_call": False,
+        "missing_information": [],
+        "clarification_questions": [],
+        "ready_to_research": True,
+        "user_goal": current,
+        "decision_needed": (
+            "직전에 확인한 장소들만 비교해서 "
+            "사용자 조건에 가장 맞는 곳을 고른다."
+        ),
+        "known_facts": {
+            "recent_result_count": len(recent),
+        },
+        "unknown_facts": facts,
+        "research_plan": [
+            {
+                "step": 1,
+                "goal": (
+                    "직전 장소 결과의 필요한 정보만 "
+                    "보강하고 다시 검색하지 않는다."
+                ),
+                "tool": "recent_place_results",
+                "when": "항상",
+            }
+        ],
+        "completion_criteria": [
+            "직전 장소 결과 밖의 새 업체를 섞지 않는다.",
+            "비교 근거와 선택된 업체를 함께 제시한다.",
+        ],
+        "confidence_target": "high",
+        "location_context": {
+            "value": location,
+            "type": "administrative_area"
+            if location
+            else "none",
+            "radius_hint_km": None,
+        },
+        "intent_brain": {
+            "intent": "place_search",
+            "sort": comparison,
+            "requested_facts": facts,
+        },
+        "brain_version": "recent-comparison-fast-v1",
+    }
+
+
 def create_mission(
     user_request,
     api_key=None,
@@ -580,6 +730,16 @@ def create_mission(
         raise ValueError(
             "OpenAI API Key가 설정되지 않았습니다."
         )
+
+    fast_comparison = _fast_recent_place_comparison(
+        request_text
+    )
+    if fast_comparison is not None:
+        diagnostics["architecture"] = "recent_comparison_fast_v1"
+        diagnostics["stage"] = "fast_route_complete"
+        diagnostics["route"] = "recent_place_comparison"
+        diagnostics["openai_elapsed_ms"] = 0
+        return fast_comparison
 
     diagnostics["architecture"] = "intent_router_v2"
     diagnostics["stage"] = "intent_core_request"

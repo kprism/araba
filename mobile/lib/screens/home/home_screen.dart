@@ -707,6 +707,194 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  bool _isRecentPlaceComparison(
+    Map<String, dynamic> mission,
+  ) {
+    if (_lastBusinesses.isEmpty) return false;
+    final mode =
+        mission['search_mode']?.toString().trim() ?? '';
+    final attributes = mission['attributes'];
+    final reuse = attributes is Map &&
+        attributes['reuse_recent_results'] == true;
+    return mode == 'comparison' && reuse;
+  }
+
+  List<String> _openingHours(
+    Map<String, dynamic> business,
+  ) {
+    final rawNaver = business['naver'];
+    final naver = rawNaver is Map
+        ? Map<String, dynamic>.from(rawNaver)
+        : <String, dynamic>{};
+    final raw = naver['opening_hours'];
+    return raw is List
+        ? raw
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList()
+        : <String>[];
+  }
+
+  ({int minutes, String time})? _latestClosing(
+    Map<String, dynamic> business,
+  ) {
+    final hours = _openingHours(business);
+    if (hours.isEmpty) return null;
+
+    final pattern = RegExp(
+      r'(\d{1,2}):(\d{2})\s*[~\-–]\s*(\d{1,2}):(\d{2})',
+    );
+    int? latest;
+
+    for (final text in hours) {
+      for (final match in pattern.allMatches(text)) {
+        final hour = int.tryParse(match.group(3) ?? '');
+        final minute = int.tryParse(match.group(4) ?? '');
+        if (hour == null || minute == null) continue;
+        final value = hour * 60 + minute;
+        if (latest == null || value > latest) {
+          latest = value;
+        }
+      }
+    }
+
+    if (latest == null) return null;
+    final hour = (latest ~/ 60).toString().padLeft(2, '0');
+    final minute = (latest % 60).toString().padLeft(2, '0');
+    return (
+      minutes: latest,
+      time: '$hour:$minute',
+    );
+  }
+
+  Future<void> _runRecentPlaceComparison(
+    Map<String, dynamic> mission,
+  ) async {
+    var candidates = _lastBusinesses
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    final comparison =
+        mission['comparison']?.toString().trim() ?? '';
+    final facts = mission['required_facts'];
+    final required = facts is List
+        ? facts.map((item) => item.toString()).join(' ')
+        : '';
+
+    if (
+      comparison == 'latest_closing' ||
+      RegExp(r'영업시간|운영시간').hasMatch(required)
+    ) {
+      final missingHours = candidates.any(
+        (item) => _openingHours(item).isEmpty,
+      );
+
+      if (missingHours) {
+        final openAiApiKey = await _keyStore.read();
+        if (openAiApiKey != null) {
+          final naverCredentials = await _naverStore.read();
+          _updateResearchStage(
+            '직전 업체들의 영업시간을 다시 확인하는 중…',
+          );
+          final result = await _api.enrichBusinesses(
+            mission,
+            candidates,
+            openAiApiKey: openAiApiKey,
+            naverClientId: naverCredentials?.clientId,
+            naverClientSecret: naverCredentials?.clientSecret,
+          );
+          final enriched = _businessesFrom(result);
+          if (enriched.length == candidates.length) {
+            candidates = enriched;
+            _lastBusinesses = enriched;
+            _conversationContext.rememberBusinessResults(
+              mission,
+              enriched,
+            );
+          }
+        }
+      }
+
+      final ranked = <({
+        Map<String, dynamic> business,
+        int minutes,
+        String time,
+      })>[];
+
+      for (final business in candidates) {
+        final closing = _latestClosing(business);
+        if (closing == null) continue;
+        ranked.add((
+          business: business,
+          minutes: closing.minutes,
+          time: closing.time,
+        ));
+      }
+
+      if (ranked.isEmpty) {
+        const text =
+            '아까 찾은 업체들의 영업시간을 비교하려고 했지만 '
+            '확인 가능한 마감시간이 없었어요.';
+        _addAssistantMessage(
+          text: text,
+          badge: '비교 결과 없음',
+          businesses: candidates,
+        );
+        _speakProgress(text);
+        return;
+      }
+
+      ranked.sort(
+        (a, b) => b.minutes.compareTo(a.minutes),
+      );
+      final bestMinutes = ranked.first.minutes;
+      final winners = ranked
+          .where(
+            (item) => item.minutes == bestMinutes,
+          )
+          .toList();
+      final names = winners
+          .map(
+            (item) =>
+                item.business['name']?.toString().trim() ??
+                '해당 업체',
+          )
+          .join(', ');
+      final bestTime = winners.first.time;
+      final answer = winners.length == 1
+          ? '$names이 확인된 진료시간 기준으로 '
+              '가장 늦게 $bestTime까지 진료해요.'
+          : '$names이 확인된 진료시간 기준으로 '
+              '가장 늦은 $bestTime까지 진료해요.';
+
+      final winnerBusinesses = winners
+          .map((item) => item.business)
+          .toList();
+
+      if (winnerBusinesses.length == 1) {
+        _conversationContext.rememberBusiness(
+          winnerBusinesses.first,
+        );
+      }
+
+      _addAssistantMessage(
+        text: answer,
+        badge: '비교 결과',
+        businesses: winnerBusinesses,
+      );
+      _speakProgress(answer);
+      return;
+    }
+
+    const unsupported =
+        '아까 찾은 업체들을 이어서 비교할 수는 있지만, '
+        '이번 비교 조건은 아직 처리 규칙이 준비되지 않았어요.';
+    _addAssistantMessage(
+      text: unsupported,
+      badge: '비교 조건 확인 필요',
+      businesses: candidates,
+    );
+  }
+
   Future<void> _runRealResearch(
     Map<String, dynamic> mission,
   ) async {
@@ -717,6 +905,10 @@ class _HomeScreenState extends State<HomeScreen>
     final quickCards = !_isDetailFollowUp(mission);
 
     try {
+      if (_isRecentPlaceComparison(mission)) {
+        await _runRecentPlaceComparison(mission);
+        return;
+      }
       final openAiApiKey = await _keyStore.read();
       final kakaoRestApiKey = await _kakaoStore.read();
 
