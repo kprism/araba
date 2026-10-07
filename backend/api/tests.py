@@ -19,6 +19,30 @@ class ApiTests(TestCase):
             "ARABA API",
         )
 
+    def test_onboarding_schema_catalog(self):
+        response = self.client.get(
+            "/api/schemas/onboarding/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(
+            response.data["user_signup"]["schema_id"],
+            "araba.user.signup.v1",
+        )
+        self.assertEqual(
+            response.data["business_signup"]["schema_id"],
+            "araba.business.signup.v1",
+        )
+        self.assertIn(
+            "agent_authority",
+            response.data["business_data"]["top_level"],
+        )
+        self.assertIn(
+            "주민등록번호",
+            response.data["user_signup"]["do_not_collect_by_default"],
+        )
+
     @patch(
         "api.views.get_openai_status",
         return_value={
