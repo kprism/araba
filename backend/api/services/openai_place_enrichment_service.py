@@ -259,13 +259,59 @@ def _source_urls(parsed, raw_results):
     return urls[:8]
 
 
+def _business_name_variants(value):
+    compact = _normalize(value)
+    if not compact:
+        return []
+
+    variants = [compact]
+    suffixes = (
+        "치과의원",
+        "한의원",
+        "의원",
+        "병원",
+        "치과",
+        "클리닉",
+        "센터",
+    )
+
+    for suffix in suffixes:
+        suffix_compact = _normalize(suffix)
+        if (
+            compact.endswith(suffix_compact)
+            and len(compact) > len(suffix_compact) + 1
+        ):
+            stripped = compact[: -len(suffix_compact)]
+            if stripped and stripped not in variants:
+                variants.append(stripped)
+
+    return variants
+
+
 def _image_candidate(
     business,
     raw_results,
+    *,
+    verified_source_urls=None,
 ):
     name = _normalize(
         business.get("name")
     )
+    name_variants = _business_name_variants(
+        business.get("name")
+    )
+    verified_sources = {
+        str(value or "").strip()
+        for value in (
+            verified_source_urls
+            if isinstance(
+                verified_source_urls,
+                (list, tuple, set),
+            )
+            else []
+        )
+        if str(value or "").strip()
+    }
     category = _normalize(
         business.get("description")
         or business.get("category")
@@ -306,11 +352,25 @@ def _image_candidate(
         compact = _normalize(caption)
         score = 0
 
-        # Category-only matches can attach a different clinic's photo.
-        # Require the actual business name in the result caption.
-        if not name or name not in compact:
+        source_url = _safe_url(
+            item.get("source_website_url")
+        )
+        name_match = any(
+            variant and variant in compact
+            for variant in name_variants
+        )
+        verified_source_match = (
+            source_url is not None
+            and source_url in verified_sources
+        )
+
+        # Each search call now targets one business only.
+        # Accept either a business-name variant in the image metadata or
+        # an image coming from a source page already verified for that business.
+        if not name_match and not verified_source_match:
             continue
-        score += 100
+
+        score += 100 if name_match else 70
 
         score += sum(
             8
@@ -326,11 +386,7 @@ def _image_candidate(
                 (
                     score,
                     image_url,
-                    _safe_url(
-                        item.get(
-                            "source_website_url"
-                        )
-                    ),
+                    source_url,
                     _clean_text(
                         item.get("caption")
                     ),
@@ -645,6 +701,7 @@ def _apply_one_result(
     image = _image_candidate(
         item,
         raw_results,
+        verified_source_urls=sources,
     )
 
     if (
@@ -714,7 +771,7 @@ def _empty_status(item, status, *, error_type=None, http_status=None):
 
 
 def _enrich_batch(batch, mission, key):
-    """One forced web-search call per 1-2 businesses, no Kakao dependency."""
+    """One forced web-search call per business, no Kakao dependency."""
     client = OpenAI(
         api_key=key,
         timeout=WEB_ENRICH_TIMEOUT_SECONDS,
@@ -734,7 +791,7 @@ def _enrich_batch(batch, mission, key):
                     "user_location": _web_user_location(mission),
                     "search_content_types": ["text", "image"],
                     "image_settings": {
-                        "max_results": 5,
+                        "max_results": 8,
                         "caption": True,
                     },
                 }
@@ -831,8 +888,8 @@ def enrich_businesses_with_openai_web(
     results = [None] * len(primary)
     batches = []
 
-    for offset in range(0, len(primary), 2):
-        group = primary[offset:offset + 2]
+    for offset in range(0, len(primary), 1):
+        group = primary[offset:offset + 1]
         if not any(_missing_fields(item) for item in group):
             results[offset:offset + len(group)] = [
                 _empty_status(item, "not_needed")
@@ -843,7 +900,7 @@ def enrich_businesses_with_openai_web(
 
     if batches:
         with ThreadPoolExecutor(
-            max_workers=min(3, len(batches))
+            max_workers=min(5, len(batches))
         ) as executor:
             futures = {
                 executor.submit(
