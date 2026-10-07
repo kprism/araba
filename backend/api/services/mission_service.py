@@ -769,7 +769,7 @@ def _fast_recent_place_comparison(user_request):
         )
 
     if re.search(
-        r"주차.*(되는|가능)|주차되는|주차가능",
+        r"주차.*(되는|되고|되며|가능|있고|있는)|주차되는|주차되고|주차가능",
         compact,
     ):
         if comparison == "criteria_filter":
