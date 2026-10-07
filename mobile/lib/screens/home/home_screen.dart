@@ -627,6 +627,49 @@ class _HomeScreenState extends State<HomeScreen>
       final photos = count('photos');
       final total = updated.length;
       final anyDetails = hours + parking + prices + photos > 0;
+      final statusCounts = <String, int>{};
+      String providerErrorType = '';
+      int? providerHttpStatus;
+      for (final business in updated) {
+        final raw = business['openai_web'];
+        if (raw is! Map) continue;
+        final info = Map<String, dynamic>.from(raw);
+        final status = info['status']?.toString() ?? '';
+        if (status.isNotEmpty) {
+          statusCounts[status] = (statusCounts[status] ?? 0) + 1;
+        }
+        if (status == 'provider_error') {
+          providerErrorType = info['error_type']?.toString() ?? '';
+          final http = info['upstream_http_status'];
+          if (http is num) providerHttpStatus = http.round();
+        }
+      }
+      String detailFailure = '';
+      if (!anyDetails) {
+        if ((statusCounts['provider_error'] ?? 0) > 0) {
+          final statusCode = providerHttpStatus == null
+              ? ''
+              : ' HTTP $providerHttpStatus';
+          detailFailure =
+              'GPT 웹검색 API 오류: $providerErrorType$statusCode'
+              ' · ${statusCounts['provider_error']}곳';
+        } else if ((statusCounts['web_search_not_run'] ?? 0) > 0) {
+          detailFailure = 'GPT 웹검색이 실제 실행되지 않았어요.';
+        } else if ((statusCounts['missing_sources'] ?? 0) > 0) {
+          detailFailure =
+              '출처 없는 응답 ${statusCounts['missing_sources']}곳.';
+        } else if ((statusCounts['identity_not_confirmed'] ?? 0) > 0) {
+          detailFailure =
+              '동일 업체 확인 실패 ${statusCounts['identity_not_confirmed']}곳.';
+        } else if ((statusCounts['not_returned'] ?? 0) > 0) {
+          detailFailure =
+              'GPT 구조화 응답 누락 ${statusCounts['not_returned']}곳.';
+        } else if ((statusCounts['no_detail_found'] ?? 0) > 0) {
+          detailFailure = '출처를 조사했지만 상세정보가 확인되지 않았어요.';
+        } else {
+          detailFailure = '추가로 확인 가능한 상세정보가 없었어요.';
+        }
+      }
 
       _lastBusinesses = updated;
       _conversationContext.rememberBusinessResults(
@@ -636,7 +679,7 @@ class _HomeScreenState extends State<HomeScreen>
 
       final detailStatus = anyDetails
           ? '각 카드에 확인된 정보를 반영했어요.'
-          : '출처에서 확인되지 않은 정보는 임의로 채우지 않았어요.';
+          : '$detailFailure 출처가 없는 값은 임의로 채우지 않았어요.';
       setState(() {
         final message = _messages[messageIndex];
         message.businesses = updated;
@@ -658,8 +701,8 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         _messages[messageIndex].badge = '상세정보 보강 실패';
         _messages[messageIndex].text =
-            '기본 업체 카드는 확인했지만 상세정보 추가 조회에 실패했어요. '
-            '카드를 눌러 카카오·네이버 원본 정보를 확인할 수 있어요.';
+            '업체 위치는 찾았지만 GPT 상세조회 요청에 실패했어요. '
+            '${error is ArabaApiException ? error.message : error.runtimeType.toString()}';
       });
     }
   }

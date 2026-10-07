@@ -1291,7 +1291,7 @@ class OpenAIPlaceEnrichmentTests(TestCase):
             )
         )
         response.model_dump.return_value = {
-            "output": []
+            "output": [{"type": "web_search_call", "results": []}]
         }
         mocked_openai.return_value.responses.create.return_value = (
             response
@@ -1371,7 +1371,7 @@ class OpenAIPlaceEnrichmentTests(TestCase):
                 ensure_ascii=False,
             )
         )
-        response.model_dump.return_value = {"output": []}
+        response.model_dump.return_value = {"output": [{"type": "web_search_call", "results": []}]}
         mocked_openai.return_value.responses.create.return_value = response
 
         result = enrich_businesses_with_openai_web(
@@ -1398,6 +1398,92 @@ class OpenAIPlaceEnrichmentTests(TestCase):
             result[0]["openai_web"]["status"],
             "no_detail_found",
         )
+
+
+class GptWebBatchTests(TestCase):
+    @patch(
+        "api.services.openai_place_enrichment_service.OpenAI"
+    )
+    def test_five_places_split_and_require_web_search(self, mock_client):
+        from api.services.openai_place_enrichment_service import (
+            enrich_businesses_with_openai_web,
+        )
+
+        def respond(**kwargs):
+            names = [
+                str(index) + "치과"
+                for index in range(1, 6)
+                if str(index) + "치과" in kwargs["input"]
+            ]
+            response = Mock(
+                output_text=json.dumps(
+                    {"businesses": [
+                        {
+                            "index": index,
+                            "business_name": name,
+                            "identity_match": True,
+                            "opening_hours": ["09:00~18:00"],
+                            "parking_available": None,
+                            "parking_text": None,
+                            "prices": [],
+                            "phone": None,
+                            "address": None,
+                            "price_link": None,
+                            "source_urls": ["https://example.com"],
+                        }
+                        for index, name in enumerate(names)
+                    ]},
+                    ensure_ascii=False,
+                )
+            )
+            response.model_dump.return_value = {
+                "output": [{"type": "web_search_call", "results": []}]
+            }
+            return response
+
+        mock_client.return_value.responses.create.side_effect = respond
+        results = enrich_businesses_with_openai_web(
+            [
+                {"name": str(i) + "치과", "address": "창원시 중동"}
+                for i in range(1, 6)
+            ],
+            {"location": "창원시 중동"},
+            api_key="sk-test",
+        )
+        self.assertEqual(
+            mock_client.return_value.responses.create.call_count, 3
+        )
+        self.assertEqual(len(results), 5)
+        self.assertTrue(
+            all(b["openai_web"]["matched"] for b in results)
+        )
+        for call in mock_client.return_value.responses.create.call_args_list:
+            self.assertEqual(call.kwargs["tool_choice"], "required")
+
+    @patch(
+        "api.services.openai_place_enrichment_service.OpenAI"
+    )
+    def test_upstream_errors_are_classified_without_hidden_details(self, client):
+        from api.services.openai_place_enrichment_service import (
+            enrich_businesses_with_openai_web,
+        )
+
+        class UpstreamBadRequest(Exception):
+            status_code = 400
+
+        client.return_value.responses.create.side_effect = (
+            UpstreamBadRequest("sensitive provider data")
+        )
+        result = enrich_businesses_with_openai_web(
+            [{"name": "A치과", "address": "창원시 중동"}],
+            {"location": "창원시 중동"},
+            api_key="sk-test",
+        )
+        diag = result[0]["openai_web"]
+        self.assertEqual(diag["status"], "provider_error")
+        self.assertEqual(diag["error_type"], "UpstreamBadRequest")
+        self.assertEqual(diag["upstream_http_status"], 400)
+        self.assertNotIn("sensitive", str(diag))
 
 
 class WebPlaceEnrichmentTests(TestCase):
@@ -1594,6 +1680,36 @@ class KakaoPlaceServiceTests(TestCase):
 
         self.assertTrue(result["checked"])
         self.assertIsNone(result["image_url"])
+
+
+class DirectGptPlaceEnrichmentTests(TestCase):
+    @patch(
+        "api.services.research_service.enrich_businesses_with_openai_web"
+    )
+    @patch(
+        "api.services.research_service.enrich_businesses_with_kakao_pages"
+    )
+    @patch(
+        "api.services.research_service.enrich_businesses_with_naver"
+    )
+    def test_gpt_direct_skips_kakao_naver_detail_pages(
+        self, naver, kakao, gpt
+    ):
+        from api.services.research_service import enrich_place_businesses
+
+        gpt.return_value = [
+            {"name": "A치과", "address": "창원시 중동"}
+        ]
+        result = enrich_place_businesses(
+            [{"name": "A치과", "address": "창원시 중동"}],
+            {"location": "창원시 중동"},
+            gpt_direct=True,
+            openai_api_key="sk-test",
+        )
+        self.assertEqual(result[0]["name"], "A치과")
+        kakao.assert_not_called()
+        naver.assert_not_called()
+        gpt.assert_called_once()
 
 
 class ProgressivePlaceResearchTests(TestCase):

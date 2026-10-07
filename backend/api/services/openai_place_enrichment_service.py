@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 from openai import OpenAI
@@ -13,7 +14,7 @@ WEB_ENRICH_MODEL = (
     ).strip()
     or "gpt-6-luna"
 )
-WEB_ENRICH_TIMEOUT_SECONDS = 28.0
+WEB_ENRICH_TIMEOUT_SECONDS = 37.0
 WEB_ENRICH_LIMIT = 5
 
 
@@ -249,28 +250,12 @@ def _search_results(response):
 
 def _source_urls(parsed, raw_results):
     urls = []
-
-    raw_sources = parsed.get(
-        "source_urls"
-    )
-
+    raw_sources = parsed.get("source_urls")
     if isinstance(raw_sources, list):
         for raw in raw_sources:
             url = _safe_url(raw)
             if url and url not in urls:
                 urls.append(url)
-
-    for item in raw_results:
-        for key in (
-            "url",
-            "source_website_url",
-        ):
-            url = _safe_url(
-                item.get(key)
-            )
-            if url and url not in urls:
-                urls.append(url)
-
     return urls[:8]
 
 
@@ -713,6 +698,111 @@ def _apply_one_result(
     return item
 
 
+def _empty_status(item, status, *, error_type=None, http_status=None):
+    result = dict(item)
+    diag = {
+        "status": status,
+        "matched": False,
+        "sources": [],
+    }
+    if error_type:
+        diag["error_type"] = error_type
+    if isinstance(http_status, int):
+        diag["upstream_http_status"] = http_status
+    result["openai_web"] = diag
+    return result
+
+
+def _enrich_batch(batch, mission, key):
+    """One forced web-search call per 1-2 businesses, no Kakao dependency."""
+    client = OpenAI(
+        api_key=key,
+        timeout=WEB_ENRICH_TIMEOUT_SECONDS,
+        max_retries=0,
+    )
+
+    try:
+        response = client.responses.create(
+            model=WEB_ENRICH_MODEL,
+            reasoning={"effort": "low"},
+            tool_choice="required",
+            tools=[
+                {
+                    "type": "web_search",
+                    "search_context_size": "medium",
+                    "external_web_access": True,
+                    "user_location": _web_user_location(mission),
+                    "search_content_types": ["text", "image"],
+                    "image_settings": {
+                        "max_results": 5,
+                        "caption": True,
+                    },
+                }
+            ],
+            include=["web_search_call.results"],
+            input=_build_batch_prompt(batch, mission),
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "araba_place_details",
+                    "strict": True,
+                    "schema": PLACE_DETAILS_SCHEMA,
+                },
+            },
+            max_output_tokens=1700,
+        )
+    except Exception as exc:
+        # No raw provider response, prompts, URLs, or credentials in diagnostics.
+        return [
+            _empty_status(
+                item,
+                "provider_error",
+                error_type=type(exc).__name__,
+                http_status=getattr(exc, "status_code", None),
+            )
+            for item in batch
+        ]
+
+    parsed = _parse_json(getattr(response, "output_text", ""))
+    raw_results = _search_results(response)
+    response_dump = _response_dump(response)
+    web_called = any(
+        entry.get("type") == "web_search_call"
+        for entry in response_dump.get("output", [])
+        if isinstance(entry, dict)
+    )
+
+    if not web_called:
+        return [
+            _empty_status(item, "web_search_not_run")
+            for item in batch
+        ]
+
+    raw_items = parsed.get("businesses", [])
+    if not isinstance(raw_items, list):
+        raw_items = []
+
+    returned = {}
+    for row in raw_items:
+        if not isinstance(row, dict):
+            continue
+        try:
+            index = int(row.get("index"))
+        except (ValueError, TypeError):
+            continue
+        if 0 <= index < len(batch):
+            returned[index] = row
+
+    results = []
+    for index, item in enumerate(batch):
+        row = returned.get(index)
+        if row is None:
+            results.append(_empty_status(item, "not_returned"))
+        else:
+            results.append(_apply_one_result(item, row, raw_results))
+    return results
+
+
 def enrich_businesses_with_openai_web(
     businesses,
     mission,
@@ -727,204 +817,63 @@ def enrich_businesses_with_openai_web(
         for item in businesses
         if isinstance(item, dict)
     ]
-
     key = str(api_key or "").strip()
-
-    if not safe or not key:
+    if not safe:
+        return []
+    if not key:
         return [
-            {
-                **item,
-                "openai_web": {
-                    "status": (
-                        "not_configured"
-                        if not key
-                        else "not_needed"
-                    ),
-                    "matched": False,
-                    "sources": [],
-                },
-            }
+            _empty_status(item, "not_configured")
             for item in safe
         ]
 
-    primary = safe[
-        :WEB_ENRICH_LIMIT
-    ]
-    deferred = safe[
-        WEB_ENRICH_LIMIT:
-    ]
+    primary = safe[:WEB_ENRICH_LIMIT]
+    deferred = safe[WEB_ENRICH_LIMIT:]
+    results = [None] * len(primary)
+    batches = []
 
-    if not any(
-        _missing_fields(item)
-        for item in primary
-    ):
-        return [
-            *[
-                {
-                    **item,
-                    "openai_web": {
-                        "status": "not_needed",
-                        "matched": False,
-                        "sources": [],
-                    },
-                }
-                for item in primary
-            ],
-            *deferred,
-        ]
+    for offset in range(0, len(primary), 2):
+        group = primary[offset:offset + 2]
+        if not any(_missing_fields(item) for item in group):
+            results[offset:offset + len(group)] = [
+                _empty_status(item, "not_needed")
+                for item in group
+            ]
+        else:
+            batches.append((offset, group))
 
-    client = OpenAI(
-        api_key=key,
-        timeout=WEB_ENRICH_TIMEOUT_SECONDS,
-        max_retries=0,
-    )
-
-    try:
-        response = client.responses.create(
-            model=WEB_ENRICH_MODEL,
-            reasoning={
-                "effort": "medium",
-            },
-            tools=[
-                {
-                    "type": "web_search",
-                    "search_context_size":
-                        "high",
-                    "external_web_access": True,
-                    "user_location":
-                        _web_user_location(mission),
-                    "search_content_types": [
-                        "image",
-                        "text",
-                    ],
-                    "image_settings": {
-                        "max_results": 15,
-                        "caption": True,
-                    },
-                }
-            ],
-            include=[
-                "web_search_call.results"
-            ],
-            input=_build_batch_prompt(
-                primary,
-                mission,
-            ),
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "araba_place_details",
-                    "strict": True,
-                    "schema": PLACE_DETAILS_SCHEMA,
-                }
-            },
-            max_output_tokens=3000,
-        )
-    except Exception as exc:
-        error_name = (
-            exc.__class__.__name__
-        )
-        return [
-            *[
-                {
-                    **item,
-                    "openai_web": {
-                        "status":
+    if batches:
+        with ThreadPoolExecutor(
+            max_workers=min(3, len(batches))
+        ) as executor:
+            futures = {
+                executor.submit(
+                    _enrich_batch,
+                    group,
+                    mission,
+                    key,
+                ): (offset, group)
+                for offset, group in batches
+            }
+            for future in as_completed(futures):
+                offset, group = futures[future]
+                try:
+                    values = future.result()
+                except Exception as exc:
+                    values = [
+                        _empty_status(
+                            item,
                             "provider_error",
-                        "matched": False,
-                        "sources": [],
-                        "error_type":
-                            error_name,
-                    },
-                }
-                for item in primary
-            ],
-            *deferred,
-        ]
-
-    parsed = _parse_json(
-        response.output_text
-    )
-    raw_results = _search_results(
-        response
-    )
-
-    raw_items = parsed.get(
-        "businesses"
-    )
-    raw_items = (
-        raw_items
-        if isinstance(raw_items, list)
-        else []
-    )
-
-    parsed_by_index = {}
-
-    for value in raw_items:
-        if not isinstance(value, dict):
-            continue
-
-        raw_index = value.get("index")
-
-        try:
-            index = int(raw_index)
-        except (TypeError, ValueError):
-            continue
-
-        if (
-            index < 0
-            or index >= len(primary)
-        ):
-            continue
-
-        parsed_by_index[index] = value
-
-    results = []
-
-    for index, item in enumerate(
-        primary
-    ):
-        parsed_item = parsed_by_index.get(
-            index
-        )
-
-        if not isinstance(
-            parsed_item,
-            dict,
-        ):
-            results.append(
-                {
-                    **item,
-                    "openai_web": {
-                        "status":
-                            "not_returned",
-                        "matched": False,
-                        "sources": [],
-                    },
-                }
-            )
-            continue
-
-        results.append(
-            _apply_one_result(
-                item,
-                parsed_item,
-                raw_results,
-            )
-        )
+                            error_type=type(exc).__name__,
+                        )
+                        for item in group
+                    ]
+                results[offset:offset + len(group)] = values
 
     return [
-        *results,
-        *[
-            {
-                **item,
-                "openai_web": {
-                    "status":
-                        "deferred_fast_response",
-                    "matched": False,
-                    "sources": [],
-                },
-            }
-            for item in deferred
-        ],
+        item
+        for item in results
+        if isinstance(item, dict)
+    ] + [
+        _empty_status(item, "deferred_fast_response")
+        for item in deferred
     ]

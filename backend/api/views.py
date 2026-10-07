@@ -448,6 +448,7 @@ def research_enrich(request):
         naver_client_id=_request_naver_client_id(request),
         naver_client_secret=_request_naver_client_secret(request),
         openai_api_key=_request_api_key(request),
+        gpt_direct=True,
     )
     counts = {
         "hours": 0,

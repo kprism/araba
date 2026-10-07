@@ -888,6 +888,7 @@ def enrich_place_businesses(
     naver_client_id=None,
     naver_client_secret=None,
     openai_api_key=None,
+    gpt_direct=False,
 ):
     """Enrich already verified Kakao candidates without searching again."""
     if not isinstance(businesses, list):
@@ -904,6 +905,15 @@ def enrich_place_businesses(
     ]
     if not safe:
         return []
+
+    if gpt_direct:
+        # Avoid slow/fragile Kakao and Naver HTML parsing in the
+        # progressive second phase. Kakao place identity is retained.
+        return enrich_businesses_with_openai_web(
+            safe,
+            mission,
+            api_key=openai_api_key,
+        )
 
     detail_targets = safe[:FAST_DETAIL_ENRICH_LIMIT]
     deferred_targets = safe[FAST_DETAIL_ENRICH_LIMIT:]
