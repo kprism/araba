@@ -25,7 +25,7 @@ KAKAO_ADDRESS_SEARCH_URL = (
 # 첫 응답을 상세검증 전체에 묶어두면 모바일 조회 타임아웃이 발생할 수 있다.
 # 상위 후보만 빠르게 상세검증하고 나머지는 후보 자체를 먼저 반환한다.
 FAST_DETAIL_ENRICH_LIMIT = 5
-MAX_KAKAO_QUERY_ATTEMPTS = 3
+MAX_KAKAO_QUERY_ATTEMPTS = 5
 
 
 class ResearchConfigurationError(ValueError):
@@ -1053,9 +1053,38 @@ def search_real_businesses(
             if canonical_location:
                 search_mission["location"] = canonical_location
 
-    for query in _search_queries(
+    search_queries = _search_queries(
         search_mission
-    )[:MAX_KAKAO_QUERY_ATTEMPTS]:
+    )
+
+    # Kakao text search can return zero results for long administrative-area
+    # phrases even when the category exists nearby. When the location was
+    # resolved to coordinates, try the bare category/service term immediately
+    # after the most specific query and keep the strict address filter below.
+    # This improves recall without letting out-of-area businesses through.
+    if reference_origin:
+        raw_terms = mission.get("search_terms")
+        coordinate_terms = (
+            [
+                str(item).strip()
+                for item in raw_terms
+                if str(item).strip()
+            ]
+            if isinstance(raw_terms, list)
+            else []
+        )
+        for raw_term in [
+            *coordinate_terms,
+            str(mission.get("category") or "").strip(),
+        ]:
+            for term in _compact_term_variants(raw_term):
+                if term and term not in search_queries:
+                    search_queries.insert(1, term)
+                    break
+            if len(search_queries) > 1 and search_queries[1] == raw_term:
+                break
+
+    for query in search_queries[:MAX_KAKAO_QUERY_ATTEMPTS]:
         try:
             response = httpx.get(
                 KAKAO_LOCAL_SEARCH_URL,
