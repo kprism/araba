@@ -883,15 +883,16 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _runRealResearch(
     Map<String, dynamic> mission,
   ) async {
-    if (_researching) return;
-
-    _startResearchProgress();
     final researchRevision = ++_researchRevision;
+    _startResearchProgress();
     final quickCards = !_isDetailFollowUp(mission);
 
     try {
       if (_isRecentPlaceComparison(mission)) {
-        await _runRecentPlaceComparison(mission);
+        await _runRecentPlaceComparison(
+          mission,
+          researchRevision,
+        );
         return;
       }
       final openAiApiKey = await _keyStore.read();
@@ -909,6 +910,7 @@ class _HomeScreenState extends State<HomeScreen>
         naverCredentials == null
             ? '상점 찾는 중…'
             : '상점 찾고 네이버 정보 확인하는 중…',
+        revision: researchRevision,
       );
 
       final result = await _api.searchBusinesses(
@@ -919,6 +921,23 @@ class _HomeScreenState extends State<HomeScreen>
         naverClientSecret: naverCredentials?.clientSecret,
         quickCards: quickCards,
       );
+
+      if (!mounted || researchRevision != _researchRevision) {
+        return;
+      }
+
+      if (result['needs_location_clarification'] == true) {
+        final question =
+            result['clarification_question']?.toString().trim() ??
+                '말씀하신 위치를 확인하지 못했어요. 정확한 지역이나 기준 장소를 다시 말씀해주세요.';
+        _addAssistantMessage(
+          text: question,
+          badge: '위치 확인 필요',
+        );
+        _speakProgress(question);
+        return;
+      }
+
       final businesses = _businessesFrom(result);
       final searchQuery =
           result['search_query']?.toString().trim() ?? '';
@@ -1051,6 +1070,7 @@ class _HomeScreenState extends State<HomeScreen>
               : <String>[];
       _updateResearchStage(
         '영업시간·주차·가격·사진을 웹에서 확인하는 중…',
+        revision: researchRevision,
       );
 
       if (_isDetailFollowUp(mission)) {
@@ -1168,6 +1188,10 @@ class _HomeScreenState extends State<HomeScreen>
         businesses: businesses,
       );
       _speakProgress(spokenSummary);    } catch (error) {
+      if (!mounted || researchRevision != _researchRevision) {
+        return;
+      }
+
       final message = error is ArabaApiException
           ? error.message
           : '실제 업체 조사 중 문제가 생겼어요.';
@@ -1178,7 +1202,9 @@ class _HomeScreenState extends State<HomeScreen>
       );
       _speakProgress(message);
     } finally {
-      _stopResearchProgress();
+      _stopResearchProgress(
+        revision: researchRevision,
+      );
     }
   }
 
