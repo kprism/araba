@@ -388,6 +388,14 @@ def _compact_term_variants(term):
     if normalized not in variants:
         variants.append(normalized)
 
+    # 음식/업종 표현의 구어체 접미사는 공급자 검색에서 넓게 재시도한다.
+    # 예: "국밥집" -> "국밥", "타이어전문점" -> "타이어".
+    for suffix in ("전문점", "가게", "매장", "집"):
+        if normalized.endswith(suffix):
+            base = normalized[: -len(suffix)].strip()
+            if len(base) >= 2 and base not in variants:
+                variants.insert(0, base)
+
     return variants
 
 
@@ -779,6 +787,10 @@ KAKAO_CATEGORY_GROUP_ALIASES = {
     "맛집": {"FD6"},
     "밥집": {"FD6"},
     "레스토랑": {"FD6"},
+    "국밥": {"FD6"},
+    "국밥집": {"FD6"},
+    "쌈밥": {"FD6"},
+    "쌈밥집": {"FD6"},
     "카페": {"CE7"},
     "커피": {"CE7"},
     "병원": {"HP8"},
@@ -854,6 +866,24 @@ def _matches_mission(document, mission):
         document,
         keywords,
     ):
+        return True
+
+    category_keywords = [
+        token
+        for token in re.findall(
+            r"[0-9a-zA-Z가-힣]{2,}",
+            str(
+                mission.get("category") or ""
+            ).lower(),
+        )
+        if token
+    ]
+    if _matches_kakao_category_group(
+        document,
+        category_keywords,
+    ):
+        # Kakao의 구체 텍스트검색 결과가 실제 기본 업종과 일치하면
+        # 상세 category_name에 "국밥" 같은 단어가 없어도 버리지 않는다.
         return True
 
     return any(
