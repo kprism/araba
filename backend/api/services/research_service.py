@@ -12,6 +12,7 @@ from .web_place_enrichment_service import enrich_businesses_with_web
 from .research_evaluation_service import (
     evaluate_research_result,
 )
+from .business_matching_service import match_businesses
 
 
 KAKAO_LOCAL_SEARCH_URL = (
@@ -867,6 +868,9 @@ def _normalize_business(document):
         "latitude": str(
             document.get("y") or ""
         ).strip(),
+        "distance_m": str(
+            document.get("distance") or ""
+        ).strip(),
         "image_url": None,
         "source": "kakao",
     }
@@ -1255,9 +1259,23 @@ def search_real_businesses(
         mission.get("category") or "기타"
     ).strip()
 
+    matching = (
+        match_businesses(
+            mission,
+            businesses,
+        )
+        if not quick_cards
+        else None
+    )
+    display_businesses = (
+        matching["display_businesses"]
+        if isinstance(matching, dict)
+        else businesses
+    )
+
     evaluation = evaluate_research_result(
         mission,
-        businesses,
+        display_businesses,
         reference_origin=reference_origin,
     )
 
@@ -1272,8 +1290,9 @@ def search_real_businesses(
             mission.get("search_mode")
             or ""
         ).strip(),
-        "businesses": businesses,
-        "displayed_count": len(businesses),
+        "businesses": display_businesses,
+        "matching": matching,
+        "displayed_count": len(display_businesses),
         "requested_count": requested_count,
         "strict_category_filter": True,
         "kakao_reported_total_count": kakao_total_count,
