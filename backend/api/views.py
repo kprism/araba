@@ -49,6 +49,20 @@ def health(request):
 
 
 @api_view(["GET"])
+def onboarding_schemas(request):
+    from .services.profile_schema_service import (
+        signup_schema_catalog,
+    )
+
+    return Response(
+        {
+            "ok": True,
+            **signup_schema_catalog(),
+        }
+    )
+
+
+@api_view(["GET"])
 def openai_status(request):
     return Response(
         {
