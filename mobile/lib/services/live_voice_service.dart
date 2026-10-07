@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'araba_api.dart';
 import 'conversation_context.dart';
+import 'live_keep_alive_service.dart';
 
 typedef LiveStatusCallback = void Function(String status);
 typedef LiveTranscriptCallback = void Function({
@@ -212,6 +213,8 @@ class LiveVoiceService {
           'answer',
         ),
       );
+
+      await LiveKeepAliveService.start();
     } catch (error) {
       await stop(force: true);
       if (error is ArabaApiException) {
@@ -536,6 +539,7 @@ class LiveVoiceService {
 
   Future<void> _cleanup() async {
     _started = false;
+    await LiveKeepAliveService.stop();
     _disconnectTimer?.cancel();
     _disconnectTimer = null;
     _missionFallbackTimer?.cancel();

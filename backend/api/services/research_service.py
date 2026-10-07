@@ -84,6 +84,14 @@ def _location_address_query(location):
     return normalized
 
 
+def _place_identity_text(value):
+    return re.sub(
+        r"[^0-9a-zA-Z가-힣]+",
+        "",
+        str(value or ""),
+    ).replace("특례", "").lower()
+
+
 def _resolve_reference_point_origin(
     reference_point,
     api_key,
@@ -122,6 +130,29 @@ def _resolve_reference_point_origin(
 
     document = documents[0]
     if not isinstance(document, dict):
+        return None
+
+    query_identity = _place_identity_text(query)
+    place_identity = _place_identity_text(
+        document.get("place_name")
+    )
+    identity_haystack = _place_identity_text(
+        " ".join(
+            [
+                str(document.get("place_name") or ""),
+                str(document.get("road_address_name") or ""),
+                str(document.get("address_name") or ""),
+            ]
+        )
+    )
+    if (
+        query_identity
+        and query_identity not in identity_haystack
+        and (
+            not place_identity
+            or place_identity not in query_identity
+        )
+    ):
         return None
 
     latitude = str(document.get("y") or "").strip()
@@ -1027,6 +1058,33 @@ def search_real_businesses(
             mission.get("location"),
             resolved_api_key,
         )
+
+    if (
+        location_explicit
+        and location_value
+        and reference_origin is None
+    ):
+        return {
+            "source": "kakao",
+            "detail_status": "location_unresolved",
+            "search_query": None,
+            "search_mode": str(
+                mission.get("search_mode") or ""
+            ).strip(),
+            "businesses": [],
+            "matching": None,
+            "displayed_count": 0,
+            "requested_count": requested_count,
+            "strict_category_filter": True,
+            "needs_location_clarification": True,
+            "unresolved_location": location_value,
+            "clarification_question": (
+                f'"{location_value}" 위치를 확인하지 못했어요. '
+                "정확한 지역이나 기준 장소 이름을 다시 말씀해주세요."
+            ),
+            "reference_origin": None,
+            "resolved_location_type": "unresolved",
+        }
 
     # LLM이 "창원시청 주변"을 행정구역으로 잘못 분류해도,
     # 실제 주소검색 실패 뒤 장소좌표가 확인되면 기준장소 검색으로

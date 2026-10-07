@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -14,6 +15,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     companion object {
         private const val METHOD_CHANNEL = "araba/notifications"
+        private const val LIVE_KEEP_ALIVE_CHANNEL = "araba/live_keep_alive"
         private const val NOTIFICATION_CHANNEL_ID = "araba_updates"
         private const val NOTIFICATION_CHANNEL_NAME = "ARABA 업데이트"
         private const val NOTIFICATION_ID = 1001
@@ -36,6 +38,38 @@ class MainActivity : FlutterActivity() {
                     val url = call.argument<String>("url")
 
                     showUpdateNotification(title, body, url)
+                    result.success(null)
+                }
+
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            LIVE_KEEP_ALIVE_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> {
+                    val intent = Intent(
+                        this,
+                        LiveKeepAliveService::class.java,
+                    ).apply {
+                        action = LiveKeepAliveService.ACTION_START
+                    }
+                    ContextCompat.startForegroundService(
+                        this,
+                        intent,
+                    )
+                    result.success(null)
+                }
+
+                "stop" -> {
+                    val intent = Intent(
+                        this,
+                        LiveKeepAliveService::class.java,
+                    )
+                    stopService(intent)
                     result.success(null)
                 }
 

@@ -563,19 +563,53 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  void _updateResearchStage(String stage) {
-    if (!mounted || !_researching) return;
+  void _updateResearchStage(
+    String stage, {
+    int? revision,
+  }) {
+    if (!mounted ||
+        !_researching ||
+        (revision != null && revision != _researchRevision)) {
+      return;
+    }
     setState(() => _researchStage = stage);
     _toBottom();
   }
 
-  void _stopResearchProgress() {
-    if (!mounted) return;
+  void _stopResearchProgress({
+    int? revision,
+  }) {
+    if (!mounted ||
+        (revision != null && revision != _researchRevision)) {
+      return;
+    }
 
     setState(() {
       _researching = false;
       _researchStage = '';
     });
+  }
+
+  List<String> _businessNames(
+    List<Map<String, dynamic>> businesses,
+  ) {
+    return businesses
+        .map((item) => item['name']?.toString().trim() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toList();
+  }
+
+  String _namedMatchAnswer(
+    List<Map<String, dynamic>> businesses,
+  ) {
+    final names = _businessNames(businesses);
+    if (names.isEmpty) {
+      return '';
+    }
+    if (names.length == 1) {
+      return '조건에 맞는 곳은 ${names.first}입니다.';
+    }
+    return '조건에 맞는 곳은 ${names.join(' · ')}입니다.';
   }
 
   Future<void> _enrichVisibleCards(
@@ -683,6 +717,20 @@ class _HomeScreenState extends State<HomeScreen>
       final answerReady = matching['answer_ready'] == true;
       final matchingSummary =
           matching['summary']?.toString().trim() ?? '';
+      final matchedCount = matching['matched_count'] is num
+          ? (matching['matched_count'] as num).round()
+          : updated.length;
+      final unverifiedCount =
+          matching['unverified_count'] is num
+              ? (matching['unverified_count'] as num).round()
+              : 0;
+      final excludedCount =
+          matching['excluded_count'] is num
+              ? (matching['excluded_count'] as num).round()
+              : 0;
+      final namedAnswer = hasCriteria
+          ? _namedMatchAnswer(updated)
+          : '';
 
       final remembered = updated.isNotEmpty
           ? updated
@@ -710,16 +758,34 @@ class _HomeScreenState extends State<HomeScreen>
                     ? '상세정보 보강 완료'
                     : '상세정보 추가 확인 필요'
               );
-        final matchingText = hasCriteria && matchingSummary.isNotEmpty
-            ? '$matchingSummary\n'
+        final decisionText = hasCriteria
+            ? [
+                if (namedAnswer.isNotEmpty) namedAnswer,
+                if (matchingSummary.isNotEmpty &&
+                    matchingSummary != namedAnswer)
+                  matchingSummary,
+                '조건충족 $matchedCount · 미확인 $unverifiedCount · '
+                    '불일치 $excludedCount',
+              ].join('\n')
             : '';
         message.text =
-            '$matchingText'
+            '${decisionText.isEmpty ? '' : '$decisionText\n'}'
             '업체 $total곳의 실제 정보를 확인했어요.\n'
             '영업시간 $hours/$total · 주차 $parking/$total · '
             '가격 $prices/$total · 사진 $photos/$total\n'
             '$detailStatus';
       });
+
+      if (hasCriteria) {
+        final spokenResult = namedAnswer.isNotEmpty
+            ? namedAnswer
+            : (
+                matchingSummary.isNotEmpty
+                    ? matchingSummary
+                    : '조건을 확인했지만 확정해서 추천할 업체는 아직 없어요.'
+              );
+        _speakProgress(spokenResult);
+      }
     } catch (error) {
       if (!mounted ||
           revision != _researchRevision ||
@@ -750,6 +816,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _runRecentPlaceComparison(
     Map<String, dynamic> mission,
+    int revision,
   ) async {
     final candidates = _lastBusinesses
         .map((item) => Map<String, dynamic>.from(item))
@@ -765,6 +832,7 @@ class _HomeScreenState extends State<HomeScreen>
     final naverCredentials = await _naverStore.read();
     _updateResearchStage(
       '직전 업체를 새로 검색하지 않고 조건별 근거를 판정하는 중…',
+      revision: revision,
     );
 
     final result = await _api.enrichBusinesses(
@@ -774,6 +842,10 @@ class _HomeScreenState extends State<HomeScreen>
       naverClientId: naverCredentials?.clientId,
       naverClientSecret: naverCredentials?.clientSecret,
     );
+
+    if (!mounted || revision != _researchRevision) {
+      return;
+    }
 
     final selected = _businessesFrom(result);
     final rawMatching = result['matching'];
@@ -811,16 +883,25 @@ class _HomeScreenState extends State<HomeScreen>
       );
     }
 
-    final answer = summary.isNotEmpty
-        ? summary
+    final namedAnswer = _namedMatchAnswer(selected);
+    final answer = namedAnswer.isNotEmpty
+        ? namedAnswer
         : (
-            answerReady
-                ? '조건을 모두 만족하는 업체 $matchedCount곳을 확인했어요.'
-                : '조건을 판정했지만 아직 최종 확정할 근거가 부족해요.'
+            summary.isNotEmpty
+                ? summary
+                : (
+                    answerReady
+                        ? '조건을 모두 만족하는 업체 ${matchedCount}곳을 확인했어요.'
+                        : '조건을 판정했지만 아직 최종 확정할 근거가 부족해요.'
+                  )
           );
+    final summaryLine = summary.isNotEmpty &&
+            summary != answer
+        ? '\n$summary'
+        : '';
 
     _addAssistantMessage(
-      text: '$answer\n'
+      text: '$answer$summaryLine\n'
           '조건충족 $matchedCount · 미확인 $unverifiedCount · '
           '불일치 $excludedCount',
       badge: answerReady
@@ -834,15 +915,16 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _runRealResearch(
     Map<String, dynamic> mission,
   ) async {
-    if (_researching) return;
-
-    _startResearchProgress();
     final researchRevision = ++_researchRevision;
+    _startResearchProgress();
     final quickCards = !_isDetailFollowUp(mission);
 
     try {
       if (_isRecentPlaceComparison(mission)) {
-        await _runRecentPlaceComparison(mission);
+        await _runRecentPlaceComparison(
+          mission,
+          researchRevision,
+        );
         return;
       }
       final openAiApiKey = await _keyStore.read();
@@ -860,6 +942,7 @@ class _HomeScreenState extends State<HomeScreen>
         naverCredentials == null
             ? '상점 찾는 중…'
             : '상점 찾고 네이버 정보 확인하는 중…',
+        revision: researchRevision,
       );
 
       final result = await _api.searchBusinesses(
@@ -870,6 +953,23 @@ class _HomeScreenState extends State<HomeScreen>
         naverClientSecret: naverCredentials?.clientSecret,
         quickCards: quickCards,
       );
+
+      if (!mounted || researchRevision != _researchRevision) {
+        return;
+      }
+
+      if (result['needs_location_clarification'] == true) {
+        final question =
+            result['clarification_question']?.toString().trim() ??
+                '말씀하신 위치를 확인하지 못했어요. 정확한 지역이나 기준 장소를 다시 말씀해주세요.';
+        _addAssistantMessage(
+          text: question,
+          badge: '위치 확인 필요',
+        );
+        _speakProgress(question);
+        return;
+      }
+
       final businesses = _businessesFrom(result);
       final searchQuery =
           result['search_query']?.toString().trim() ?? '';
@@ -1002,6 +1102,7 @@ class _HomeScreenState extends State<HomeScreen>
               : <String>[];
       _updateResearchStage(
         '영업시간·주차·가격·사진을 웹에서 확인하는 중…',
+        revision: researchRevision,
       );
 
       if (_isDetailFollowUp(mission)) {
@@ -1119,6 +1220,10 @@ class _HomeScreenState extends State<HomeScreen>
         businesses: businesses,
       );
       _speakProgress(spokenSummary);    } catch (error) {
+      if (!mounted || researchRevision != _researchRevision) {
+        return;
+      }
+
       final message = error is ArabaApiException
           ? error.message
           : '실제 업체 조사 중 문제가 생겼어요.';
@@ -1129,7 +1234,9 @@ class _HomeScreenState extends State<HomeScreen>
       );
       _speakProgress(message);
     } finally {
-      _stopResearchProgress();
+      _stopResearchProgress(
+        revision: researchRevision,
+      );
     }
   }
 
@@ -1253,8 +1360,7 @@ class _HomeScreenState extends State<HomeScreen>
         .map((item) => Map<String, dynamic>.from(item))
         .where((item) {
           final question = item['question']?.toString().trim() ?? '';
-          final options = item['options'];
-          return question.isNotEmpty && options is List && options.isNotEmpty;
+          return question.isNotEmpty;
         })
         .toList();
   }
@@ -1268,6 +1374,13 @@ class _HomeScreenState extends State<HomeScreen>
     final clarifications = _clarifications(mission);
 
     if (clarifications.isNotEmpty) {
+      final question =
+          clarifications.first['question']?.toString().trim() ?? '';
+      if (question.isNotEmpty) {
+        return summary.isEmpty
+            ? question
+            : '$summary\n\n$question';
+      }
       return summary.isEmpty
           ? '한 가지만 더 알려주세요.'
           : '$summary\n\n한 가지만 더 알려주세요.';
@@ -1463,15 +1576,6 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _send() async {
-    if (_researching) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('현재 알아보는 작업을 진행하고 있어요.'),
-        ),
-      );
-      return;
-    }
-
     final text = _controller.text.trim();
 
     if (text.isEmpty) {
@@ -1536,7 +1640,7 @@ class _HomeScreenState extends State<HomeScreen>
     required String displayText,
     required String requestText,
   }) async {
-    if (_sending || _researching) return;
+    if (_sending) return;
 
     setState(() {
       _messages.add(
@@ -1772,10 +1876,9 @@ class _HomeScreenState extends State<HomeScreen>
                   listening:
                       _liveActive && _micEnabled,
                   sending:
-                      _sending || _liveConnecting || _researching,
+                      _sending || _liveConnecting,
                   micDisabled:
-                      _liveConnecting ||
-                      (_researching && !_liveActive),
+                      _liveConnecting,
                   onImage: _showImageSourcePicker,
                   onMic: _toggleLiveVoice,
                   onSend: _send,

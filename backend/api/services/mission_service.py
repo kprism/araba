@@ -86,7 +86,8 @@ INTENT_SYSTEM_PROMPT = """
     특정 순번이나 한 업체의 주소·전화·영업시간·주차·가격 등을 묻는 경우
     intent=place_detail로 하고 target_business에는 문맥에 있는 정확한 상호명을 넣는다.
 14. 사용자가 새 업종을 말하면 recent_place_results의 직전 업종에 끌려가지 않는다.
-15. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
+15. "거기 아니고 X", "X 말고 Y", "지역은 Y야", "아니, Y에서"처럼 사용자가 장소나 지역을 정정하면 이전 위치를 폐기하고 정정한 위치를 현재 요청의 location으로 사용한다. 정정된 위치는 explicit=true로 처리하고, 직전 검색 결과를 재사용하지 말고 새 위치에서 다시 조사한다.
+16. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
 """.strip()
 
 

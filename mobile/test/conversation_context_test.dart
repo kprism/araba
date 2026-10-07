@@ -70,6 +70,32 @@ void main() {
     expect(context.location, '부산시');
   });
 
+  test('location correction rule is carried into contextual requests', () {
+    final context = ConversationContext();
+
+    context.rememberMission({
+      'location': '창원시청',
+      'category': '치과',
+    });
+
+    final enriched = context.enrichRequest(
+      '거기 아니고 상남동에서 찾아줘',
+    );
+
+    expect(
+      enriched,
+      contains('거기 아니고'),
+    );
+    expect(
+      enriched,
+      contains('정정'),
+    );
+    expect(
+      enriched,
+      contains('[현재 요청]'),
+    );
+  });
+
   test('already enriched request is not duplicated', () {
     final context = ConversationContext();
 
