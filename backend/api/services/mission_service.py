@@ -336,6 +336,164 @@ def _normalize_intent(value):
     }
 
 
+SELF_CORRECTION_RE = re.compile(
+    r"([0-9a-zA-Z가-힣]{2,20}?)(?:이|가)?\\s*(?:아니고|말고)\\s*[,，]?\\s*([0-9a-zA-Z가-힣]{2,20})"
+)
+
+FOOD_PLACE_TERMS = {
+    "식당",
+    "음식점",
+    "맛집",
+    "밥집",
+    "레스토랑",
+}
+NON_SERVICE_CORRECTION_WORDS = {
+    "오늘",
+    "내일",
+    "모레",
+    "오전",
+    "오후",
+    "저녁",
+    "밤",
+    "여기",
+    "거기",
+}
+
+
+def _strip_search_term_suffix(value):
+    text = str(value or "").strip()
+    for suffix in (
+        "좀",
+        "으로",
+        "로",
+        "에서",
+        "에",
+    ):
+        if text.endswith(suffix) and len(text) > len(suffix) + 1:
+            text = text[: -len(suffix)]
+            break
+    return text.strip()
+
+
+def _self_corrected_service_term(request_text):
+    _, current = _split_contextual_request(
+        request_text
+    )
+    matches = list(
+        SELF_CORRECTION_RE.finditer(
+            str(current or "")
+        )
+    )
+    if not matches:
+        return None
+
+    match = matches[-1]
+    previous = _strip_search_term_suffix(
+        match.group(1)
+    )
+    corrected = _strip_search_term_suffix(
+        match.group(2)
+    )
+    if (
+        not previous
+        or not corrected
+        or corrected in NON_SERVICE_CORRECTION_WORDS
+    ):
+        return None
+
+    # 행정구역/기준장소 정정은 location 처리 규칙에 맡긴다.
+    if corrected.endswith(
+        (
+            "시",
+            "군",
+            "구",
+            "동",
+            "읍",
+            "면",
+            "리",
+            "시청",
+            "군청",
+            "구청",
+            "역",
+        )
+    ):
+        return None
+
+    return previous, corrected
+
+
+def _food_search_term(value):
+    text = str(value or "").strip()
+    if text.endswith("집") and len(text) > 2:
+        return text[:-1]
+    return text
+
+
+def _apply_spoken_self_correction(
+    intent,
+    request_text,
+):
+    if not isinstance(intent, dict):
+        return intent
+    if intent.get("intent") != "place_search":
+        return intent
+
+    correction = _self_corrected_service_term(
+        request_text
+    )
+    if correction is None:
+        return intent
+
+    previous, corrected = correction
+    result = dict(intent)
+
+    category = _clean_text(
+        result.get("category")
+    )
+    subject = _clean_text(
+        result.get("subject")
+    )
+    corrected_search = _food_search_term(
+        corrected
+    )
+
+    # "-집"으로 끝나는 음식점 표현이나 이미 식당으로 분류된 요청은
+    # 넓은 업종은 식당으로 유지하고 구체 메뉴를 검색어로 분리한다.
+    if (
+        corrected.endswith("집")
+        or category in FOOD_PLACE_TERMS
+    ):
+        result["category"] = "식당"
+        result["subject"] = corrected
+        result["search_terms"] = [
+            corrected_search
+        ]
+    else:
+        if (
+            not category
+            or previous in category
+            or category in {
+                previous,
+                subject,
+            }
+        ):
+            result["category"] = corrected
+        result["subject"] = corrected
+        result["search_terms"] = [corrected]
+
+    result["target_business"] = None
+
+    result["constraints"] = [
+        item
+        for item in _clean_list(
+            result.get("constraints")
+        )
+        if previous not in item
+    ]
+
+    return result
+
+
 def _create_intent_response(
     client,
     *,
@@ -369,7 +527,10 @@ def _place_mission(intent):
             if location_type == "reference_point"
             else "category_discovery"
         )
-        search_terms = [category]
+        search_terms = (
+            list(intent.get("search_terms") or [])
+            or [category]
+        )
 
     required_facts = (
         list(intent["requested_facts"])
@@ -1100,6 +1261,10 @@ def create_mission(
             _parse_intent_json(
                 response.output_text
             )
+        )
+        intent = _apply_spoken_self_correction(
+            intent,
+            request_text,
         )
     except (
         json.JSONDecodeError,
