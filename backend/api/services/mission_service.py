@@ -33,6 +33,7 @@ INTENT_SYSTEM_PROMPT = """
   },
   "category": "장소검색이면 기본 업종, 아니면 핵심 주제 또는 null",
   "subject": "현재 요청의 핵심 대상 또는 null",
+  "search_terms": ["장소검색에서 실제 검색할 구체 업종·메뉴·서비스어"],
   "target_business": "특정 상호/시설이면 정확한 이름, 아니면 null",
   "count": 5,
   "constraints": ["검색 후 추가로 확인할 조건"],
@@ -87,7 +88,9 @@ INTENT_SYSTEM_PROMPT = """
     intent=place_detail로 하고 target_business에는 문맥에 있는 정확한 상호명을 넣는다.
 14. 사용자가 새 업종을 말하면 recent_place_results의 직전 업종에 끌려가지 않는다.
 15. "거기 아니고 X", "X 말고 Y", "지역은 Y야", "아니, Y에서"처럼 사용자가 장소나 지역을 정정하면 이전 위치를 폐기하고 정정한 위치를 현재 요청의 location으로 사용한다. 정정된 위치는 explicit=true로 처리하고, 직전 검색 결과를 재사용하지 말고 새 위치에서 다시 조사한다.
-16. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
+16. 한 발화 안에서 사용자가 말을 고친 경우 마지막 정정이 최종 의도다. "쌈밥이 아니고 국밥집"이면 쌈밥은 완전히 버리고 category="식당", subject="국밥집", search_terms=["국밥"]처럼 구조화한다. "치과 말고 피부과"면 치과를 버리고 피부과만 남긴다. 부정되거나 취소된 단어를 category, subject, search_terms, constraints에 남기지 않는다.
+17. 음식 종류처럼 기본 업종보다 구체적인 검색어가 있으면 category에는 넓은 업종(예: 식당)을 두고 search_terms에는 실제 찾을 말(예: 국밥, 냉면, 초밥)을 넣는다.
+18. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
 """.strip()
 
 
@@ -297,6 +300,9 @@ def _normalize_intent(value):
         },
         "category": _clean_text(value.get("category")),
         "subject": _clean_text(value.get("subject")),
+        "search_terms": _clean_list(
+            value.get("search_terms")
+        ),
         "target_business": _clean_text(
             value.get("target_business")
         ),
