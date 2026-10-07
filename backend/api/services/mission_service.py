@@ -699,6 +699,73 @@ def _split_contextual_request(value):
     )
 
 
+PLACE_CATEGORY_GROUPS = (
+    {"치과", "치과의원"},
+    {"병원", "의원", "클리닉"},
+    {"약국"},
+    {"식당", "음식점", "맛집", "레스토랑", "밥집"},
+    {"카페", "커피숍"},
+    {"미용실", "헤어샵"},
+    {"타이어점", "타이어", "정비소", "카센터"},
+    {"호텔", "숙박", "모텔"},
+    {"학원"},
+    {"주차장"},
+    {"주유소"},
+    {"은행"},
+    {"마트"},
+    {"편의점"},
+    {"부동산"},
+)
+
+
+def _place_category_group(text):
+    compact = re.sub(
+        r"\s+",
+        "",
+        str(text or ""),
+    )
+    for index, group in enumerate(
+        PLACE_CATEGORY_GROUPS
+    ):
+        if any(
+            term in compact
+            for term in group
+        ):
+            return index
+    return None
+
+
+def _has_conflicting_place_category(
+    current,
+    existing_category,
+):
+    existing_group = _place_category_group(
+        existing_category
+    )
+    if existing_group is None:
+        return False
+
+    compact = re.sub(
+        r"\s+",
+        "",
+        str(current or ""),
+    )
+    current_groups = {
+        index
+        for index, group in enumerate(
+            PLACE_CATEGORY_GROUPS
+        )
+        if any(
+            term in compact
+            for term in group
+        )
+    }
+    return bool(
+        current_groups
+        and existing_group not in current_groups
+    )
+
+
 def _fast_recent_place_comparison(user_request):
     context, current = _split_contextual_request(
         user_request
@@ -712,9 +779,26 @@ def _fast_recent_place_comparison(user_request):
         "",
         str(current or ""),
     )
-    if not re.search(
-        r"그중|그중에서|아까|찾은.*중|이중|이곳중",
+    followup_scope = re.search(
+        (
+            r"그중|그중에서|아까|찾은.*중|이중|이중에서|이곳중|이곳들중|"
+            r"여기서|여기중|방금.*(?:곳|업체).*중|"
+            r"(?:이|그)?(?:다섯|5)곳중"
+        ),
         compact,
+    )
+    if not followup_scope:
+        return None
+
+    if "말고" in compact or "대신" in compact:
+        return None
+
+    existing_category = _clean_text(
+        context.get("category")
+    )
+    if _has_conflicting_place_category(
+        current,
+        existing_category,
     ):
         return None
 

@@ -1889,6 +1889,78 @@ class RecentPlaceComparisonRoutingTests(TestCase):
     @patch(
         "api.services.mission_service.OpenAI"
     )
+    def test_here_followup_filters_recent_results_without_new_search(
+        self,
+        mocked_openai,
+    ):
+        from api.services.mission_service import create_mission
+
+        request = """[대화 문맥 - 참고용]
+{"category":"치과","location":"창원시 의창구 중동","recent_place_results":[{"name":"A치과"},{"name":"B치과"},{"name":"C치과"},{"name":"D치과"},{"name":"E치과"}]}
+
+[현재 요청]
+어 여기서 주차 가능하고, 어 저녁 8시까지 하는 곳을 알아봐줘"""
+
+        diagnostics = {}
+        mission = create_mission(
+            request,
+            api_key="sk-test",
+            diagnostics=diagnostics,
+        )
+
+        fields = {
+            item["field"]: item
+            for item in mission["criteria"]
+        }
+        self.assertEqual(
+            mission["search_mode"],
+            "comparison",
+        )
+        self.assertTrue(
+            mission["attributes"]["reuse_recent_results"],
+        )
+        self.assertEqual(
+            fields["parking_available"]["value"],
+            True,
+        )
+        self.assertEqual(
+            fields["closing_time"]["value"],
+            "20:00",
+        )
+        self.assertEqual(
+            mission["requested_count"],
+            5,
+        )
+        self.assertEqual(
+            diagnostics["route"],
+            "recent_place_comparison",
+        )
+        mocked_openai.assert_not_called()
+
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
+    def test_here_with_new_category_does_not_reuse_old_results(
+        self,
+        mocked_openai,
+    ):
+        from api.services.mission_service import (
+            _fast_recent_place_comparison,
+        )
+
+        request = """[대화 문맥 - 참고용]
+{"category":"치과","location":"창원시 의창구 중동","recent_place_results":[{"name":"A치과"}]}
+
+[현재 요청]
+여기서 가장 가까운 카페 찾아줘"""
+
+        self.assertIsNone(
+            _fast_recent_place_comparison(request)
+        )
+
+    @patch(
+        "api.services.mission_service.OpenAI"
+    )
     def test_new_place_request_does_not_use_recent_comparison(
         self,
         mocked_openai,
@@ -2113,6 +2185,10 @@ class StructuredBusinessMatchingTests(TestCase):
             1,
         )
         self.assertFalse(result["answer_ready"])
+        self.assertEqual(
+            result["display_businesses"],
+            [],
+        )
 
 
 class ProgressivePlaceResearchTests(TestCase):
