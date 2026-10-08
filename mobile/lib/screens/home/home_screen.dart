@@ -226,6 +226,11 @@ class _HomeScreenState extends State<HomeScreen>
         onMission: (mission, requestContext) {
           if (!mounted || _liveVoice != liveVoice) return;
 
+          // Core에 하나의 발화로 확정된 시점부터 다음 사용자 발화는
+          // 새 말풍선으로 시작한다. 확정 전의 짧은 쉼은 같은 말풍선에 남는다.
+          _liveTranscriptSpeaker = null;
+          _liveTranscriptMessageIndex = null;
+
           final clarifications = _clarifications(mission);
           final responseMode =
               mission['response_mode']?.toString().trim() ?? '';
