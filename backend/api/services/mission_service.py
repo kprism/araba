@@ -79,7 +79,10 @@ INTENT_SYSTEM_PROMPT = """
 8. 일반 지식 질문처럼 외부 최신조회가 필요 없으면 general_answer이고 direct_answer에 짧고 정확한 답을 넣는다.
 9. 최신 공개정보 조사가 필요하지만 장소검색이 아니면 web_research다.
 10. 전화, 예약, 문의 실행이면 phone_action다.
-11. clarify는 사용자만 알 수 있는 필수정보가 없고 그것 없이는 서로 전혀 다른 행동으로 갈릴 때만 사용한다.
+11. 목표는 이해했지만 그 목표를 제대로 실행하려면 사용자만 알 수 있는 중요한 정보가 빠져 있으면 기다리지 말고 적극적으로 한 가지씩 질문한다. 검색으로 알아낼 수 있는 사실은 사용자에게 묻지 않는다. 결과를 크게 바꾸는 정보만 묻는다.
+    예: "치과 찾아줘"인데 지역이 전혀 없으면 "어느 지역이나 기준 장소 주변에서 찾을까요?"라고 묻는다.
+    예: 예약이 목표인데 날짜·시간·인원 중 실제 예약에 꼭 필요한 정보가 빠졌다면 가장 중요한 것 하나만 먼저 묻고, 사용자의 답을 기존 목표에 합쳐 다음 판단을 한다.
+    이미 답한 정보는 다시 묻지 않고, 한 번에 여러 질문을 쏟아내지 않는다.
 12. 현재 요청이 새 지역·새 업종을 명시하면 과거 업종이나 상호를 승계하지 않는다.
 13. [대화 문맥]의 recent_place_results 또는 recent_place_searches에
     직전 장소검색 결과가 있으면 "첫 번째", "두 번째", "그곳", "거기",
@@ -214,6 +217,19 @@ def _task_state_for(mission):
         "constraints": list(mission.get("constraints") or []),
         "criteria": [dict(item) for item in criteria if isinstance(item, dict)],
         "required_facts": list(mission.get("required_facts") or []),
+        "missing_information": list(
+            mission.get("missing_information") or []
+        ),
+        "next_question": (
+            (
+                mission.get("clarification_questions") or [{}]
+            )[0].get("question")
+            if isinstance(
+                (mission.get("clarification_questions") or [{}])[0],
+                dict,
+            )
+            else None
+        ),
         "candidate_scope": (
             "recent_results"
             if reuse_recent
@@ -494,6 +510,59 @@ def _apply_spoken_self_correction(
     return result
 
 
+def _apply_proactive_clarification(
+    intent,
+):
+    if not isinstance(intent, dict):
+        return intent
+
+    result = dict(intent)
+
+    if result.get("needs_clarification") is True:
+        if not _clean_text(
+            result.get("clarification_question")
+        ):
+            result["clarification_question"] = (
+                "진행에 필요한 정보를 한 가지만 더 알려주세요."
+            )
+        return result
+
+    if result.get("intent") != "place_search":
+        return result
+
+    location = (
+        result.get("location")
+        if isinstance(result.get("location"), dict)
+        else {}
+    )
+    location_value = _clean_text(
+        location.get("value")
+    )
+    target_business = _clean_text(
+        result.get("target_business")
+    )
+    category = (
+        _clean_text(result.get("category"))
+        or _clean_text(result.get("subject"))
+    )
+
+    if not target_business and not category:
+        result["needs_clarification"] = True
+        result["clarification_question"] = (
+            "어떤 종류의 업체나 장소를 찾을까요?"
+        )
+        return result
+
+    if not target_business and not location_value:
+        result["needs_clarification"] = True
+        result["clarification_question"] = (
+            "어느 지역이나 기준 장소 주변에서 찾을까요?"
+        )
+        return result
+
+    return result
+
+
 def _create_intent_response(
     client,
     *,
@@ -549,6 +618,15 @@ def _place_mission(intent):
         intent["goal"]
         or f"{location or ''} {subject} 후보를 찾는다.".strip()
     )
+    needs_clarification = (
+        intent.get("needs_clarification") is True
+    )
+    clarification_question = (
+        _clean_text(
+            intent.get("clarification_question")
+        )
+        or "진행에 필요한 정보를 한 가지만 더 알려주세요."
+    )
 
     mission = {
         "title": goal,
@@ -557,7 +635,11 @@ def _place_mission(intent):
         "subcategories": [category],
         "intent": "place_search",
         "search_mode": search_mode,
-        "response_mode": "research",
+        "response_mode": (
+            "clarify"
+            if needs_clarification
+            else "research"
+        ),
         "direct_answer": None,
         "location": location,
         "location_explicit": intent["location"]["explicit"],
@@ -572,9 +654,22 @@ def _place_mission(intent):
         "required_facts": required_facts,
         "needs_fresh_data": True,
         "may_need_phone_call": False,
-        "missing_information": [],
-        "clarification_questions": [],
-        "ready_to_research": True,
+        "missing_information": (
+            [clarification_question]
+            if needs_clarification
+            else []
+        ),
+        "clarification_questions": (
+            [
+                {
+                    "question": clarification_question,
+                    "options": [],
+                }
+            ]
+            if needs_clarification
+            else []
+        ),
+        "ready_to_research": not needs_clarification,
         "user_goal": goal,
         "decision_needed": (
             "요청한 지역·업종·조건에 맞는 실제 장소만 확정한다."
@@ -1265,6 +1360,9 @@ def create_mission(
         intent = _apply_spoken_self_correction(
             intent,
             request_text,
+        )
+        intent = _apply_proactive_clarification(
+            intent,
         )
     except (
         json.JSONDecodeError,
