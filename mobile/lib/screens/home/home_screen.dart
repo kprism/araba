@@ -1387,8 +1387,8 @@ class _HomeScreenState extends State<HomeScreen>
             : '$summary\n\n$question';
       }
       return summary.isEmpty
-          ? '한 가지만 더 알려주세요.'
-          : '$summary\n\n한 가지만 더 알려주세요.';
+          ? '진행에 필요한 정보를 알려주세요.'
+          : '$summary\n\n진행에 필요한 정보를 알려주세요.';
     }
 
     if (responseMode == 'answer' && directAnswer.isNotEmpty) {
