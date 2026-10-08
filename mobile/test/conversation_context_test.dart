@@ -96,6 +96,28 @@ void main() {
     );
   });
 
+  test('clarification rule asks all essential user-only details together', () {
+    final context = ConversationContext();
+
+    context.rememberMission({
+      'category': '치과',
+      'user_goal': '치과 예약',
+    });
+
+    final enriched = context.enrichRequest(
+      '예약해줘',
+    );
+
+    expect(
+      enriched,
+      contains('한 번의 질문에 모두 묶어서'),
+    );
+    expect(
+      enriched,
+      isNot(contains('가장 중요한 것 하나만')),
+    );
+  });
+
   test('already enriched request is not duplicated', () {
     final context = ConversationContext();
 
