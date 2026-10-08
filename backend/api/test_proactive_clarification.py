@@ -29,7 +29,7 @@ class ProactiveClarificationTests(SimpleTestCase):
         value.update(overrides)
         return value
 
-    def test_place_goal_without_location_asks_one_concrete_question(self):
+    def test_place_goal_without_location_asks_required_question(self):
         from api.services.mission_service import (
             _apply_proactive_clarification,
             _attach_task_state,
@@ -64,6 +64,43 @@ class ProactiveClarificationTests(SimpleTestCase):
         self.assertEqual(
             mission["task_state"]["next_question"],
             "어느 지역이나 기준 장소 주변에서 찾을까요?",
+        )
+
+    def test_missing_category_and_location_are_asked_together(self):
+        from api.services.mission_service import (
+            _apply_proactive_clarification,
+            _attach_task_state,
+            _place_mission,
+        )
+
+        intent = _apply_proactive_clarification(
+            self._intent(
+                category=None,
+                subject=None,
+                search_terms=[],
+            )
+        )
+        mission = _attach_task_state(
+            _place_mission(intent)
+        )
+
+        expected = (
+            "찾으려는 업체·장소 종류와 지역 또는 기준 장소를 함께 알려주세요."
+        )
+        self.assertTrue(
+            intent["needs_clarification"]
+        )
+        self.assertEqual(
+            intent["clarification_question"],
+            expected,
+        )
+        self.assertEqual(
+            mission["clarification_questions"][0]["question"],
+            expected,
+        )
+        self.assertEqual(
+            mission["task_state"]["next_question"],
+            expected,
         )
 
     def test_location_answer_makes_same_goal_research_ready(self):
