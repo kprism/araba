@@ -288,10 +288,9 @@ class LiveVoiceService {
         }
         break;
       case 'session.output_transcript.delta':
-        final delta = event['delta']?.toString() ?? '';
-        if (delta.isNotEmpty) {
-          onTranscript(isUser: false, delta: delta);
-        }
+        // Assistant text is already rendered by the Core mission/result path.
+        // Rendering Live's own transcript here can split one hesitating user
+        // utterance into multiple chat bubbles, so keep it voice-only.
         break;
       case 'session.delegation.created':
         // 구버전 서버가 delegation 이벤트를 보내더라도
