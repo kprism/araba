@@ -11,6 +11,8 @@ class LiveUtteranceBuffer {
   }
 
   bool get isEmpty => text.isEmpty;
+  bool get hasCommitted => _committed.trim().isNotEmpty;
+  bool get hasActive => _active.trim().isNotEmpty;
 
   void appendDelta(String delta) {
     if (delta.isEmpty) return;
