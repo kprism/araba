@@ -1,0 +1,56 @@
+class LiveUtteranceBuffer {
+  String _committed = '';
+  String _active = '';
+
+  String get text {
+    final parts = <String>[
+      if (_committed.trim().isNotEmpty) _committed.trim(),
+      if (_active.trim().isNotEmpty) _active.trim(),
+    ];
+    return parts.join(' ').trim();
+  }
+
+  bool get isEmpty => text.isEmpty;
+
+  void appendDelta(String delta) {
+    if (delta.isEmpty) return;
+    _active += delta;
+  }
+
+  String complete(String transcript) {
+    final completed = transcript.trim().isNotEmpty
+        ? transcript.trim()
+        : _active.trim();
+
+    if (completed.isNotEmpty) {
+      if (_committed.trim().isEmpty) {
+        _committed = completed;
+      } else if (!_committed.trim().endsWith(completed)) {
+        _committed = '${_committed.trim()} $completed';
+      }
+    }
+
+    _active = '';
+    return text;
+  }
+
+  void consume(String processedText) {
+    final processed = processedText.trim();
+    if (processed.isEmpty) return;
+
+    final stable = _committed.trim();
+    if (stable == processed) {
+      _committed = '';
+      return;
+    }
+
+    if (stable.startsWith(processed)) {
+      _committed = stable.substring(processed.length).trimLeft();
+    }
+  }
+
+  void clear() {
+    _committed = '';
+    _active = '';
+  }
+}
