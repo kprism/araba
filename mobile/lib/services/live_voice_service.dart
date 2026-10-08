@@ -637,8 +637,8 @@ class LiveVoiceService {
       missionStopwatch.stop();
       _missionInFlight = false;
 
-      if (_userTranscript.trim().isNotEmpty) {
-        _scheduleMissionFallback();
+      if (!_utteranceBuffer.isEmpty) {
+        _scheduleTurnCommit(_utteranceBuffer.text);
       }
     }
   }
@@ -860,8 +860,8 @@ class LiveVoiceService {
       missionStopwatch.stop();
       _missionInFlight = false;
 
-      if (_userTranscript.trim().isNotEmpty) {
-        _scheduleMissionFallback();
+      if (!_utteranceBuffer.isEmpty) {
+        _scheduleTurnCommit(_utteranceBuffer.text);
       }
     }
   }
@@ -1120,8 +1120,8 @@ class LiveVoiceService {
       missionStopwatch.stop();
       _missionInFlight = false;
 
-      if (_userTranscript.trim().isNotEmpty) {
-        _scheduleMissionFallback();
+      if (!_utteranceBuffer.isEmpty) {
+        _scheduleTurnCommit(_utteranceBuffer.text);
       }
     }
   }
