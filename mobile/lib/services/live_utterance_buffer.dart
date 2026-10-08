@@ -40,14 +40,18 @@ class LiveUtteranceBuffer {
     final processed = processedText.trim();
     if (processed.isEmpty) return;
 
-    final stable = _committed.trim();
-    if (stable == processed) {
-      _committed = '';
+    final current = text;
+    if (current == processed) {
+      clear();
       return;
     }
 
-    if (stable.startsWith(processed)) {
-      _committed = stable.substring(processed.length).trimLeft();
+    if (current.startsWith(processed)) {
+      final remaining = current
+          .substring(processed.length)
+          .trimLeft();
+      _committed = remaining;
+      _active = '';
     }
   }
 
