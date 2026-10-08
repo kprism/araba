@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'araba_api.dart';
 import 'conversation_context.dart';
 import 'live_keep_alive_service.dart';
+import 'live_utterance_buffer.dart';
 
 typedef LiveStatusCallback = void Function(String status);
 typedef LiveTranscriptCallback = void Function({
@@ -36,12 +37,13 @@ class LiveVoiceService {
   MediaStreamTrack? _microphoneTrack;
   bool _microphoneAttached = false;
 
-  String _userTranscript = '';
+  final LiveUtteranceBuffer _utteranceBuffer = LiveUtteranceBuffer();
   String? _pendingRequestContext;
   bool _started = false;
   bool _closing = false;
   Timer? _disconnectTimer;
   Timer? _missionFallbackTimer;
+  Timer? _turnCommitTimer;
   RTCPeerConnectionState? _connectionState;
   int _clientEventSequence = 0;
   bool _missionInFlight = false;
@@ -248,8 +250,17 @@ class LiveVoiceService {
       case 'conversation.item.input_audio_transcription.delta':
         final delta = event['delta']?.toString() ?? '';
         if (delta.isNotEmpty) {
-          _userTranscript += delta;
-          onTranscript(isUser: true, delta: delta);
+          _turnCommitTimer?.cancel();
+          _turnCommitTimer = null;
+
+          final startsNewSegment =
+              _utteranceBuffer.hasCommitted &&
+              !_utteranceBuffer.hasActive;
+          _utteranceBuffer.appendDelta(delta);
+          onTranscript(
+            isUser: true,
+            delta: startsNewSegment ? ' $delta' : delta,
+          );
           _scheduleMissionFallback();
         }
         break;
@@ -258,34 +269,27 @@ class LiveVoiceService {
         final transcript = (
           event['transcript'] ?? event['text'] ?? ''
         ).toString().trim();
-        final hadTranscript = _userTranscript.trim().isNotEmpty;
+        final hadActive = _utteranceBuffer.hasActive;
+        final hadCommitted = _utteranceBuffer.hasCommitted;
 
-        if (transcript.isNotEmpty) {
-          _userTranscript = transcript;
-          if (!hadTranscript) {
-            onTranscript(
-              isUser: true,
-              delta: transcript,
-            );
-          }
+        final combined = _utteranceBuffer.complete(transcript);
+
+        if (transcript.isNotEmpty && !hadActive) {
+          onTranscript(
+            isUser: true,
+            delta: hadCommitted ? ' $transcript' : transcript,
+          );
         }
 
         _missionFallbackTimer?.cancel();
         _missionFallbackTimer = null;
-        if (_userTranscript.trim().isNotEmpty) {
-          unawaited(_dispatchTranscriptToCore());
+        if (combined.isNotEmpty) {
+          _scheduleTurnCommit(combined);
         }
         break;
       case 'session.output_transcript.delta':
         final delta = event['delta']?.toString() ?? '';
         if (delta.isNotEmpty) {
-          // Live의 짧은 맞장구는 사용자 발화 종료 신호가 아니다.
-          // 여기서 Core를 호출하면 "창원시청"과 "주변에..." 같은
-          // 한 요청이 두 Mission으로 잘리는 문제가 생긴다.
-          if (_userTranscript.isNotEmpty &&
-              !_userTranscript.endsWith(' ')) {
-            _userTranscript += ' ';
-          }
           onTranscript(isUser: false, delta: delta);
         }
         break;
@@ -315,7 +319,7 @@ class LiveVoiceService {
     if (!_started || _closing) return;
 
     _missionFallbackTimer = Timer(
-      const Duration(milliseconds: 4500),
+      const Duration(milliseconds: 5200),
       () {
         _missionFallbackTimer = null;
         unawaited(_dispatchTranscriptToCore());
@@ -323,15 +327,710 @@ class LiveVoiceService {
     );
   }
 
+  Duration _turnCommitDelay(String text) {
+    final compact = text
+        .trim()
+        .replaceAll(RegExp(r'[.!?]+
+  Future<void> _processMission({
+    required String latestUserText,
+  }) async {
+    _missionInFlight = true;
+    String? preparedRequestText;
+    final missionStopwatch = Stopwatch()..start();
+
+    try {
+      final rawRequestText = _pendingRequestContext == null
+          ? latestUserText
+          : [
+              _pendingRequestContext!,
+              '',
+              '사용자 추가 답변:',
+              latestUserText,
+            ].join('\n');
+      final requestText = conversationContext.enrichRequest(
+        rawRequestText,
+      );
+      preparedRequestText = requestText;
+
+      final result = await api.createMission(
+        requestText,
+        apiKey: apiKey,
+      );
+
+      final mission = result['mission'];
+      if (mission is! Map<String, dynamic>) {
+        throw const ArabaApiException(
+          '조사 엔진 응답 형식이 올바르지 않아요.',
+        );
+      }
+
+      conversationContext.rememberMission(mission);
+      _consumeProcessedTranscript(latestUserText);
+      onMission(mission, requestText);
+
+      final ready =
+          mission['ready_to_research'] == true;
+      final questions =
+          mission['clarification_questions'];
+
+      if (!ready &&
+          questions is List &&
+          questions.isNotEmpty &&
+          questions.first is Map) {
+        _pendingRequestContext = requestText;
+        return;
+      }
+
+      _pendingRequestContext = null;
+    } catch (error) {
+      // 실패해도 사용자가 방금 말한 맥락을 버리지 않는다.
+      // 다음 발화가 이어지면 직전 요청과 합쳐 Core가 다시 판단한다.
+      if (preparedRequestText != null) {
+        _pendingRequestContext = preparedRequestText;
+      }
+      _consumeProcessedTranscript(latestUserText);
+
+      final elapsedSeconds =
+          missionStopwatch.elapsedMilliseconds / 1000;
+      final detail = error is ArabaApiException
+          ? error.diagnosticText
+          : '단계: app_mission_processing\n예외: ${error.runtimeType}';
+
+      onDiagnostic?.call(
+        'GPT Core 요청 실패 · 앱 경과 ${elapsedSeconds.toStringAsFixed(1)}초\n'
+        '$detail',
+      );
+      speakCommentary(
+        '요청 처리에 실패했고 오류 진단을 채팅에 기록했습니다. '
+        '자동 재시도는 하지 않았습니다. 방금 말씀하신 내용은 유지하고 있습니다.',
+      );
+      onStatus('Core 진단: ${elapsedSeconds.toStringAsFixed(1)}초');
+    } finally {
+      missionStopwatch.stop();
+      _missionInFlight = false;
+
+      if (!_utteranceBuffer.isEmpty) {
+        _scheduleTurnCommit(_utteranceBuffer.text);
+      }
+    }
+  }
+
+  Future<void> pauseAudio() async {
+    final sender = _microphoneSender;
+
+    if (
+        sender != null &&
+        _microphoneAttached
+    ) {
+      await sender.replaceTrack(null);
+      _microphoneAttached = false;
+    }
+
+    // 송신 트랙만 분리한다. 로컬/원격 오디오 세션은 그대로 두어
+    // ARABA의 Live 브리핑 음성은 계속 재생되게 한다.
+    try {
+      await Helper.setSpeakerphoneOnButPreferBluetooth();
+    } catch (_) {}
+
+    onStatus(
+      '마이크 꺼짐 · ARABA 음성 계속',
+    );
+  }
+
+  Future<void> resumeAudio() async {
+    final sender = _microphoneSender;
+    final track = _microphoneTrack;
+
+    if (
+        sender != null &&
+        track != null &&
+        !_microphoneAttached
+    ) {
+      await sender.replaceTrack(track);
+      _microphoneAttached = true;
+    }
+
+    try {
+      await Helper.setSpeakerphoneOnButPreferBluetooth();
+    } catch (_) {}
+
+    if (_started) {
+      onStatus('듣고 있어요');
+    }
+  }
+
+  void resetPendingMissionContext() {
+    _pendingRequestContext = null;
+  }
+
+  void speakCommentary(String content) {
+    final text = content.trim();
+    if (!_started || text.isEmpty) return;
+
+    _sendEvent({
+      'type': 'session.commentary.append',
+      'event_id': _nextClientEventId('progress'),
+      'delegation_id': null,
+      'content': text,
+    });
+  }
+
+  String _nextClientEventId(String prefix) {
+    _clientEventSequence += 1;
+    return 'araba_${prefix}_$_clientEventSequence';
+  }
+
+  void _sendEvent(Map<String, dynamic> event) {
+    final events = _events;
+    if (events == null) return;
+
+    events.send(
+      RTCDataChannelMessage(
+        jsonEncode(event),
+      ),
+    );
+  }
+
+  Future<void> stop({bool force = false}) async {
+    if (_closing) return;
+    _closing = true;
+
+    try {
+      if (!force && _events != null && _started) {
+        _sendEvent({
+          'type': 'session.close',
+        });
+        await Future<void>.delayed(
+          const Duration(milliseconds: 350),
+        );
+      }
+    } finally {
+      await _cleanup();
+      _closing = false;
+    }
+  }
+
+  Future<void> _cleanup() async {
+    _started = false;
+    await LiveKeepAliveService.stop();
+    _disconnectTimer?.cancel();
+    _disconnectTimer = null;
+    _missionFallbackTimer?.cancel();
+    _missionFallbackTimer = null;
+    _turnCommitTimer?.cancel();
+    _turnCommitTimer = null;
+    _utteranceBuffer.clear();
+    _missionInFlight = false;
+    _connectionState = null;
+    _microphoneAttached = false;
+    _microphoneSender = null;
+    _microphoneTrack = null;
+
+    try {
+      await _events?.close();
+    } catch (_) {}
+    _events = null;
+
+    try {
+      for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+        await track.stop();
+      }
+      await _localStream?.dispose();
+    } catch (_) {}
+    _localStream = null;
+
+    try {
+      await _peerConnection?.close();
+      await _peerConnection?.dispose();
+    } catch (_) {}
+    _peerConnection = null;
+
+    try {
+      await Helper.clearAndroidCommunicationDevice();
+    } catch (_) {}
+  }
+}
+), '')
+        .replaceAll(RegExp(r'\s+'), '');
+
+    if (_pendingRequestContext != null) {
+      return const Duration(milliseconds: 1600);
+    }
+
+    if (RegExp(
+      r'(음|어|그|뭐|그거|이거|이거는|그리고|근데|그런데|그래서|잠깐|아니)
+  Future<void> _processMission({
+    required String latestUserText,
+  }) async {
+    _missionInFlight = true;
+    String? preparedRequestText;
+    final missionStopwatch = Stopwatch()..start();
+
+    try {
+      final rawRequestText = _pendingRequestContext == null
+          ? latestUserText
+          : [
+              _pendingRequestContext!,
+              '',
+              '사용자 추가 답변:',
+              latestUserText,
+            ].join('\n');
+      final requestText = conversationContext.enrichRequest(
+        rawRequestText,
+      );
+      preparedRequestText = requestText;
+
+      final result = await api.createMission(
+        requestText,
+        apiKey: apiKey,
+      );
+
+      final mission = result['mission'];
+      if (mission is! Map<String, dynamic>) {
+        throw const ArabaApiException(
+          '조사 엔진 응답 형식이 올바르지 않아요.',
+        );
+      }
+
+      conversationContext.rememberMission(mission);
+      _consumeProcessedTranscript(latestUserText);
+      onMission(mission, requestText);
+
+      final ready =
+          mission['ready_to_research'] == true;
+      final questions =
+          mission['clarification_questions'];
+
+      if (!ready &&
+          questions is List &&
+          questions.isNotEmpty &&
+          questions.first is Map) {
+        _pendingRequestContext = requestText;
+        return;
+      }
+
+      _pendingRequestContext = null;
+    } catch (error) {
+      // 실패해도 사용자가 방금 말한 맥락을 버리지 않는다.
+      // 다음 발화가 이어지면 직전 요청과 합쳐 Core가 다시 판단한다.
+      if (preparedRequestText != null) {
+        _pendingRequestContext = preparedRequestText;
+      }
+      _consumeProcessedTranscript(latestUserText);
+
+      final elapsedSeconds =
+          missionStopwatch.elapsedMilliseconds / 1000;
+      final detail = error is ArabaApiException
+          ? error.diagnosticText
+          : '단계: app_mission_processing\n예외: ${error.runtimeType}';
+
+      onDiagnostic?.call(
+        'GPT Core 요청 실패 · 앱 경과 ${elapsedSeconds.toStringAsFixed(1)}초\n'
+        '$detail',
+      );
+      speakCommentary(
+        '요청 처리에 실패했고 오류 진단을 채팅에 기록했습니다. '
+        '자동 재시도는 하지 않았습니다. 방금 말씀하신 내용은 유지하고 있습니다.',
+      );
+      onStatus('Core 진단: ${elapsedSeconds.toStringAsFixed(1)}초');
+    } finally {
+      missionStopwatch.stop();
+      _missionInFlight = false;
+
+      if (_userTranscript.trim().isNotEmpty) {
+        _scheduleMissionFallback();
+      }
+    }
+  }
+
+  Future<void> pauseAudio() async {
+    final sender = _microphoneSender;
+
+    if (
+        sender != null &&
+        _microphoneAttached
+    ) {
+      await sender.replaceTrack(null);
+      _microphoneAttached = false;
+    }
+
+    // 송신 트랙만 분리한다. 로컬/원격 오디오 세션은 그대로 두어
+    // ARABA의 Live 브리핑 음성은 계속 재생되게 한다.
+    try {
+      await Helper.setSpeakerphoneOnButPreferBluetooth();
+    } catch (_) {}
+
+    onStatus(
+      '마이크 꺼짐 · ARABA 음성 계속',
+    );
+  }
+
+  Future<void> resumeAudio() async {
+    final sender = _microphoneSender;
+    final track = _microphoneTrack;
+
+    if (
+        sender != null &&
+        track != null &&
+        !_microphoneAttached
+    ) {
+      await sender.replaceTrack(track);
+      _microphoneAttached = true;
+    }
+
+    try {
+      await Helper.setSpeakerphoneOnButPreferBluetooth();
+    } catch (_) {}
+
+    if (_started) {
+      onStatus('듣고 있어요');
+    }
+  }
+
+  void resetPendingMissionContext() {
+    _pendingRequestContext = null;
+  }
+
+  void speakCommentary(String content) {
+    final text = content.trim();
+    if (!_started || text.isEmpty) return;
+
+    _sendEvent({
+      'type': 'session.commentary.append',
+      'event_id': _nextClientEventId('progress'),
+      'delegation_id': null,
+      'content': text,
+    });
+  }
+
+  String _nextClientEventId(String prefix) {
+    _clientEventSequence += 1;
+    return 'araba_${prefix}_$_clientEventSequence';
+  }
+
+  void _sendEvent(Map<String, dynamic> event) {
+    final events = _events;
+    if (events == null) return;
+
+    events.send(
+      RTCDataChannelMessage(
+        jsonEncode(event),
+      ),
+    );
+  }
+
+  Future<void> stop({bool force = false}) async {
+    if (_closing) return;
+    _closing = true;
+
+    try {
+      if (!force && _events != null && _started) {
+        _sendEvent({
+          'type': 'session.close',
+        });
+        await Future<void>.delayed(
+          const Duration(milliseconds: 350),
+        );
+      }
+    } finally {
+      await _cleanup();
+      _closing = false;
+    }
+  }
+
+  Future<void> _cleanup() async {
+    _started = false;
+    await LiveKeepAliveService.stop();
+    _disconnectTimer?.cancel();
+    _disconnectTimer = null;
+    _missionFallbackTimer?.cancel();
+    _missionFallbackTimer = null;
+    _missionInFlight = false;
+    _connectionState = null;
+    _microphoneAttached = false;
+    _microphoneSender = null;
+    _microphoneTrack = null;
+
+    try {
+      await _events?.close();
+    } catch (_) {}
+    _events = null;
+
+    try {
+      for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+        await track.stop();
+      }
+      await _localStream?.dispose();
+    } catch (_) {}
+    _localStream = null;
+
+    try {
+      await _peerConnection?.close();
+      await _peerConnection?.dispose();
+    } catch (_) {}
+    _peerConnection = null;
+
+    try {
+      await Helper.clearAndroidCommunicationDevice();
+    } catch (_) {}
+  }
+}
+,
+    ).hasMatch(compact)) {
+      return const Duration(milliseconds: 4000);
+    }
+
+    if (RegExp(
+      r'(찾아줘|알아봐줘|알려줘|보여줘|해줘|해주세요|예약해줘|뭐야|어디야|인가요|나요)
+  Future<void> _processMission({
+    required String latestUserText,
+  }) async {
+    _missionInFlight = true;
+    String? preparedRequestText;
+    final missionStopwatch = Stopwatch()..start();
+
+    try {
+      final rawRequestText = _pendingRequestContext == null
+          ? latestUserText
+          : [
+              _pendingRequestContext!,
+              '',
+              '사용자 추가 답변:',
+              latestUserText,
+            ].join('\n');
+      final requestText = conversationContext.enrichRequest(
+        rawRequestText,
+      );
+      preparedRequestText = requestText;
+
+      final result = await api.createMission(
+        requestText,
+        apiKey: apiKey,
+      );
+
+      final mission = result['mission'];
+      if (mission is! Map<String, dynamic>) {
+        throw const ArabaApiException(
+          '조사 엔진 응답 형식이 올바르지 않아요.',
+        );
+      }
+
+      conversationContext.rememberMission(mission);
+      _consumeProcessedTranscript(latestUserText);
+      onMission(mission, requestText);
+
+      final ready =
+          mission['ready_to_research'] == true;
+      final questions =
+          mission['clarification_questions'];
+
+      if (!ready &&
+          questions is List &&
+          questions.isNotEmpty &&
+          questions.first is Map) {
+        _pendingRequestContext = requestText;
+        return;
+      }
+
+      _pendingRequestContext = null;
+    } catch (error) {
+      // 실패해도 사용자가 방금 말한 맥락을 버리지 않는다.
+      // 다음 발화가 이어지면 직전 요청과 합쳐 Core가 다시 판단한다.
+      if (preparedRequestText != null) {
+        _pendingRequestContext = preparedRequestText;
+      }
+      _consumeProcessedTranscript(latestUserText);
+
+      final elapsedSeconds =
+          missionStopwatch.elapsedMilliseconds / 1000;
+      final detail = error is ArabaApiException
+          ? error.diagnosticText
+          : '단계: app_mission_processing\n예외: ${error.runtimeType}';
+
+      onDiagnostic?.call(
+        'GPT Core 요청 실패 · 앱 경과 ${elapsedSeconds.toStringAsFixed(1)}초\n'
+        '$detail',
+      );
+      speakCommentary(
+        '요청 처리에 실패했고 오류 진단을 채팅에 기록했습니다. '
+        '자동 재시도는 하지 않았습니다. 방금 말씀하신 내용은 유지하고 있습니다.',
+      );
+      onStatus('Core 진단: ${elapsedSeconds.toStringAsFixed(1)}초');
+    } finally {
+      missionStopwatch.stop();
+      _missionInFlight = false;
+
+      if (_userTranscript.trim().isNotEmpty) {
+        _scheduleMissionFallback();
+      }
+    }
+  }
+
+  Future<void> pauseAudio() async {
+    final sender = _microphoneSender;
+
+    if (
+        sender != null &&
+        _microphoneAttached
+    ) {
+      await sender.replaceTrack(null);
+      _microphoneAttached = false;
+    }
+
+    // 송신 트랙만 분리한다. 로컬/원격 오디오 세션은 그대로 두어
+    // ARABA의 Live 브리핑 음성은 계속 재생되게 한다.
+    try {
+      await Helper.setSpeakerphoneOnButPreferBluetooth();
+    } catch (_) {}
+
+    onStatus(
+      '마이크 꺼짐 · ARABA 음성 계속',
+    );
+  }
+
+  Future<void> resumeAudio() async {
+    final sender = _microphoneSender;
+    final track = _microphoneTrack;
+
+    if (
+        sender != null &&
+        track != null &&
+        !_microphoneAttached
+    ) {
+      await sender.replaceTrack(track);
+      _microphoneAttached = true;
+    }
+
+    try {
+      await Helper.setSpeakerphoneOnButPreferBluetooth();
+    } catch (_) {}
+
+    if (_started) {
+      onStatus('듣고 있어요');
+    }
+  }
+
+  void resetPendingMissionContext() {
+    _pendingRequestContext = null;
+  }
+
+  void speakCommentary(String content) {
+    final text = content.trim();
+    if (!_started || text.isEmpty) return;
+
+    _sendEvent({
+      'type': 'session.commentary.append',
+      'event_id': _nextClientEventId('progress'),
+      'delegation_id': null,
+      'content': text,
+    });
+  }
+
+  String _nextClientEventId(String prefix) {
+    _clientEventSequence += 1;
+    return 'araba_${prefix}_$_clientEventSequence';
+  }
+
+  void _sendEvent(Map<String, dynamic> event) {
+    final events = _events;
+    if (events == null) return;
+
+    events.send(
+      RTCDataChannelMessage(
+        jsonEncode(event),
+      ),
+    );
+  }
+
+  Future<void> stop({bool force = false}) async {
+    if (_closing) return;
+    _closing = true;
+
+    try {
+      if (!force && _events != null && _started) {
+        _sendEvent({
+          'type': 'session.close',
+        });
+        await Future<void>.delayed(
+          const Duration(milliseconds: 350),
+        );
+      }
+    } finally {
+      await _cleanup();
+      _closing = false;
+    }
+  }
+
+  Future<void> _cleanup() async {
+    _started = false;
+    await LiveKeepAliveService.stop();
+    _disconnectTimer?.cancel();
+    _disconnectTimer = null;
+    _missionFallbackTimer?.cancel();
+    _missionFallbackTimer = null;
+    _missionInFlight = false;
+    _connectionState = null;
+    _microphoneAttached = false;
+    _microphoneSender = null;
+    _microphoneTrack = null;
+
+    try {
+      await _events?.close();
+    } catch (_) {}
+    _events = null;
+
+    try {
+      for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+        await track.stop();
+      }
+      await _localStream?.dispose();
+    } catch (_) {}
+    _localStream = null;
+
+    try {
+      await _peerConnection?.close();
+      await _peerConnection?.dispose();
+    } catch (_) {}
+    _peerConnection = null;
+
+    try {
+      await Helper.clearAndroidCommunicationDevice();
+    } catch (_) {}
+  }
+}
+,
+    ).hasMatch(compact)) {
+      return const Duration(milliseconds: 1200);
+    }
+
+    return const Duration(milliseconds: 2300);
+  }
+
+  void _scheduleTurnCommit(String text) {
+    _turnCommitTimer?.cancel();
+
+    if (!_started || _closing || text.trim().isEmpty) {
+      return;
+    }
+
+    _turnCommitTimer = Timer(
+      _turnCommitDelay(text),
+      () {
+        _turnCommitTimer = null;
+        unawaited(_dispatchTranscriptToCore());
+      },
+    );
+  }
+
   Future<void> _dispatchTranscriptToCore() async {
     if (_missionInFlight) {
-      if (_userTranscript.trim().isNotEmpty) {
+      if (!_utteranceBuffer.isEmpty) {
         _scheduleMissionFallback();
       }
       return;
     }
 
-    final latestUserText = _userTranscript.trim();
+    final latestUserText = _utteranceBuffer.text;
     if (latestUserText.isEmpty) return;
 
     await _processMission(
@@ -340,22 +1039,7 @@ class LiveVoiceService {
   }
 
   void _consumeProcessedTranscript(String processedText) {
-    final current = _userTranscript;
-    final processed = processedText.trim();
-
-    if (processed.isEmpty || current.isEmpty) {
-      return;
-    }
-
-    if (current.trim() == processed) {
-      _userTranscript = '';
-      return;
-    }
-
-    final index = current.indexOf(processedText);
-    if (index == 0) {
-      _userTranscript = current.substring(processedText.length);
-    }
+    _utteranceBuffer.consume(processedText);
   }
 
   Future<void> _processMission({
