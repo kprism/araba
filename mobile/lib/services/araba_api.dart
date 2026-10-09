@@ -351,6 +351,7 @@ class ArabaApi {
     String category = '',
     String trainerNote = '',
     String expectedBehavior = '',
+    String actorRole = 'trainer',
     Map<String, dynamic> context = const {},
   }) async {
     final response = await _request(
@@ -364,6 +365,7 @@ class ArabaApi {
           'category': category,
           'trainer_note': trainerNote,
           'expected_behavior': expectedBehavior,
+          'actor_role': actorRole,
           'context': context,
         }),
       ),
