@@ -50,6 +50,16 @@ urlpatterns = [
         name="research-enrich",
     ),
     path(
+        "research/experiences/",
+        views.business_experience_list,
+        name="business-experience-list",
+    ),
+    path(
+        "research/experiences/create/",
+        views.business_experience_create,
+        name="business-experience-create",
+    ),
+    path(
         "research/mock-call/",
         views.mock_call_compare,
         name="mock-call-compare",
