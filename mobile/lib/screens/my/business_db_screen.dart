@@ -37,6 +37,8 @@ class _BusinessDbScreenState extends State<BusinessDbScreen> {
   int _page = 1;
   bool _hasMore = false;
 
+  final Set<int> _expandedBusinessIds = <int>{};
+
   @override
   void initState() {
     super.initState();
@@ -266,102 +268,192 @@ class _BusinessDbScreenState extends State<BusinessDbScreen> {
   }
 
   Widget _businessCard(Map<String, dynamic> item) {
+    final id = int.tryParse(
+          item['id']?.toString() ?? '',
+        ) ??
+        item.hashCode;
     final name = item['name']?.toString() ?? '상호명 없음';
     final category = item['category_label']?.toString() ?? '미분류';
     final address = item['address']?.toString() ?? '';
     final phone = item['phone']?.toString() ?? '';
     final provider = item['provider']?.toString() ?? '';
     final experienceCount = item['experience_count'] ?? 0;
+    final expanded = _expandedBusinessIds.contains(id);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(15),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFEAECF0),
+          color: expanded
+              ? const Color(0xFFB2CCFF)
+              : const Color(0xFFEAECF0),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          setState(() {
+            if (expanded) {
+              _expandedBusinessIds.remove(id);
+            } else {
+              _expandedBusinessIds.add(id);
+            }
+          });
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 15,
+            vertical: 13,
+          ),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            maxLines: expanded ? 2 : 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '$category · ${provider.isEmpty ? '출처 미상' : provider}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF667085),
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '$category · ${provider.isEmpty ? '출처 미상' : provider}',
-                      style: const TextStyle(
+                    const SizedBox(width: 8),
+                    _statusChip(
+                      item['detail_fresh'] == true ? '최신' : '갱신 필요',
+                      item['detail_fresh'] == true,
+                    ),
+                    const SizedBox(width: 4),
+                    AnimatedRotation(
+                      turns: expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 22,
                         color: Color(0xFF667085),
-                        fontSize: 12,
                       ),
                     ),
                   ],
                 ),
-              ),
-              _statusChip(
-                item['detail_fresh'] == true ? '최신' : '갱신 필요',
-                item['detail_fresh'] == true,
-              ),
-            ],
-          ),
-          if (address.isNotEmpty) ...[
-            const SizedBox(height: 9),
-            Text(
-              address,
-              style: const TextStyle(
-                color: Color(0xFF344054),
-                fontSize: 12,
-              ),
+                if (expanded) ...[
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  if (address.isNotEmpty) ...[
+                    const SizedBox(height: 11),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          size: 16,
+                          color: Color(0xFF667085),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            address,
+                            style: const TextStyle(
+                              color: Color(0xFF344054),
+                              fontSize: 12,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (phone.isNotEmpty) ...[
+                    const SizedBox(height: 7),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.phone_outlined,
+                          size: 16,
+                          color: Color(0xFF667085),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          phone,
+                          style: const TextStyle(
+                            color: Color(0xFF475467),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 11),
+                  Wrap(
+                    spacing: 5,
+                    runSpacing: 5,
+                    children: [
+                      _statusChip('전화', item['has_phone'] == true),
+                      _statusChip('영업시간', item['has_hours'] == true),
+                      _statusChip('주차', item['has_parking'] == true),
+                      _statusChip('가격', item['has_prices'] == true),
+                      _statusChip('사진', item['has_image'] == true),
+                      _statusChip(
+                        '경험 $experienceCount',
+                        item['has_experience'] == true,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '최근 검색/확인: ${_formatDate(item['last_seen_at'])}',
+                    style: const TextStyle(
+                      color: Color(0xFF98A2B3),
+                      fontSize: 10.5,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '상세갱신: ${_formatDate(item['last_detail_refresh_at'])}',
+                    style: const TextStyle(
+                      color: Color(0xFF98A2B3),
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 7),
+                  Text(
+                    '터치해서 상세보기',
+                    style: const TextStyle(
+                      color: Color(0xFF98A2B3),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-          if (phone.isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              phone,
-              style: const TextStyle(
-                color: Color(0xFF475467),
-                fontSize: 12,
-              ),
-            ),
-          ],
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 5,
-            runSpacing: 5,
-            children: [
-              _statusChip('전화', item['has_phone'] == true),
-              _statusChip('영업시간', item['has_hours'] == true),
-              _statusChip('주차', item['has_parking'] == true),
-              _statusChip('가격', item['has_prices'] == true),
-              _statusChip('사진', item['has_image'] == true),
-              _statusChip(
-                '경험 $experienceCount',
-                item['has_experience'] == true,
-              ),
-            ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            '최근 검색/확인: ${_formatDate(item['last_seen_at'])} · 상세갱신: ${_formatDate(item['last_detail_refresh_at'])}',
-            style: const TextStyle(
-              color: Color(0xFF98A2B3),
-              fontSize: 10.5,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
