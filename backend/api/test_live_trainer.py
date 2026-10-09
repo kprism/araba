@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from api.models import TrainingRule, TrainingRun, TrainingScenario
+from api.models import LabCase, TrainingRule, TrainingRun, TrainingScenario
 from api.services.live_trainer_service import (
     analyze_and_learn_trainer_feedback,
     record_correct_feedback,
@@ -83,6 +83,11 @@ class LiveTrainerServiceTests(TestCase):
             TrainingRun.objects.get().mode,
             "live_trainer",
         )
+        self.assertEqual(LabCase.objects.count(), 1)
+        case = LabCase.objects.get()
+        self.assertEqual(case.status, "rule_applied")
+        self.assertEqual(case.actor_role, "trainer")
+        self.assertEqual(result["lab_case_id"], case.id)
 
     @patch(
         "api.services.live_trainer_service.OpenAI"
@@ -125,6 +130,11 @@ class LiveTrainerServiceTests(TestCase):
             TrainingRun.objects.get().mode,
             "live_user_feedback",
         )
+        self.assertEqual(LabCase.objects.count(), 1)
+        self.assertEqual(
+            LabCase.objects.get().status,
+            "user_feedback_candidate",
+        )
 
     @patch(
         "api.services.live_trainer_service.OpenAI"
@@ -164,6 +174,11 @@ class LiveTrainerServiceTests(TestCase):
         self.assertEqual(TrainingRule.objects.count(), 0)
         self.assertEqual(TrainingScenario.objects.count(), 1)
         self.assertEqual(TrainingRun.objects.count(), 1)
+        self.assertEqual(LabCase.objects.count(), 1)
+        case = LabCase.objects.get()
+        self.assertEqual(case.status, "code_fix_required")
+        self.assertTrue(case.repair_plan["automation_ready"])
+        self.assertEqual(result["lab_case_id"], case.id)
 
 
 class LiveTrainerApiTests(TestCase):
@@ -190,4 +205,36 @@ class LiveTrainerApiTests(TestCase):
         self.assertEqual(
             response.data["status"],
             "positive_example_saved",
+        )
+
+
+class LabCaseApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_lab_case_list_endpoint(self):
+        LabCase.objects.create(
+            actor_role="trainer",
+            category="식당",
+            input_source="voice",
+            report_text="새벽 영업시간 판정이 틀림",
+            request_text="새벽 2시까지 하는 곳",
+            assistant_response="없어요",
+            root_cause_type="matching",
+            diagnosis={"root_cause": "시간 정규화 오류"},
+            repair_plan={"verification": "26:00 비교"},
+            status="code_fix_required",
+        )
+
+        response = self.client.get(
+            "/api/training/lab/cases/",
+            {"status": "code_fix_required"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["ok"])
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["cases"][0]["root_cause_type"],
+            "matching",
         )
