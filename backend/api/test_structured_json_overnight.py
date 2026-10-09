@@ -58,7 +58,7 @@ class StructuredIntentOutputTests(TestCase):
         self.assertEqual(fmt["name"], "araba_intent")
 
     @patch("api.services.mission_service.OpenAI")
-    def test_followup_sae-byeok_without_hour_bypasses_openai(
+    def test_followup_saebyeok_without_hour_bypasses_openai(
         self,
         mocked_openai,
     ):
@@ -83,7 +83,7 @@ class StructuredIntentOutputTests(TestCase):
         mocked_openai.assert_not_called()
 
     @patch("api.services.mission_service.OpenAI")
-    def test_followup_sae-byeok_two_means_next_day_26(
+    def test_followup_saebyeok_two_means_next_day_26(
         self,
         mocked_openai,
     ):
