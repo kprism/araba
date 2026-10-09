@@ -635,8 +635,12 @@ class _HomeScreenState extends State<HomeScreen>
           diagnosis['verification']?.toString().trim() ?? '';
       final needsCodeFix = diagnosis['needs_code_fix'] == true;
       final learned = result['learned'] == true;
+      final labCaseId = result['lab_case_id'];
+      final labStatus = result['lab_status']?.toString().trim() ?? '';
 
       final lines = <String>[
+        if (labCaseId != null)
+          'ARABA Lab #$labCaseId · ${labStatus.isEmpty ? '진단 등록' : labStatus}',
         if (rootCause.isNotEmpty) '원인: $rootCause',
         if (instruction.isNotEmpty)
           learned ? '즉시 학습 규칙: $instruction' : '보완 방향: $instruction',
@@ -648,8 +652,8 @@ class _HomeScreenState extends State<HomeScreen>
             ? (result['message']?.toString() ?? '훈련 피드백을 저장했어요.')
             : lines.join('\n'),
         badge: needsCodeFix
-            ? '코드 보완 필요'
-            : (learned ? '실시간 학습 반영' : '훈련 사례 저장'),
+            ? 'ARABA Lab · 코드 보완'
+            : (learned ? 'ARABA Lab · 학습 반영' : 'ARABA Lab · 진단 완료'),
       );
     } catch (error) {
       if (!mounted) return;
