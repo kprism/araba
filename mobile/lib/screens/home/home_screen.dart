@@ -2182,8 +2182,9 @@ class _BusinessImageFallback extends StatelessWidget {
 
 class _BusinessCards extends StatelessWidget {
   final List<Map<String, dynamic>> businesses;
+  final ArabaApi _api = ArabaApi();
 
-  const _BusinessCards({
+  _BusinessCards({
     required this.businesses,
   });
 
@@ -2226,6 +2227,90 @@ class _BusinessCards extends StatelessWidget {
         })
         .where((item) => item.isNotEmpty)
         .join(' · ');
+  }
+
+  Future<void> _leaveExperience(
+    BuildContext context,
+    Map<String, dynamic> business,
+  ) async {
+    final name =
+        business['name']?.toString().trim() ?? '업체';
+    final controller = TextEditingController();
+
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('$name 이용 경험'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 3,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            hintText:
+                '예: 주차장은 좁았고 15분 정도 기다렸지만 설명은 자세했어요.',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(
+              controller.text.trim(),
+            ),
+            child: const Text('경험 저장'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (text == null || text.trim().isEmpty) return;
+
+    try {
+      final rawBusinessId = business['araba_business_id'];
+      final businessId = rawBusinessId is num
+          ? rawBusinessId.round()
+          : int.tryParse(rawBusinessId?.toString() ?? '');
+      final providerPlaceId =
+          business['id']?.toString().trim();
+
+      final result = await _api.submitBusinessExperience(
+        businessId: businessId,
+        providerPlaceId: providerPlaceId,
+        text: text,
+        verifiedVisit: false,
+      );
+
+      business['experience_count'] =
+          result['experience_count'] ?? 1;
+      business['verified_experience_count'] =
+          result['verified_experience_count'] ?? 0;
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$name 이용 경험을 ARABA 경험 DB에 저장했어요.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is ArabaApiException
+                ? error.message
+                : '이용 경험 저장에 실패했어요.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _showBusinessDetail(
@@ -2285,6 +2370,31 @@ class _BusinessCards extends StatelessWidget {
     final openAiSourceUrl = openAiSources.isNotEmpty
         ? openAiSources.first
         : '';
+    final experienceCount =
+        business['experience_count'] is num
+            ? (business['experience_count'] as num).round()
+            : int.tryParse(
+                  business['experience_count']?.toString() ?? '',
+                ) ??
+                0;
+    final verifiedExperienceCount =
+        business['verified_experience_count'] is num
+            ? (business['verified_experience_count'] as num)
+                .round()
+            : 0;
+    final rawExperienceSnippets =
+        business['experience_snippets'];
+    final experienceSnippets =
+        rawExperienceSnippets is List
+            ? rawExperienceSnippets
+                .map((item) => item.toString().trim())
+                .where((item) => item.isNotEmpty)
+                .take(2)
+                .toList()
+            : <String>[];
+    final cacheHit =
+        business['araba_cache_hit'] == true;
+
     final priceLink =
         (naver['price_link'] ?? web['price_link'])
                 ?.toString()
@@ -2506,6 +2616,16 @@ class _BusinessCards extends StatelessWidget {
                             title: '가격',
                             value: priceText,
                           ),
+                        if (experienceCount > 0)
+                          _BusinessDetailRow(
+                            icon: Icons.forum_outlined,
+                            title: '이용경험',
+                            value: [
+                              'ARABA 경험 $experienceCount건'
+                                  '${verifiedExperienceCount > 0 ? ' · 이용확인 $verifiedExperienceCount건' : ''}',
+                              ...experienceSnippets,
+                            ].join('\n'),
+                          ),
                         const SizedBox(height: 20),
                         Row(
                           children: [
@@ -2541,6 +2661,24 @@ class _BusinessCards extends StatelessWidget {
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () =>
+                                _leaveExperience(context, business),
+                            icon: const Icon(
+                              Icons.rate_review_outlined,
+                            ),
+                            label: const Text(
+                              '이용 경험 남기기',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize:
+                                  const Size.fromHeight(48),
+                            ),
+                          ),
                         ),
                         if (naverUrl.isNotEmpty) ...[
                           const SizedBox(height: 10),
@@ -2609,9 +2747,13 @@ class _BusinessCards extends StatelessWidget {
                         ],
                         const SizedBox(height: 12),
                         Text(
-                          naver['matched'] == true
-                              ? '카카오 장소정보와 네이버 플레이스를 교차확인한 업체입니다.'
-                              : '카카오 장소정보로 확인한 업체입니다.',
+                          cacheHit
+                              ? 'ARABA DB에 축적된 정보를 우선 사용하고, 오래되거나 부족한 항목만 다시 확인합니다.'
+                              : (
+                                  naver['matched'] == true
+                                      ? '카카오 장소정보와 네이버 플레이스를 교차확인한 업체입니다.'
+                                      : '카카오 장소정보로 확인한 업체입니다.'
+                                ),
                           style: const TextStyle(
                             color: Color(0xFF98A2B3),
                             fontSize: 11.5,
@@ -2676,6 +2818,12 @@ class _BusinessCards extends StatelessWidget {
               business['image_source']?.toString().trim() ?? '';
           final callResult =
               business['mock_call_result']?.toString().trim() ?? '';
+          final cacheHit =
+              business['araba_cache_hit'] == true;
+          final experienceCount =
+              business['experience_count'] is num
+                  ? (business['experience_count'] as num).round()
+                  : 0;
           final rank = business['economic_rank'];
           final totalPrice = business['mock_total_price'];
           final distance = business['distance_km'];
@@ -3213,12 +3361,17 @@ class _BusinessCards extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                webVerified
-                                    ? '카카오 후보 · 웹검색 보강'
+                                cacheHit
+                                    ? 'ARABA DB 재사용'
+                                        '${experienceCount > 0 ? ' · 경험 $experienceCount건' : ''}'
                                     : (
-                                        naverMatched
-                                            ? '카카오 후보 · 네이버 교차확인'
-                                            : '카카오맵 장소검색'
+                                        webVerified
+                                            ? '카카오 후보 · 웹검색 보강'
+                                            : (
+                                                naverMatched
+                                                    ? '카카오 후보 · 네이버 교차확인'
+                                                    : '카카오맵 장소검색'
+                                              )
                                       ),
                                 style: const TextStyle(
                                   color: Color(0xFF667085),
