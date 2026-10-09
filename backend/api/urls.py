@@ -95,6 +95,11 @@ urlpatterns = [
         name="training-core-curriculum",
     ),
     path(
+        "training/live-feedback/",
+        views.training_live_feedback,
+        name="training-live-feedback",
+    ),
+    path(
         "training/feedback/",
         views.training_feedback,
         name="training-feedback",
