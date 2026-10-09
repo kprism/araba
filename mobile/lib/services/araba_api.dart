@@ -242,12 +242,12 @@ class ArabaApi {
         _uri('/api/research/experiences/create/'),
         headers: _headers(),
         body: jsonEncode({
-          if (businessId != null) 'business_id': businessId,
+          'business_id': ?businessId,
           if (providerPlaceId != null &&
               providerPlaceId.trim().isNotEmpty)
             'provider_place_id': providerPlaceId.trim(),
           'text': text.trim(),
-          if (rating != null) 'rating': rating,
+          'rating': ?rating,
           'verified_visit': verifiedVisit,
         }),
       ),
