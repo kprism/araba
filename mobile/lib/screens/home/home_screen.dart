@@ -53,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _researching = false;
   bool _trainerMode = false;
   bool _trainerSubmitting = false;
+  _Message? _trainerFeedbackTarget;
   int _researchRevision = 0;
   bool _userBrowsingHistory = false;
   String _liveStatus = '';
@@ -224,6 +225,28 @@ class _HomeScreenState extends State<HomeScreen>
             );
           });
           _toBottom();
+        },
+        onUserUtterance: (text) async {
+          if (!mounted || _liveVoice != liveVoice) return false;
+
+          final target = _trainerFeedbackTarget;
+          if (!_trainerMode || target == null) {
+            return false;
+          }
+
+          _liveTranscriptSpeaker = null;
+          _liveTranscriptMessageIndex = null;
+          setState(() {
+            _trainerFeedbackTarget = null;
+          });
+
+          await _submitTrainerFeedback(
+            target,
+            correct: false,
+            trainerNote: text,
+            inputSource: 'voice',
+          );
+          return true;
         },
         onMission: (mission, requestContext) {
           if (!mounted || _liveVoice != liveVoice) return;
@@ -413,6 +436,9 @@ class _HomeScreenState extends State<HomeScreen>
   void _toggleTrainerMode() {
     setState(() {
       _trainerMode = !_trainerMode;
+      if (!_trainerMode) {
+        _trainerFeedbackTarget = null;
+      }
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -425,9 +451,35 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  void _beginTrainerFeedback(_Message message) {
+    if (_trainerSubmitting) return;
+
+    setState(() {
+      _trainerFeedbackTarget = message;
+    });
+    _controller.clear();
+    _focus.requestFocus();
+
+    _addAssistantMessage(
+      text: '이 결과의 잘못된 점과 어떻게 고쳐야 하는지 말씀하거나 입력해주세요. '
+          '음성과 텍스트를 같은 훈련 지시로 처리합니다.',
+      badge: '훈련 지시 대기',
+    );
+
+    if (_liveActive && _micEnabled) {
+      _speakProgress(
+        '잘못된 점과 원하는 동작을 말씀해주세요. '
+        '말씀하신 내용을 훈련 지시로 반영하겠습니다.',
+      );
+    }
+  }
+
   Future<void> _submitTrainerFeedback(
     _Message message, {
     required bool correct,
+    String trainerNote = '',
+    String expectedBehavior = '',
+    String inputSource = 'button',
   }) async {
     if (_trainerSubmitting) return;
 
@@ -441,79 +493,14 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    String trainerNote = '';
-    String expectedBehavior = '';
+    trainerNote = trainerNote.trim();
+    expectedBehavior = expectedBehavior.trim();
 
-    if (!correct) {
-      final noteController = TextEditingController();
-      final expectedController = TextEditingController();
-      final submitted = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('잘못된 결과 훈련'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'ARABA가 원인을 분석하고, 대화 규칙으로 바로 학습할 수 있는 문제는 즉시 반영합니다. '
-                    '코드·데이터 흐름 문제는 보완 필요 항목으로 분류합니다.',
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: noteController,
-                    minLines: 2,
-                    maxLines: 5,
-                    decoration: const InputDecoration(
-                      labelText: '무엇이 잘못됐나요?',
-                      hintText: '예: 중동을 말했는데 합성동 업체가 나왔음',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: expectedController,
-                    minLines: 2,
-                    maxLines: 5,
-                    decoration: const InputDecoration(
-                      labelText: '원하는 동작 또는 정답',
-                      hintText: '예: 위치를 중동으로 정정하고 같은 조건으로 다시 검색',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('취소'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('원인분석 · 학습'),
-              ),
-            ],
-          );
-        },
-      );
-
-      trainerNote = noteController.text.trim();
-      expectedBehavior = expectedController.text.trim();
-      noteController.dispose();
-      expectedController.dispose();
-
-      if (submitted != true) return;
-      if (trainerNote.isEmpty && expectedBehavior.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('잘못된 점이나 원하는 동작 중 하나는 입력해주세요.'),
-          ),
-        );
-        return;
-      }
+    if (!correct &&
+        trainerNote.isEmpty &&
+        expectedBehavior.isEmpty) {
+      _beginTrainerFeedback(message);
+      return;
     }
 
     try {
@@ -542,6 +529,7 @@ class _HomeScreenState extends State<HomeScreen>
             'request_context': message.requestContext,
           if (message.badge != null) 'badge': message.badge,
           'source': 'android_live_trainer',
+          'input_source': inputSource,
         },
       );
 
@@ -1797,6 +1785,28 @@ class _HomeScreenState extends State<HomeScreen>
     _userBrowsingHistory = false;
     _toBottom(force: true);
 
+    final trainerTarget = _trainerFeedbackTarget;
+    if (_trainerMode && trainerTarget != null) {
+      setState(() {
+        _messages.add(
+          _Message(
+            isUser: true,
+            text: text,
+          ),
+        );
+        _trainerFeedbackTarget = null;
+      });
+      _toBottom();
+
+      await _submitTrainerFeedback(
+        trainerTarget,
+        correct: false,
+        trainerNote: text,
+        inputSource: 'text',
+      );
+      return;
+    }
+
     if (_isStatusQuestion(text)) {
       setState(() {
         _messages.add(
@@ -2103,10 +2113,14 @@ class _HomeScreenState extends State<HomeScreen>
                           trainerMode: _trainerMode,
                           trainerSubmitting: _trainerSubmitting,
                           onTrainerFeedback: (correct) {
-                            _submitTrainerFeedback(
-                              message,
-                              correct: correct,
-                            );
+                            if (correct) {
+                              _submitTrainerFeedback(
+                                message,
+                                correct: true,
+                              );
+                            } else {
+                              _beginTrainerFeedback(message);
+                            }
                           },
                         );
                       },
