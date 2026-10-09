@@ -258,6 +258,56 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> adminBusinesses({
+    String query = '',
+    String category = '',
+    String provider = '',
+    String active = 'active',
+    String freshness = 'all',
+    bool hasPhone = false,
+    bool hasHours = false,
+    bool hasParking = false,
+    bool hasPrices = false,
+    bool hasImage = false,
+    bool hasExperience = false,
+    String sort = 'latest',
+    int page = 1,
+    int pageSize = 30,
+  }) async {
+    final params = <String, String>{
+      if (query.trim().isNotEmpty) 'q': query.trim(),
+      if (category.trim().isNotEmpty)
+        'category': category.trim(),
+      if (provider.trim().isNotEmpty)
+        'provider': provider.trim(),
+      'active': active,
+      'freshness': freshness,
+      'sort': sort,
+      'page': page.toString(),
+      'page_size': pageSize.toString(),
+      if (hasPhone) 'has_phone': 'true',
+      if (hasHours) 'has_hours': 'true',
+      if (hasParking) 'has_parking': 'true',
+      if (hasPrices) 'has_prices': 'true',
+      if (hasImage) 'has_image': 'true',
+      if (hasExperience) 'has_experience': 'true',
+    };
+    final uri = Uri.parse(
+      '$baseUrl/api/admin/businesses/',
+    ).replace(queryParameters: params);
+
+    final response = await _request(
+      () => http.get(
+        uri,
+        headers: _headers(),
+      ),
+      timeout: const Duration(seconds: 15),
+      retries: 0,
+    );
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> businessExperiences(
     int businessId, {
     int limit = 20,
