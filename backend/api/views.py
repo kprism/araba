@@ -556,6 +556,35 @@ def research_search(request):
         )
 
 
+@api_view(["GET"])
+def business_admin_dashboard(request):
+    from .services.business_admin_service import (
+        business_admin_dashboard as load_business_admin_dashboard,
+    )
+
+    try:
+        result = load_business_admin_dashboard(
+            request.query_params
+        )
+        return Response(
+            {
+                "ok": True,
+                **result,
+            }
+        )
+    except Exception as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "상점 DB를 불러오는 중 오류가 발생했습니다: "
+                    f"{type(exc).__name__}"
+                ),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
 @api_view(["POST"])
 def business_experience_create(request):
     from .services.business_graph_service import add_business_experience

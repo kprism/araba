@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'business_db_screen.dart';
+
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
 import '../../services/kakao_credential_store.dart';
@@ -779,6 +781,68 @@ class _MyScreenState extends State<MyScreen> {
                   kakaoConfigured: _kakaoConfigured,
                   twilioConfigured: _twilioConfigured,
                   voiceReady: _voiceReady,
+                ),
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: const Color(0xFFEAECF0),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.storefront_rounded,
+                            color: Color(0xFF3157D5),
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            '검색 상점 DB',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'ARABA가 검색하면서 저장한 상점을 관리자 화면에서 확인합니다. '
+                        '전체 수, 업종별 수, 데이터 보유율과 다양한 조건 필터를 제공합니다.',
+                        style: TextStyle(
+                          color: Color(0xFF667085),
+                          fontSize: 12,
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    const BusinessDbScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.storage_rounded,
+                          ),
+                          label: const Text(
+                            '상점 DB 열기',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 18),
                 Container(
