@@ -230,6 +230,53 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> submitBusinessExperience({
+    int? businessId,
+    String? providerPlaceId,
+    required String text,
+    int? rating,
+    bool verifiedVisit = true,
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/research/experiences/create/'),
+        headers: _headers(),
+        body: jsonEncode({
+          if (businessId != null) 'business_id': businessId,
+          if (providerPlaceId != null &&
+              providerPlaceId.trim().isNotEmpty)
+            'provider_place_id': providerPlaceId.trim(),
+          'text': text.trim(),
+          if (rating != null) 'rating': rating,
+          'verified_visit': verifiedVisit,
+        }),
+      ),
+      timeout: const Duration(seconds: 15),
+      retries: 0,
+    );
+
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> businessExperiences(
+    int businessId, {
+    int limit = 20,
+  }) async {
+    final safeLimit = limit.clamp(1, 50);
+    final response = await _request(
+      () => http.get(
+        _uri(
+          '/api/research/experiences/?business_id=$businessId&limit=$safeLimit',
+        ),
+        headers: _headers(),
+      ),
+      timeout: const Duration(seconds: 10),
+      retries: 0,
+    );
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> researchHistory({
     int limit = 50,
   }) async {
