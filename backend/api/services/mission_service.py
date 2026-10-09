@@ -70,6 +70,9 @@ INTENT_SYSTEM_PROMPT = """
    ].
    "10만원 이하"는 field="price", operator="lte", value=100000 으로 만든다.
    "가장 늦게", "가장 싸게", "가장 가까운"처럼 순위를 고르는 조건은 각각 operator="max" 또는 "min"으로 만든다.
+   자정을 넘겨 영업하는 시간은 다음 날 시간으로 정규화한다.
+   예: "새벽 2시까지" -> closing_time gte "26:00".
+   "새벽까지 하는 곳" -> closing_time gte "24:00".
    데이터로 판정할 수 없는 주관 조건은 field="custom"으로 남기고 추측하지 않는다.
 4. 시/군/구/읍/면/동 같은 행정구역 자체가 범위면 administrative_area다.
    "창원시청 주변", "서울역 근처"처럼 특정 장소를 기준으로 찾으면 reference_point다.
@@ -97,6 +100,173 @@ INTENT_SYSTEM_PROMPT = """
 18. 입력 안에 "사용자 추가 답변:"이 있으면 그것은 새 요청이 아니라 바로 앞에서 ARABA가 부족한 정보를 물은 것에 대한 답이다. 기존 goal을 유지한 채 그 답으로 빈칸을 채우고 다시 판단한다.
 19. JSON 이외의 설명, Markdown, 코드블록을 출력하지 않는다.
 """.strip()
+
+
+INTENT_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "intent": {
+            "type": "string",
+            "enum": [
+                "place_search",
+                "place_detail",
+                "general_answer",
+                "web_research",
+                "phone_action",
+                "image_analysis",
+                "document_analysis",
+                "conversation",
+                "clarify",
+            ],
+        },
+        "goal": {"type": "string"},
+        "location": {
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": ["string", "null"],
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "administrative_area",
+                        "reference_point",
+                        "none",
+                    ],
+                },
+                "explicit": {"type": "boolean"},
+            },
+            "required": [
+                "value",
+                "type",
+                "explicit",
+            ],
+            "additionalProperties": False,
+        },
+        "category": {
+            "type": ["string", "null"],
+        },
+        "subject": {
+            "type": ["string", "null"],
+        },
+        "search_terms": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "target_business": {
+            "type": ["string", "null"],
+        },
+        "count": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "maximum": 10,
+        },
+        "constraints": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "criteria": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string",
+                        "enum": [
+                            "parking_available",
+                            "closing_time",
+                            "opening_time",
+                            "price",
+                            "distance_m",
+                            "availability",
+                            "stock",
+                            "service",
+                            "rating",
+                            "custom",
+                        ],
+                    },
+                    "operator": {
+                        "type": "string",
+                        "enum": [
+                            "eq",
+                            "contains",
+                            "gte",
+                            "lte",
+                            "min",
+                            "max",
+                            "exists",
+                        ],
+                    },
+                    "value": {
+                        "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null",
+                        ],
+                    },
+                    "required": {"type": "boolean"},
+                    "label": {"type": "string"},
+                },
+                "required": [
+                    "field",
+                    "operator",
+                    "value",
+                    "required",
+                    "label",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        "attributes": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "requested_facts": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "sort": {
+            "type": "string",
+            "enum": [
+                "relevance",
+                "distance",
+                "rating",
+                "price",
+                "none",
+            ],
+        },
+        "needs_fresh_data": {"type": "boolean"},
+        "needs_clarification": {"type": "boolean"},
+        "clarification_question": {
+            "type": ["string", "null"],
+        },
+        "direct_answer": {
+            "type": ["string", "null"],
+        },
+    },
+    "required": [
+        "intent",
+        "goal",
+        "location",
+        "category",
+        "subject",
+        "search_terms",
+        "target_business",
+        "count",
+        "constraints",
+        "criteria",
+        "attributes",
+        "requested_facts",
+        "sort",
+        "needs_fresh_data",
+        "needs_clarification",
+        "clarification_question",
+        "direct_answer",
+    ],
+    "additionalProperties": False,
+}
 
 
 MISSION_MODEL = (
@@ -581,7 +751,15 @@ def _create_intent_response(
         model=MISSION_MODEL,
         instructions=INTENT_SYSTEM_PROMPT,
         input=request_text,
-        max_output_tokens=700,
+        max_output_tokens=900,
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "araba_intent",
+                "schema": INTENT_OUTPUT_SCHEMA,
+                "strict": True,
+            }
+        },
     )
 
 
@@ -1167,22 +1345,52 @@ def _fast_recent_place_comparison(user_request):
         )
 
     time_match = re.search(
-        r"(?:저녁|밤)?(\d{1,2})시(?:이후|넘어서|넘게|까지)",
+        r"(새벽|오전|낮|오후|저녁|밤)?"
+        r"(\d{1,2})시(?:이후|넘어서|넘게|까지)",
         compact,
     )
     if time_match:
-        hour = int(time_match.group(1))
-        if 1 <= hour <= 11:
+        daypart = time_match.group(1) or ""
+        hour = int(time_match.group(2))
+
+        if daypart == "새벽":
+            if 0 <= hour <= 11:
+                hour += 24
+        elif daypart in {"오후", "저녁", "밤"}:
+            if 1 <= hour <= 11:
+                hour += 12
+        elif not daypart and 1 <= hour <= 11:
             hour += 12
-        if 0 <= hour <= 23:
+
+        if 0 <= hour <= 35:
             threshold = f"{hour:02d}:00"
+            display_hour = (
+                f"새벽 {hour - 24}시"
+                if hour >= 24
+                else f"{hour:02d}:00"
+            )
             add_fact("영업시간")
             add_criterion(
                 "closing_time",
                 "gte",
                 threshold,
-                f"{threshold} 이후까지 영업",
+                f"{display_hour} 이후까지 영업",
             )
+
+    if (
+        "새벽까지" in compact
+        and not any(
+            item.get("field") == "closing_time"
+            for item in criteria
+        )
+    ):
+        add_fact("영업시간")
+        add_criterion(
+            "closing_time",
+            "gte",
+            "24:00",
+            "자정을 넘어 새벽까지 영업",
+        )
 
     price_match = re.search(
         r"(\d+(?:\.\d+)?)(만원|만|원)?(?:이하|미만|이내|안쪽)",
