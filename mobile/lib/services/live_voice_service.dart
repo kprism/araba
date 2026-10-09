@@ -17,6 +17,9 @@ typedef LiveMissionCallback = void Function(
   Map<String, dynamic> mission,
   String requestContext,
 );
+typedef LiveUserUtteranceInterceptor = Future<bool> Function(
+  String text,
+);
 
 class LiveVoiceService {
   final ArabaApi api;
@@ -27,6 +30,7 @@ class LiveVoiceService {
   final LiveStatusCallback onStatus;
   final LiveTranscriptCallback onTranscript;
   final LiveMissionCallback onMission;
+  final LiveUserUtteranceInterceptor? onUserUtterance;
   final void Function(String message) onError;
   final void Function(String message)? onDiagnostic;
 
@@ -57,6 +61,7 @@ class LiveVoiceService {
     required this.onStatus,
     required this.onTranscript,
     required this.onMission,
+    this.onUserUtterance,
     required this.onError,
     this.onDiagnostic,
   });
@@ -395,6 +400,18 @@ class LiveVoiceService {
     final missionStopwatch = Stopwatch()..start();
 
     try {
+      final interceptor = onUserUtterance;
+      if (interceptor != null) {
+        final consumed = await interceptor(
+          latestUserText,
+        );
+        if (consumed) {
+          _consumeProcessedTranscript(latestUserText);
+          _pendingRequestContext = null;
+          return;
+        }
+      }
+
       final rawRequestText = _pendingRequestContext == null
           ? latestUserText
           : [
