@@ -2,7 +2,7 @@ import json
 
 from openai import OpenAI
 
-from ..models import TrainingRun, TrainingScenario
+from ..models import LabCase, TrainingRun, TrainingScenario
 from .openai_service import get_api_key
 from .training_service import save_training_rule
 
@@ -63,6 +63,7 @@ def _safe_context(value):
         "request_context",
         "badge",
         "source",
+        "input_source",
     }
     return {
         key: value[key]
@@ -371,18 +372,53 @@ def analyze_and_learn_trainer_feedback(
             "사용자 교정 의견을 학습 후보로 저장했어요. "
             "전역 규칙에는 즉시 적용하지 않습니다."
         )
+        lab_status = "user_feedback_candidate"
     elif rule is not None:
         status = "learned"
         message = "원인을 분석했고 재발 방지 규칙을 즉시 학습에 반영했어요."
+        lab_status = "rule_applied"
     elif diagnosis["needs_code_fix"]:
         status = "code_fix_required"
         message = (
             "원인을 분석해 실전 훈련 사례로 저장했어요. "
             "이 문제는 대화 규칙보다 코드·데이터 흐름 보완이 필요해요."
         )
+        lab_status = "code_fix_required"
     else:
         status = "diagnosed"
         message = "원인을 분석해 실전 훈련 사례로 저장했어요."
+        lab_status = "diagnosed"
+
+    repair_plan = {
+        "target_layer": diagnosis["root_cause_type"],
+        "action": diagnosis["corrective_instruction"],
+        "verification": diagnosis["verification"],
+        "automation_ready": (
+            actor_role == "trainer"
+            and diagnosis["needs_code_fix"] is True
+        ),
+        "safety_gate": (
+            "sandbox_test_then_review"
+            if diagnosis["needs_code_fix"] is True
+            else "training_rule_or_observation"
+        ),
+    }
+    lab_case = LabCase.objects.create(
+        actor_role=actor_role,
+        category=category,
+        input_source=_trim(
+            safe_context.get("input_source"),
+            20,
+        ),
+        report_text=trainer_note or expected_behavior,
+        request_text=request_text,
+        assistant_response=assistant_response,
+        root_cause_type=diagnosis["root_cause_type"],
+        diagnosis=diagnosis,
+        repair_plan=repair_plan,
+        status=lab_status,
+        training_run=run,
+    )
 
     return {
         "status": status,
@@ -390,7 +426,10 @@ def analyze_and_learn_trainer_feedback(
         "run_id": run.id,
         "scenario_id": scenario.id,
         "rule_id": rule.id if rule is not None else None,
+        "lab_case_id": lab_case.id,
+        "lab_status": lab_case.status,
         "learned": rule is not None,
         "actor_role": actor_role,
         "diagnosis": diagnosis,
+        "repair_plan": repair_plan,
     }
