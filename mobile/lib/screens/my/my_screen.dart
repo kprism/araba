@@ -834,7 +834,7 @@ class _MyScreenState extends State<MyScreen> {
                             );
                           },
                           icon: const Icon(
-                            Icons.database_rounded,
+                            Icons.storage_rounded,
                           ),
                           label: const Text(
                             '상점 DB 열기',
