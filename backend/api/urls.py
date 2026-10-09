@@ -100,6 +100,11 @@ urlpatterns = [
         name="training-live-feedback",
     ),
     path(
+        "training/lab/cases/",
+        views.training_lab_cases,
+        name="training-lab-cases",
+    ),
+    path(
         "training/feedback/",
         views.training_feedback,
         name="training-feedback",

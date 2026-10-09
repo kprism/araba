@@ -1182,6 +1182,21 @@ def training_live_feedback(request):
         )
 
 
+@api_view(["GET"])
+def training_lab_cases(request):
+    from .services.lab_service import list_lab_cases
+
+    return Response(
+        {
+            "ok": True,
+            **list_lab_cases(
+                status=request.query_params.get("status"),
+                limit=request.query_params.get("limit", 50),
+            ),
+        }
+    )
+
+
 @api_view(["POST"])
 def training_feedback(request):
     from .services.training_service import (
