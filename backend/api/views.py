@@ -557,6 +557,50 @@ def research_search(request):
 
 
 @api_view(["POST"])
+def business_experience_create(request):
+    from .services.business_graph_service import add_business_experience
+
+    try:
+        result = add_business_experience(
+            business_id=request.data.get("business_id"),
+            provider_place_id=request.data.get("provider_place_id"),
+            raw_text=request.data.get("text"),
+            rating=request.data.get("rating"),
+            verified_visit=request.data.get("verified_visit") is True,
+        )
+        return Response({"ok": True, **result})
+    except ValueError as exc:
+        return Response(
+            {"ok": False, "message": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+@api_view(["GET"])
+def business_experience_list(request):
+    from .services.business_graph_service import list_business_experiences
+
+    business_id = request.query_params.get("business_id")
+    if not business_id:
+        return Response(
+            {"ok": False, "message": "business_id가 필요합니다."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        result = list_business_experiences(
+            business_id,
+            limit=request.query_params.get("limit", 20),
+        )
+        return Response({"ok": True, **result})
+    except (TypeError, ValueError) as exc:
+        return Response(
+            {"ok": False, "message": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+@api_view(["POST"])
 def mock_call_compare(request):
     from .services.mock_call_service import simulate_mock_calls
     from .services.research_record_service import save_research_record
