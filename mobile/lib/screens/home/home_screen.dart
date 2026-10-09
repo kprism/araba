@@ -231,6 +231,17 @@ class _HomeScreenState extends State<HomeScreen>
 
           final target = _trainerFeedbackTarget;
           if (!_trainerMode || target == null) {
+            if (!_trainerMode &&
+                _looksLikeUserCorrection(text)) {
+              final previous = _latestTrainableAssistant();
+              if (previous != null) {
+                _recordUserFeedbackCandidate(
+                  previous,
+                  text,
+                  inputSource: 'voice',
+                );
+              }
+            }
             return false;
           }
 
@@ -433,6 +444,74 @@ class _HomeScreenState extends State<HomeScreen>
     return '';
   }
 
+  _Message? _latestTrainableAssistant() {
+    for (var index = _messages.length - 1; index >= 0; index--) {
+      final message = _messages[index];
+      if (message.isUser) continue;
+
+      final trainable = message.mission != null ||
+          (message.businesses?.isNotEmpty ?? false) ||
+          message.requestContext != null;
+      if (trainable) return message;
+    }
+    return null;
+  }
+
+  bool _looksLikeUserCorrection(String text) {
+    final compact = text
+        .replaceAll(RegExp(r'\s+'), '')
+        .toLowerCase();
+
+    return RegExp(
+      r'잘못|틀렸|아니야|아니고|정정|엉뚱|이상해|왜.*못|'
+      r'검색.*안|답.*안|그게아니|여기가아니|다시해야',
+    ).hasMatch(compact);
+  }
+
+  void _recordUserFeedbackCandidate(
+    _Message message,
+    String feedback, {
+    required String inputSource,
+  }) {
+    final requestText = _trainerRequestFor(message);
+    if (requestText.isEmpty || feedback.trim().isEmpty) return;
+
+    unawaited(
+      () async {
+        try {
+          final apiKey = await _keyStore.read();
+          if (apiKey == null) return;
+
+          final mission = message.mission ?? const <String, dynamic>{};
+          final category =
+              mission['category']?.toString().trim() ?? '';
+
+          await _api.submitLiveTrainingFeedback(
+            verdict: 'wrong',
+            requestText: requestText,
+            assistantResponse: message.text,
+            apiKey: apiKey,
+            category: category,
+            trainerNote: feedback.trim(),
+            actorRole: 'user',
+            context: {
+              if (message.mission != null) 'mission': message.mission,
+              if (message.businesses != null)
+                'businesses': message.businesses,
+              if (message.requestContext != null)
+                'request_context': message.requestContext,
+              'source': 'android_user_correction',
+              'input_source': inputSource,
+            },
+          );
+        } catch (_) {
+          // 사용자 요청 자체를 방해하지 않도록 학습 후보 저장 실패는
+          // 현재 검색/대화 흐름과 분리한다.
+        }
+      }(),
+    );
+  }
+
   void _toggleTrainerMode() {
     setState(() {
       _trainerMode = !_trainerMode;
@@ -522,6 +601,7 @@ class _HomeScreenState extends State<HomeScreen>
         category: category,
         trainerNote: trainerNote,
         expectedBehavior: expectedBehavior,
+        actorRole: 'trainer',
         context: {
           if (message.mission != null) 'mission': message.mission,
           if (message.businesses != null) 'businesses': message.businesses,
@@ -1805,6 +1885,17 @@ class _HomeScreenState extends State<HomeScreen>
         inputSource: 'text',
       );
       return;
+    }
+
+    if (!_trainerMode && _looksLikeUserCorrection(text)) {
+      final previous = _latestTrainableAssistant();
+      if (previous != null) {
+        _recordUserFeedbackCandidate(
+          previous,
+          text,
+          inputSource: 'text',
+        );
+      }
     }
 
     if (_isStatusQuestion(text)) {
