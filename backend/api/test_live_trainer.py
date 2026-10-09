@@ -87,6 +87,48 @@ class LiveTrainerServiceTests(TestCase):
     @patch(
         "api.services.live_trainer_service.OpenAI"
     )
+    def test_user_correction_is_candidate_not_global_rule(
+        self,
+        openai_class,
+    ):
+        payload = {
+            "root_cause_type": "context",
+            "root_cause": "사용자의 위치 정정을 놓침",
+            "trigger": "사용자가 직전 지역을 정정한 경우",
+            "corrective_instruction": "새 위치를 우선해 다시 검색한다.",
+            "can_learn_as_rule": True,
+            "needs_code_fix": False,
+            "verification": "정정된 지역만 검색한다.",
+        }
+        client = Mock()
+        client.responses.create.return_value = SimpleNamespace(
+            output_text=json.dumps(payload, ensure_ascii=False)
+        )
+        openai_class.return_value = client
+
+        result = analyze_and_learn_trainer_feedback(
+            api_key="test-key",
+            category="치과",
+            request_text="중동 치과 찾아줘",
+            assistant_response="합성동 치과를 찾았어요.",
+            trainer_note="거기 아니고 중동이라고 했잖아.",
+            actor_role="user",
+        )
+
+        self.assertEqual(
+            result["status"],
+            "user_feedback_candidate",
+        )
+        self.assertFalse(result["learned"])
+        self.assertEqual(TrainingRule.objects.count(), 0)
+        self.assertEqual(
+            TrainingRun.objects.get().mode,
+            "live_user_feedback",
+        )
+
+    @patch(
+        "api.services.live_trainer_service.OpenAI"
+    )
     def test_code_failure_is_recorded_but_not_activated_as_rule(
         self,
         openai_class,
