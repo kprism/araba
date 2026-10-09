@@ -70,6 +70,9 @@ INTENT_SYSTEM_PROMPT = """
    ].
    "10만원 이하"는 field="price", operator="lte", value=100000 으로 만든다.
    "가장 늦게", "가장 싸게", "가장 가까운"처럼 순위를 고르는 조건은 각각 operator="max" 또는 "min"으로 만든다.
+   자정을 넘겨 영업하는 시간은 다음 날 시간으로 정규화한다.
+   예: "새벽 2시까지" -> closing_time gte "26:00".
+   "새벽까지 하는 곳" -> closing_time gte "24:00".
    데이터로 판정할 수 없는 주관 조건은 field="custom"으로 남기고 추측하지 않는다.
 4. 시/군/구/읍/면/동 같은 행정구역 자체가 범위면 administrative_area다.
    "창원시청 주변", "서울역 근처"처럼 특정 장소를 기준으로 찾으면 reference_point다.
