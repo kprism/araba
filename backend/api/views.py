@@ -1118,6 +1118,67 @@ def training_core_curriculum(request):
 
 
 @api_view(["POST"])
+def training_live_feedback(request):
+    from .services.live_trainer_service import (
+        analyze_and_learn_trainer_feedback,
+        record_correct_feedback,
+    )
+
+    verdict = str(
+        request.data.get("verdict", "")
+    ).strip().lower()
+    category = request.data.get("category", "")
+    request_text = request.data.get("request_text", "")
+    assistant_response = request.data.get(
+        "assistant_response",
+        "",
+    )
+    context = request.data.get("context")
+
+    try:
+        if verdict == "correct":
+            result = record_correct_feedback(
+                category=category,
+                request_text=request_text,
+                assistant_response=assistant_response,
+                context=context,
+            )
+        elif verdict == "wrong":
+            result = analyze_and_learn_trainer_feedback(
+                api_key=_request_api_key(request),
+                category=category,
+                request_text=request_text,
+                assistant_response=assistant_response,
+                trainer_note=request.data.get("trainer_note", ""),
+                expected_behavior=request.data.get(
+                    "expected_behavior",
+                    "",
+                ),
+                context=context,
+            )
+        else:
+            raise ValueError("verdict는 correct 또는 wrong이어야 합니다.")
+
+        return Response({"ok": True, **result})
+    except ValueError as exc:
+        return Response(
+            {"ok": False, "message": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "실시간 훈련 분석 중 오류가 발생했습니다: "
+                    f"{type(exc).__name__}"
+                ),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+@api_view(["POST"])
 def training_feedback(request):
     from .services.training_service import (
         save_training_rule,
