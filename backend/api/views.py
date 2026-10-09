@@ -1155,6 +1155,10 @@ def training_live_feedback(request):
                     "",
                 ),
                 context=context,
+                actor_role=request.data.get(
+                    "actor_role",
+                    "trainer",
+                ),
             )
         else:
             raise ValueError("verdict는 correct 또는 wrong이어야 합니다.")
