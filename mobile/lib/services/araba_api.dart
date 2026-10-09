@@ -230,6 +230,53 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> submitBusinessExperience({
+    int? businessId,
+    String? providerPlaceId,
+    required String text,
+    int? rating,
+    bool verifiedVisit = true,
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/research/experiences/create/'),
+        headers: _headers(),
+        body: jsonEncode({
+          'business_id': ?businessId,
+          if (providerPlaceId != null &&
+              providerPlaceId.trim().isNotEmpty)
+            'provider_place_id': providerPlaceId.trim(),
+          'text': text.trim(),
+          'rating': ?rating,
+          'verified_visit': verifiedVisit,
+        }),
+      ),
+      timeout: const Duration(seconds: 15),
+      retries: 0,
+    );
+
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> businessExperiences(
+    int businessId, {
+    int limit = 20,
+  }) async {
+    final safeLimit = limit.clamp(1, 50);
+    final response = await _request(
+      () => http.get(
+        _uri(
+          '/api/research/experiences/?business_id=$businessId&limit=$safeLimit',
+        ),
+        headers: _headers(),
+      ),
+      timeout: const Duration(seconds: 10),
+      retries: 0,
+    );
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> researchHistory({
     int limit = 50,
   }) async {
@@ -291,6 +338,40 @@ class ArabaApi {
         }),
       ),
       timeout: const Duration(seconds: 90),
+    );
+
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> submitLiveTrainingFeedback({
+    required String verdict,
+    required String requestText,
+    required String assistantResponse,
+    required String apiKey,
+    String category = '',
+    String trainerNote = '',
+    String expectedBehavior = '',
+    String actorRole = 'trainer',
+    Map<String, dynamic> context = const {},
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/training/live-feedback/'),
+        headers: _headers(apiKey: apiKey),
+        body: jsonEncode({
+          'verdict': verdict,
+          'request_text': requestText,
+          'assistant_response': assistantResponse,
+          'category': category,
+          'trainer_note': trainerNote,
+          'expected_behavior': expectedBehavior,
+          'actor_role': actorRole,
+          'context': context,
+        }),
+      ),
+      timeout: const Duration(seconds: 55),
+      retries: 0,
+      retryServerErrors: false,
     );
 
     return _decode(response);

@@ -51,6 +51,9 @@ class _HomeScreenState extends State<HomeScreen>
   bool _micEnabled = false;
   bool _sending = false;
   bool _researching = false;
+  bool _trainerMode = false;
+  bool _trainerSubmitting = false;
+  _Message? _trainerFeedbackTarget;
   int _researchRevision = 0;
   bool _userBrowsingHistory = false;
   String _liveStatus = '';
@@ -223,6 +226,39 @@ class _HomeScreenState extends State<HomeScreen>
           });
           _toBottom();
         },
+        onUserUtterance: (text) async {
+          if (!mounted || _liveVoice != liveVoice) return false;
+
+          final target = _trainerFeedbackTarget;
+          if (!_trainerMode || target == null) {
+            if (!_trainerMode &&
+                _looksLikeUserCorrection(text)) {
+              final previous = _latestTrainableAssistant();
+              if (previous != null) {
+                _recordUserFeedbackCandidate(
+                  previous,
+                  text,
+                  inputSource: 'voice',
+                );
+              }
+            }
+            return false;
+          }
+
+          _liveTranscriptSpeaker = null;
+          _liveTranscriptMessageIndex = null;
+          setState(() {
+            _trainerFeedbackTarget = null;
+          });
+
+          await _submitTrainerFeedback(
+            target,
+            correct: false,
+            trainerNote: text,
+            inputSource: 'voice',
+          );
+          return true;
+        },
         onMission: (mission, requestContext) {
           if (!mounted || _liveVoice != liveVoice) return;
 
@@ -393,6 +429,241 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _speakProgress(String text) {
     _liveVoice?.speakCommentary(text);
+  }
+
+  String _trainerRequestFor(_Message message) {
+    final messageIndex = _messages.indexOf(message);
+    if (messageIndex <= 0) return '';
+
+    for (var index = messageIndex - 1; index >= 0; index--) {
+      final candidate = _messages[index];
+      if (candidate.isUser && candidate.text.trim().isNotEmpty) {
+        return candidate.text.trim();
+      }
+    }
+    return '';
+  }
+
+  _Message? _latestTrainableAssistant() {
+    for (var index = _messages.length - 1; index >= 0; index--) {
+      final message = _messages[index];
+      if (message.isUser) continue;
+
+      final trainable = message.mission != null ||
+          (message.businesses?.isNotEmpty ?? false) ||
+          message.requestContext != null;
+      if (trainable) return message;
+    }
+    return null;
+  }
+
+  bool _looksLikeUserCorrection(String text) {
+    final compact = text
+        .replaceAll(RegExp(r'\s+'), '')
+        .toLowerCase();
+
+    return RegExp(
+      r'잘못|틀렸|아니야|아니고|정정|엉뚱|이상해|왜.*못|'
+      r'검색.*안|답.*안|그게아니|여기가아니|다시해야',
+    ).hasMatch(compact);
+  }
+
+  void _recordUserFeedbackCandidate(
+    _Message message,
+    String feedback, {
+    required String inputSource,
+  }) {
+    final requestText = _trainerRequestFor(message);
+    if (requestText.isEmpty || feedback.trim().isEmpty) return;
+
+    unawaited(
+      () async {
+        try {
+          final apiKey = await _keyStore.read();
+          if (apiKey == null) return;
+
+          final mission = message.mission ?? const <String, dynamic>{};
+          final category =
+              mission['category']?.toString().trim() ?? '';
+
+          await _api.submitLiveTrainingFeedback(
+            verdict: 'wrong',
+            requestText: requestText,
+            assistantResponse: message.text,
+            apiKey: apiKey,
+            category: category,
+            trainerNote: feedback.trim(),
+            actorRole: 'user',
+            context: {
+              if (message.mission != null) 'mission': message.mission,
+              if (message.businesses != null)
+                'businesses': message.businesses,
+              if (message.requestContext != null)
+                'request_context': message.requestContext,
+              'source': 'android_user_correction',
+              'input_source': inputSource,
+            },
+          );
+        } catch (_) {
+          // 사용자 요청 자체를 방해하지 않도록 학습 후보 저장 실패는
+          // 현재 검색/대화 흐름과 분리한다.
+        }
+      }(),
+    );
+  }
+
+  void _toggleTrainerMode() {
+    setState(() {
+      _trainerMode = !_trainerMode;
+      if (!_trainerMode) {
+        _trainerFeedbackTarget = null;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _trainerMode
+              ? '훈련사 모드 ON · 결과 아래에서 정상/잘못됨을 평가할 수 있어요.'
+              : '훈련사 모드를 종료했어요.',
+        ),
+      ),
+    );
+  }
+
+  void _beginTrainerFeedback(_Message message) {
+    if (_trainerSubmitting) return;
+
+    setState(() {
+      _trainerFeedbackTarget = message;
+    });
+    _controller.clear();
+    _focus.requestFocus();
+
+    _addAssistantMessage(
+      text: '이 결과의 잘못된 점과 어떻게 고쳐야 하는지 말씀하거나 입력해주세요. '
+          '음성과 텍스트를 같은 훈련 지시로 처리합니다.',
+      badge: '훈련 지시 대기',
+    );
+
+    if (_liveActive && _micEnabled) {
+      _speakProgress(
+        '잘못된 점과 원하는 동작을 말씀해주세요. '
+        '말씀하신 내용을 훈련 지시로 반영하겠습니다.',
+      );
+    }
+  }
+
+  Future<void> _submitTrainerFeedback(
+    _Message message, {
+    required bool correct,
+    String trainerNote = '',
+    String expectedBehavior = '',
+    String inputSource = 'button',
+  }) async {
+    if (_trainerSubmitting) return;
+
+    final requestText = _trainerRequestFor(message);
+    if (requestText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('이 응답에 연결된 사용자 요청을 찾지 못했어요.'),
+        ),
+      );
+      return;
+    }
+
+    trainerNote = trainerNote.trim();
+    expectedBehavior = expectedBehavior.trim();
+
+    if (!correct &&
+        trainerNote.isEmpty &&
+        expectedBehavior.isEmpty) {
+      _beginTrainerFeedback(message);
+      return;
+    }
+
+    try {
+      setState(() => _trainerSubmitting = true);
+      final apiKey = await _keyStore.read();
+      if (apiKey == null) {
+        throw const ArabaApiException(
+          'MY에서 OpenAI API Key를 먼저 저장해주세요.',
+        );
+      }
+
+      final mission = message.mission ?? const <String, dynamic>{};
+      final category = mission['category']?.toString().trim() ?? '';
+      final result = await _api.submitLiveTrainingFeedback(
+        verdict: correct ? 'correct' : 'wrong',
+        requestText: requestText,
+        assistantResponse: message.text,
+        apiKey: apiKey,
+        category: category,
+        trainerNote: trainerNote,
+        expectedBehavior: expectedBehavior,
+        actorRole: 'trainer',
+        context: {
+          if (message.mission != null) 'mission': message.mission,
+          if (message.businesses != null) 'businesses': message.businesses,
+          if (message.requestContext != null)
+            'request_context': message.requestContext,
+          if (message.badge != null) 'badge': message.badge,
+          'source': 'android_live_trainer',
+          'input_source': inputSource,
+        },
+      );
+
+      if (!mounted) return;
+
+      if (correct) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('정상 사례로 학습 데이터에 저장했어요.'),
+          ),
+        );
+        return;
+      }
+
+      final rawDiagnosis = result['diagnosis'];
+      final diagnosis = rawDiagnosis is Map
+          ? Map<String, dynamic>.from(rawDiagnosis)
+          : <String, dynamic>{};
+      final rootCause = diagnosis['root_cause']?.toString().trim() ?? '';
+      final instruction =
+          diagnosis['corrective_instruction']?.toString().trim() ?? '';
+      final verification =
+          diagnosis['verification']?.toString().trim() ?? '';
+      final needsCodeFix = diagnosis['needs_code_fix'] == true;
+      final learned = result['learned'] == true;
+
+      final lines = <String>[
+        if (rootCause.isNotEmpty) '원인: $rootCause',
+        if (instruction.isNotEmpty)
+          learned ? '즉시 학습 규칙: $instruction' : '보완 방향: $instruction',
+        if (verification.isNotEmpty) '재검증: $verification',
+      ];
+
+      _addAssistantMessage(
+        text: lines.isEmpty
+            ? (result['message']?.toString() ?? '훈련 피드백을 저장했어요.')
+            : lines.join('\n'),
+        badge: needsCodeFix
+            ? '코드 보완 필요'
+            : (learned ? '실시간 학습 반영' : '훈련 사례 저장'),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final text = error is ArabaApiException
+          ? error.message
+          : '실시간 훈련 피드백 처리에 실패했어요.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(text)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _trainerSubmitting = false);
+      }
+    }
   }
 
   bool _isStatusQuestion(String text) {
@@ -1594,6 +1865,39 @@ class _HomeScreenState extends State<HomeScreen>
     _userBrowsingHistory = false;
     _toBottom(force: true);
 
+    final trainerTarget = _trainerFeedbackTarget;
+    if (_trainerMode && trainerTarget != null) {
+      setState(() {
+        _messages.add(
+          _Message(
+            isUser: true,
+            text: text,
+          ),
+        );
+        _trainerFeedbackTarget = null;
+      });
+      _toBottom();
+
+      await _submitTrainerFeedback(
+        trainerTarget,
+        correct: false,
+        trainerNote: text,
+        inputSource: 'text',
+      );
+      return;
+    }
+
+    if (!_trainerMode && _looksLikeUserCorrection(text)) {
+      final previous = _latestTrainableAssistant();
+      if (previous != null) {
+        _recordUserFeedbackCandidate(
+          previous,
+          text,
+          inputSource: 'text',
+        );
+      }
+    }
+
     if (_isStatusQuestion(text)) {
       setState(() {
         _messages.add(
@@ -1779,22 +2083,54 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 16),
-            padding: const EdgeInsets.symmetric(
-              horizontal: 11,
-              vertical: 6,
-            ),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEEF4FF),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: InkWell(
+              onTap: _toggleTrainerMode,
               borderRadius: BorderRadius.circular(30),
-            ),
-            child: const Text(
-              'POC',
-              style: TextStyle(
-                color: Color(0xFF3157D5),
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: _trainerMode
+                      ? const Color(0xFFECFDF3)
+                      : const Color(0xFFEEF4FF),
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(
+                    color: _trainerMode
+                        ? const Color(0xFF12B76A)
+                        : const Color(0xFFD6E4FF),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _trainerMode
+                          ? Icons.school_rounded
+                          : Icons.model_training_rounded,
+                      size: 15,
+                      color: _trainerMode
+                          ? const Color(0xFF027A48)
+                          : const Color(0xFF3157D5),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      _trainerMode
+                          ? '훈련사 ON'
+                          : '실시간 머신러닝',
+                      style: TextStyle(
+                        color: _trainerMode
+                            ? const Color(0xFF027A48)
+                            : const Color(0xFF3157D5),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1864,6 +2200,18 @@ class _HomeScreenState extends State<HomeScreen>
                               action,
                               message,
                             );
+                          },
+                          trainerMode: _trainerMode,
+                          trainerSubmitting: _trainerSubmitting,
+                          onTrainerFeedback: (correct) {
+                            if (correct) {
+                              _submitTrainerFeedback(
+                                message,
+                                correct: true,
+                              );
+                            } else {
+                              _beginTrainerFeedback(message);
+                            }
                           },
                         );
                       },
@@ -1971,11 +2319,17 @@ class _AssistantBubble extends StatelessWidget {
     required String requestContext,
   }) onClarification;
   final ValueChanged<String> onAction;
+  final bool trainerMode;
+  final bool trainerSubmitting;
+  final ValueChanged<bool> onTrainerFeedback;
 
   const _AssistantBubble({
     required this.message,
     required this.onClarification,
     required this.onAction,
+    required this.trainerMode,
+    required this.trainerSubmitting,
+    required this.onTrainerFeedback,
   });
 
   List<Map<String, dynamic>> _clarifications() {
@@ -1996,6 +2350,9 @@ class _AssistantBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final clarifications = _clarifications();
+    final canTrain = message.mission != null ||
+        (message.businesses?.isNotEmpty ?? false) ||
+        message.badge != null;
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -2098,11 +2455,79 @@ class _AssistantBubble extends StatelessWidget {
                       onSelected: onAction,
                     ),
                   ],
+                  if (trainerMode && canTrain) ...[
+                    const SizedBox(height: 8),
+                    _TrainerFeedbackBar(
+                      submitting: trainerSubmitting,
+                      onCorrect: () => onTrainerFeedback(true),
+                      onWrong: () => onTrainerFeedback(false),
+                    ),
+                  ],
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TrainerFeedbackBar extends StatelessWidget {
+  final bool submitting;
+  final VoidCallback onCorrect;
+  final VoidCallback onWrong;
+
+  const _TrainerFeedbackBar({
+    required this.submitting,
+    required this.onCorrect,
+    required this.onWrong,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6FEF9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFFA6F4C5),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.school_outlined,
+            size: 16,
+            color: Color(0xFF027A48),
+          ),
+          const SizedBox(width: 6),
+          const Expanded(
+            child: Text(
+              '훈련사 평가',
+              style: TextStyle(
+                color: Color(0xFF027A48),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: submitting ? null : onCorrect,
+            child: const Text('정상'),
+          ),
+          const SizedBox(width: 4),
+          FilledButton.tonal(
+            onPressed: submitting ? null : onWrong,
+            child: Text(
+              submitting ? '분석 중…' : '잘못됨 · 학습',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2182,8 +2607,9 @@ class _BusinessImageFallback extends StatelessWidget {
 
 class _BusinessCards extends StatelessWidget {
   final List<Map<String, dynamic>> businesses;
+  final ArabaApi _api = ArabaApi();
 
-  const _BusinessCards({
+  _BusinessCards({
     required this.businesses,
   });
 
@@ -2226,6 +2652,90 @@ class _BusinessCards extends StatelessWidget {
         })
         .where((item) => item.isNotEmpty)
         .join(' · ');
+  }
+
+  Future<void> _leaveExperience(
+    BuildContext context,
+    Map<String, dynamic> business,
+  ) async {
+    final name =
+        business['name']?.toString().trim() ?? '업체';
+    final controller = TextEditingController();
+
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('$name 이용 경험'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 3,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            hintText:
+                '예: 주차장은 좁았고 15분 정도 기다렸지만 설명은 자세했어요.',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(
+              controller.text.trim(),
+            ),
+            child: const Text('경험 저장'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (text == null || text.trim().isEmpty) return;
+
+    try {
+      final rawBusinessId = business['araba_business_id'];
+      final businessId = rawBusinessId is num
+          ? rawBusinessId.round()
+          : int.tryParse(rawBusinessId?.toString() ?? '');
+      final providerPlaceId =
+          business['id']?.toString().trim();
+
+      final result = await _api.submitBusinessExperience(
+        businessId: businessId,
+        providerPlaceId: providerPlaceId,
+        text: text,
+        verifiedVisit: false,
+      );
+
+      business['experience_count'] =
+          result['experience_count'] ?? 1;
+      business['verified_experience_count'] =
+          result['verified_experience_count'] ?? 0;
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$name 이용 경험을 ARABA 경험 DB에 저장했어요.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is ArabaApiException
+                ? error.message
+                : '이용 경험 저장에 실패했어요.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _showBusinessDetail(
@@ -2285,6 +2795,31 @@ class _BusinessCards extends StatelessWidget {
     final openAiSourceUrl = openAiSources.isNotEmpty
         ? openAiSources.first
         : '';
+    final experienceCount =
+        business['experience_count'] is num
+            ? (business['experience_count'] as num).round()
+            : int.tryParse(
+                  business['experience_count']?.toString() ?? '',
+                ) ??
+                0;
+    final verifiedExperienceCount =
+        business['verified_experience_count'] is num
+            ? (business['verified_experience_count'] as num)
+                .round()
+            : 0;
+    final rawExperienceSnippets =
+        business['experience_snippets'];
+    final experienceSnippets =
+        rawExperienceSnippets is List
+            ? rawExperienceSnippets
+                .map((item) => item.toString().trim())
+                .where((item) => item.isNotEmpty)
+                .take(2)
+                .toList()
+            : <String>[];
+    final cacheHit =
+        business['araba_cache_hit'] == true;
+
     final priceLink =
         (naver['price_link'] ?? web['price_link'])
                 ?.toString()
@@ -2506,6 +3041,16 @@ class _BusinessCards extends StatelessWidget {
                             title: '가격',
                             value: priceText,
                           ),
+                        if (experienceCount > 0)
+                          _BusinessDetailRow(
+                            icon: Icons.forum_outlined,
+                            title: '이용경험',
+                            value: [
+                              'ARABA 경험 $experienceCount건'
+                                  '${verifiedExperienceCount > 0 ? ' · 이용확인 $verifiedExperienceCount건' : ''}',
+                              ...experienceSnippets,
+                            ].join('\n'),
+                          ),
                         const SizedBox(height: 20),
                         Row(
                           children: [
@@ -2541,6 +3086,24 @@ class _BusinessCards extends StatelessWidget {
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () =>
+                                _leaveExperience(context, business),
+                            icon: const Icon(
+                              Icons.rate_review_outlined,
+                            ),
+                            label: const Text(
+                              '이용 경험 남기기',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize:
+                                  const Size.fromHeight(48),
+                            ),
+                          ),
                         ),
                         if (naverUrl.isNotEmpty) ...[
                           const SizedBox(height: 10),
@@ -2609,9 +3172,13 @@ class _BusinessCards extends StatelessWidget {
                         ],
                         const SizedBox(height: 12),
                         Text(
-                          naver['matched'] == true
-                              ? '카카오 장소정보와 네이버 플레이스를 교차확인한 업체입니다.'
-                              : '카카오 장소정보로 확인한 업체입니다.',
+                          cacheHit
+                              ? 'ARABA DB에 축적된 정보를 우선 사용하고, 오래되거나 부족한 항목만 다시 확인합니다.'
+                              : (
+                                  naver['matched'] == true
+                                      ? '카카오 장소정보와 네이버 플레이스를 교차확인한 업체입니다.'
+                                      : '카카오 장소정보로 확인한 업체입니다.'
+                                ),
                           style: const TextStyle(
                             color: Color(0xFF98A2B3),
                             fontSize: 11.5,
@@ -2676,6 +3243,12 @@ class _BusinessCards extends StatelessWidget {
               business['image_source']?.toString().trim() ?? '';
           final callResult =
               business['mock_call_result']?.toString().trim() ?? '';
+          final cacheHit =
+              business['araba_cache_hit'] == true;
+          final experienceCount =
+              business['experience_count'] is num
+                  ? (business['experience_count'] as num).round()
+                  : 0;
           final rank = business['economic_rank'];
           final totalPrice = business['mock_total_price'];
           final distance = business['distance_km'];
@@ -3213,12 +3786,17 @@ class _BusinessCards extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                webVerified
-                                    ? '카카오 후보 · 웹검색 보강'
+                                cacheHit
+                                    ? 'ARABA DB 재사용'
+                                        '${experienceCount > 0 ? ' · 경험 $experienceCount건' : ''}'
                                     : (
-                                        naverMatched
-                                            ? '카카오 후보 · 네이버 교차확인'
-                                            : '카카오맵 장소검색'
+                                        webVerified
+                                            ? '카카오 후보 · 웹검색 보강'
+                                            : (
+                                                naverMatched
+                                                    ? '카카오 후보 · 네이버 교차확인'
+                                                    : '카카오맵 장소검색'
+                                              )
                                       ),
                                 style: const TextStyle(
                                   color: Color(0xFF667085),

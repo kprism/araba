@@ -557,6 +557,50 @@ def research_search(request):
 
 
 @api_view(["POST"])
+def business_experience_create(request):
+    from .services.business_graph_service import add_business_experience
+
+    try:
+        result = add_business_experience(
+            business_id=request.data.get("business_id"),
+            provider_place_id=request.data.get("provider_place_id"),
+            raw_text=request.data.get("text"),
+            rating=request.data.get("rating"),
+            verified_visit=request.data.get("verified_visit") is True,
+        )
+        return Response({"ok": True, **result})
+    except ValueError as exc:
+        return Response(
+            {"ok": False, "message": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+@api_view(["GET"])
+def business_experience_list(request):
+    from .services.business_graph_service import list_business_experiences
+
+    business_id = request.query_params.get("business_id")
+    if not business_id:
+        return Response(
+            {"ok": False, "message": "business_id가 필요합니다."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        result = list_business_experiences(
+            business_id,
+            limit=request.query_params.get("limit", 20),
+        )
+        return Response({"ok": True, **result})
+    except (TypeError, ValueError) as exc:
+        return Response(
+            {"ok": False, "message": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+@api_view(["POST"])
 def mock_call_compare(request):
     from .services.mock_call_service import simulate_mock_calls
     from .services.research_record_service import save_research_record
@@ -1070,6 +1114,71 @@ def training_core_curriculum(request):
                 ),
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["POST"])
+def training_live_feedback(request):
+    from .services.live_trainer_service import (
+        analyze_and_learn_trainer_feedback,
+        record_correct_feedback,
+    )
+
+    verdict = str(
+        request.data.get("verdict", "")
+    ).strip().lower()
+    category = request.data.get("category", "")
+    request_text = request.data.get("request_text", "")
+    assistant_response = request.data.get(
+        "assistant_response",
+        "",
+    )
+    context = request.data.get("context")
+
+    try:
+        if verdict == "correct":
+            result = record_correct_feedback(
+                category=category,
+                request_text=request_text,
+                assistant_response=assistant_response,
+                context=context,
+            )
+        elif verdict == "wrong":
+            result = analyze_and_learn_trainer_feedback(
+                api_key=_request_api_key(request),
+                category=category,
+                request_text=request_text,
+                assistant_response=assistant_response,
+                trainer_note=request.data.get("trainer_note", ""),
+                expected_behavior=request.data.get(
+                    "expected_behavior",
+                    "",
+                ),
+                context=context,
+                actor_role=request.data.get(
+                    "actor_role",
+                    "trainer",
+                ),
+            )
+        else:
+            raise ValueError("verdict는 correct 또는 wrong이어야 합니다.")
+
+        return Response({"ok": True, **result})
+    except ValueError as exc:
+        return Response(
+            {"ok": False, "message": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception as exc:
+        return Response(
+            {
+                "ok": False,
+                "message": (
+                    "실시간 훈련 분석 중 오류가 발생했습니다: "
+                    f"{type(exc).__name__}"
+                ),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
         )
 
 

@@ -13,6 +13,11 @@ from .research_evaluation_service import (
     evaluate_research_result,
 )
 from .business_matching_service import match_businesses
+from .business_graph_service import (
+    cached_businesses_for_mission,
+    merge_businesses_from_graph,
+    persist_businesses,
+)
 
 
 KAKAO_LOCAL_SEARCH_URL = (
@@ -971,14 +976,54 @@ def enrich_place_businesses(
     if not safe:
         return []
 
+    safe = merge_businesses_from_graph(safe)
+
     if gpt_direct:
-        # Avoid slow/fragile Kakao and Naver HTML parsing in the
-        # progressive second phase. Kakao place identity is retained.
-        return enrich_businesses_with_openai_web(
-            safe,
+        fresh = [
+            item
+            for item in safe
+            if item.get("araba_cache_hit") is True
+            and item.get("araba_detail_fresh") is True
+        ]
+        stale = [
+            item
+            for item in safe
+            if item not in fresh
+        ]
+        if not stale:
+            return safe
+
+        enriched_stale = enrich_businesses_with_openai_web(
+            stale,
             mission,
             api_key=openai_api_key,
         )
+        persisted_stale = persist_businesses(
+            enriched_stale,
+            mission,
+            detail_refreshed=True,
+        )
+        refreshed = {
+            str(item.get("id") or "").strip()
+            or (
+                str(item.get("name") or "").strip()
+                + "|"
+                + str(item.get("address") or "").strip()
+            ): item
+            for item in persisted_stale
+        }
+        combined = []
+        for item in safe:
+            key = (
+                str(item.get("id") or "").strip()
+                or (
+                    str(item.get("name") or "").strip()
+                    + "|"
+                    + str(item.get("address") or "").strip()
+                )
+            )
+            combined.append(refreshed.get(key, item))
+        return combined
 
     detail_targets = safe[:FAST_DETAIL_ENRICH_LIMIT]
     deferred_targets = safe[FAST_DETAIL_ENRICH_LIMIT:]
@@ -1019,10 +1064,15 @@ def enrich_place_businesses(
         client_id=naver_client_id,
         client_secret=naver_client_secret,
     )
-    return enrich_businesses_with_openai_web(
+    enriched = enrich_businesses_with_openai_web(
         enriched,
         mission,
         api_key=openai_api_key,
+    )
+    return persist_businesses(
+        enriched,
+        mission,
+        detail_refreshed=True,
     )
 
 
@@ -1035,6 +1085,68 @@ def search_real_businesses(
     openai_api_key=None,
     quick_cards=False,
 ):
+    requested_count = _requested_result_count(
+        mission
+    )
+    cached = cached_businesses_for_mission(
+        mission,
+        requested_count=requested_count,
+    )
+    cached_businesses = cached.get("businesses") or []
+    if cached.get("complete") is True and cached_businesses:
+        matching = (
+            match_businesses(mission, cached_businesses)
+            if not quick_cards
+            else None
+        )
+        display_businesses = (
+            matching["display_businesses"]
+            if isinstance(matching, dict)
+            else cached_businesses
+        )
+        evaluation = evaluate_research_result(
+            mission,
+            display_businesses,
+            reference_origin=None,
+        )
+        return {
+            "source": "araba_db",
+            "detail_status": "cached",
+            "primary_source": "araba_db",
+            "secondary_source": "stored_sources",
+            "fallback_source": "external_refresh_if_stale",
+            "search_query": "ARABA Business Graph",
+            "search_mode": str(
+                mission.get("search_mode") or ""
+            ).strip(),
+            "businesses": display_businesses,
+            "matching": matching,
+            "displayed_count": len(display_businesses),
+            "requested_count": requested_count,
+            "strict_category_filter": True,
+            "kakao_reported_total_count": None,
+            "count_is_exhaustive": False,
+            "evaluation": evaluation,
+            "naver_matched_count": sum(
+                1
+                for item in display_businesses
+                if isinstance(item.get("naver"), dict)
+                and item["naver"].get("matched") is True
+            ),
+            "naver_page_checked_count": sum(
+                1
+                for item in display_businesses
+                if isinstance(item.get("naver"), dict)
+                and item["naver"].get("page_checked") is True
+            ),
+            "detail_enrichment_limit": FAST_DETAIL_ENRICH_LIMIT,
+            "detail_deferred_count": 0,
+            "business_graph_hit": True,
+            "needs_location_clarification": False,
+            "reference_origin": None,
+            "resolved_location_type": "cached",
+        }
+
     resolved_api_key = str(api_key or "").strip()
     if not resolved_api_key:
         resolved_api_key = _kakao_rest_api_key()
@@ -1048,9 +1160,6 @@ def search_real_businesses(
     selected_query = None
     documents = []
     broad_search = _is_broad_search(
-        mission
-    )
-    requested_count = _requested_result_count(
         mission
     )
     collected = {}
@@ -1350,9 +1459,16 @@ def search_real_businesses(
         )
         if business["name"]
     ]
+    kakao_businesses = merge_businesses_from_graph(
+        kakao_businesses
+    )
 
     if quick_cards:
-        businesses = kakao_businesses
+        businesses = persist_businesses(
+            kakao_businesses,
+            mission,
+            detail_refreshed=False,
+        )
     else:
         businesses = enrich_place_businesses(
             kakao_businesses,
@@ -1400,7 +1516,18 @@ def search_real_businesses(
     )
 
     return {
-        "source": "kakao" if quick_cards else "kakao+naver",
+        "source": (
+            "araba_db+kakao"
+            if any(
+                item.get("araba_cache_hit") is True
+                for item in businesses
+            )
+            else (
+                "kakao"
+                if quick_cards
+                else "kakao+naver"
+            )
+        ),
         "detail_status": "pending" if quick_cards else "complete",
         "primary_source": "kakao",
         "secondary_source": "naver_place",
