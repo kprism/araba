@@ -50,6 +50,11 @@ urlpatterns = [
         name="research-enrich",
     ),
     path(
+        "admin/businesses/",
+        views.business_admin_dashboard,
+        name="business-admin-dashboard",
+    ),
+    path(
         "research/experiences/",
         views.business_experience_list,
         name="business-experience-list",
