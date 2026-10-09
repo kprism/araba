@@ -47,7 +47,15 @@ def _parse_json(text):
     return value if isinstance(value, dict) else {}
 
 
-def _record_scenario(*, category, request_text, assistant_response, trainer_note, diagnosis):
+def _record_scenario(
+    *,
+    category,
+    request_text,
+    assistant_response,
+    trainer_note,
+    diagnosis,
+    actor_role="trainer",
+):
     title_tail = _trim(request_text, 110) or "훈련사 피드백"
     scenario = TrainingScenario.objects.create(
         category=_trim(category, 80),
@@ -72,7 +80,12 @@ def _record_scenario(*, category, request_text, assistant_response, trainer_note
             )
         ],
         provider_profile={
-            "source": "live_trainer",
+            "source": (
+                "live_trainer"
+                if actor_role == "trainer"
+                else "live_user_feedback"
+            ),
+            "actor_role": actor_role,
             "root_cause_type": _trim(
                 diagnosis.get("root_cause_type"),
                 80,
@@ -134,12 +147,18 @@ def analyze_and_learn_trainer_feedback(
     trainer_note="",
     expected_behavior="",
     context=None,
+    actor_role="trainer",
 ):
     request_text = _trim(request_text, 5000)
     assistant_response = _trim(assistant_response, 7000)
     trainer_note = _trim(trainer_note, 4000)
     expected_behavior = _trim(expected_behavior, 4000)
     category = _trim(category, 80)
+    actor_role = (
+        "trainer"
+        if str(actor_role or "").strip().lower() == "trainer"
+        else "user"
+    )
     safe_context = _safe_context(context)
 
     if not request_text:
@@ -246,7 +265,8 @@ def analyze_and_learn_trainer_feedback(
 
     rule = None
     if (
-        diagnosis["can_learn_as_rule"]
+        actor_role == "trainer"
+        and diagnosis["can_learn_as_rule"]
         and not diagnosis["needs_code_fix"]
         and diagnosis["corrective_instruction"]
     ):
@@ -270,11 +290,16 @@ def analyze_and_learn_trainer_feedback(
         assistant_response=assistant_response,
         trainer_note=trainer_note,
         diagnosis=diagnosis,
+        actor_role=actor_role,
     )
     learned_rules = [rule.id] if rule is not None else []
     run = TrainingRun.objects.create(
         scenario=scenario,
-        mode="live_trainer",
+        mode=(
+            "live_trainer"
+            if actor_role == "trainer"
+            else "live_user_feedback"
+        ),
         transcript=[
             {"role": "user", "content": request_text},
             {"role": "assistant", "content": assistant_response},
@@ -292,7 +317,13 @@ def analyze_and_learn_trainer_feedback(
         learned_rules=learned_rules,
     )
 
-    if rule is not None:
+    if actor_role != "trainer":
+        status = "user_feedback_candidate"
+        message = (
+            "사용자 교정 의견을 학습 후보로 저장했어요. "
+            "전역 규칙에는 즉시 적용하지 않습니다."
+        )
+    elif rule is not None:
         status = "learned"
         message = "원인을 분석했고 재발 방지 규칙을 즉시 학습에 반영했어요."
     elif diagnosis["needs_code_fix"]:
@@ -312,5 +343,6 @@ def analyze_and_learn_trainer_feedback(
         "scenario_id": scenario.id,
         "rule_id": rule.id if rule is not None else None,
         "learned": rule is not None,
+        "actor_role": actor_role,
         "diagnosis": diagnosis,
     }
