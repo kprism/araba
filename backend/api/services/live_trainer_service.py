@@ -10,6 +10,46 @@ from .training_service import save_training_rule
 TRAINER_DIAGNOSIS_MODEL = "gpt-5-mini"
 
 
+TRAINER_DIAGNOSIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "root_cause_type": {
+            "type": "string",
+            "enum": [
+                "intent",
+                "context",
+                "location",
+                "search",
+                "data",
+                "matching",
+                "action",
+                "voice",
+                "ui",
+                "provider",
+                "code",
+                "other",
+            ],
+        },
+        "root_cause": {"type": "string"},
+        "trigger": {"type": "string"},
+        "corrective_instruction": {"type": "string"},
+        "can_learn_as_rule": {"type": "boolean"},
+        "needs_code_fix": {"type": "boolean"},
+        "verification": {"type": "string"},
+    },
+    "required": [
+        "root_cause_type",
+        "root_cause",
+        "trigger",
+        "corrective_instruction",
+        "can_learn_as_rule",
+        "needs_code_fix",
+        "verification",
+    ],
+    "additionalProperties": False,
+}
+
+
 def _trim(value, limit):
     return str(value or "").strip()[:limit]
 
@@ -220,6 +260,14 @@ def analyze_and_learn_trainer_feedback(
         model=TRAINER_DIAGNOSIS_MODEL,
         input=prompt,
         max_output_tokens=1200,
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "araba_trainer_diagnosis",
+                "schema": TRAINER_DIAGNOSIS_SCHEMA,
+                "strict": True,
+            }
+        },
     )
     diagnosis = _parse_json(response.output_text)
 
