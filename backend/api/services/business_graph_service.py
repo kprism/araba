@@ -314,15 +314,22 @@ def persist_businesses(
     for item in businesses or []:
         if not isinstance(item, dict):
             continue
+        existed = _record_for_candidate(item) is not None
         record = _upsert_business(
             item,
             mission,
             detail_refreshed=detail_refreshed,
         )
         if record is not None:
-            result.append(
-                serialize_business(record, cache_hit=False)
+            serialized = serialize_business(
+                record,
+                cache_hit=existed,
             )
+            if existed:
+                serialized["araba_data_source"] = (
+                    "araba_db+external_refresh"
+                )
+            result.append(serialized)
     return result
 
 
