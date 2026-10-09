@@ -343,6 +343,38 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> submitLiveTrainingFeedback({
+    required String verdict,
+    required String requestText,
+    required String assistantResponse,
+    required String apiKey,
+    String category = '',
+    String trainerNote = '',
+    String expectedBehavior = '',
+    Map<String, dynamic> context = const {},
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/training/live-feedback/'),
+        headers: _headers(apiKey: apiKey),
+        body: jsonEncode({
+          'verdict': verdict,
+          'request_text': requestText,
+          'assistant_response': assistantResponse,
+          'category': category,
+          'trainer_note': trainerNote,
+          'expected_behavior': expectedBehavior,
+          'context': context,
+        }),
+      ),
+      timeout: const Duration(seconds: 55),
+      retries: 0,
+      retryServerErrors: false,
+    );
+
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> saveTrainingFeedback({
     required String category,
     required String trigger,
