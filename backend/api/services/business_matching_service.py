@@ -27,7 +27,7 @@ def _time_to_minutes(value):
         hour = int(match.group(1))
         minute = int(match.group(2))
 
-    if hour < 0 or hour > 29 or minute < 0 or minute > 59:
+    if hour < 0 or hour > 35 or minute < 0 or minute > 59:
         return None
     return hour * 60 + minute
 
@@ -45,6 +45,8 @@ def _opening_ranges(business):
         for match in pattern.finditer(_text(item)):
             opening = int(match.group(1)) * 60 + int(match.group(2))
             closing = int(match.group(3)) * 60 + int(match.group(4))
+            if closing <= opening:
+                closing += 24 * 60
             ranges.append((opening, closing, _text(item)))
     return ranges
 
