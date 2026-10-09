@@ -51,6 +51,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _micEnabled = false;
   bool _sending = false;
   bool _researching = false;
+  bool _trainerMode = false;
+  bool _trainerSubmitting = false;
   int _researchRevision = 0;
   bool _userBrowsingHistory = false;
   String _liveStatus = '';
@@ -393,6 +395,207 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _speakProgress(String text) {
     _liveVoice?.speakCommentary(text);
+  }
+
+  String _trainerRequestFor(_Message message) {
+    final messageIndex = _messages.indexOf(message);
+    if (messageIndex <= 0) return '';
+
+    for (var index = messageIndex - 1; index >= 0; index--) {
+      final candidate = _messages[index];
+      if (candidate.isUser && candidate.text.trim().isNotEmpty) {
+        return candidate.text.trim();
+      }
+    }
+    return '';
+  }
+
+  void _toggleTrainerMode() {
+    setState(() {
+      _trainerMode = !_trainerMode;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _trainerMode
+              ? '훈련사 모드 ON · 결과 아래에서 정상/잘못됨을 평가할 수 있어요.'
+              : '훈련사 모드를 종료했어요.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submitTrainerFeedback(
+    _Message message, {
+    required bool correct,
+  }) async {
+    if (_trainerSubmitting) return;
+
+    final requestText = _trainerRequestFor(message);
+    if (requestText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('이 응답에 연결된 사용자 요청을 찾지 못했어요.'),
+        ),
+      );
+      return;
+    }
+
+    String trainerNote = '';
+    String expectedBehavior = '';
+
+    if (!correct) {
+      final noteController = TextEditingController();
+      final expectedController = TextEditingController();
+      final submitted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('잘못된 결과 훈련'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ARABA가 원인을 분석하고, 대화 규칙으로 바로 학습할 수 있는 문제는 즉시 반영합니다. '
+                    '코드·데이터 흐름 문제는 보완 필요 항목으로 분류합니다.',
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: noteController,
+                    minLines: 2,
+                    maxLines: 5,
+                    decoration: const InputDecoration(
+                      labelText: '무엇이 잘못됐나요?',
+                      hintText: '예: 중동을 말했는데 합성동 업체가 나왔음',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: expectedController,
+                    minLines: 2,
+                    maxLines: 5,
+                    decoration: const InputDecoration(
+                      labelText: '원하는 동작 또는 정답',
+                      hintText: '예: 위치를 중동으로 정정하고 같은 조건으로 다시 검색',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('원인분석 · 학습'),
+              ),
+            ],
+          );
+        },
+      );
+
+      trainerNote = noteController.text.trim();
+      expectedBehavior = expectedController.text.trim();
+      noteController.dispose();
+      expectedController.dispose();
+
+      if (submitted != true) return;
+      if (trainerNote.isEmpty && expectedBehavior.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('잘못된 점이나 원하는 동작 중 하나는 입력해주세요.'),
+          ),
+        );
+        return;
+      }
+    }
+
+    try {
+      setState(() => _trainerSubmitting = true);
+      final apiKey = await _keyStore.read();
+      if (apiKey == null) {
+        throw const ArabaApiException(
+          'MY에서 OpenAI API Key를 먼저 저장해주세요.',
+        );
+      }
+
+      final mission = message.mission ?? const <String, dynamic>{};
+      final category = mission['category']?.toString().trim() ?? '';
+      final result = await _api.submitLiveTrainingFeedback(
+        verdict: correct ? 'correct' : 'wrong',
+        requestText: requestText,
+        assistantResponse: message.text,
+        apiKey: apiKey,
+        category: category,
+        trainerNote: trainerNote,
+        expectedBehavior: expectedBehavior,
+        context: {
+          if (message.mission != null) 'mission': message.mission,
+          if (message.businesses != null) 'businesses': message.businesses,
+          if (message.requestContext != null)
+            'request_context': message.requestContext,
+          if (message.badge != null) 'badge': message.badge,
+          'source': 'android_live_trainer',
+        },
+      );
+
+      if (!mounted) return;
+
+      if (correct) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('정상 사례로 학습 데이터에 저장했어요.'),
+          ),
+        );
+        return;
+      }
+
+      final rawDiagnosis = result['diagnosis'];
+      final diagnosis = rawDiagnosis is Map
+          ? Map<String, dynamic>.from(rawDiagnosis)
+          : <String, dynamic>{};
+      final rootCause = diagnosis['root_cause']?.toString().trim() ?? '';
+      final instruction =
+          diagnosis['corrective_instruction']?.toString().trim() ?? '';
+      final verification =
+          diagnosis['verification']?.toString().trim() ?? '';
+      final needsCodeFix = diagnosis['needs_code_fix'] == true;
+      final learned = result['learned'] == true;
+
+      final lines = <String>[
+        if (rootCause.isNotEmpty) '원인: $rootCause',
+        if (instruction.isNotEmpty)
+          learned ? '즉시 학습 규칙: $instruction' : '보완 방향: $instruction',
+        if (verification.isNotEmpty) '재검증: $verification',
+      ];
+
+      _addAssistantMessage(
+        text: lines.isEmpty
+            ? (result['message']?.toString() ?? '훈련 피드백을 저장했어요.')
+            : lines.join('\n'),
+        badge: needsCodeFix
+            ? '코드 보완 필요'
+            : (learned ? '실시간 학습 반영' : '훈련 사례 저장'),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final text = error is ArabaApiException
+          ? error.message
+          : '실시간 훈련 피드백 처리에 실패했어요.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(text)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _trainerSubmitting = false);
+      }
+    }
   }
 
   bool _isStatusQuestion(String text) {
@@ -1779,22 +1982,54 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 16),
-            padding: const EdgeInsets.symmetric(
-              horizontal: 11,
-              vertical: 6,
-            ),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEEF4FF),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: InkWell(
+              onTap: _toggleTrainerMode,
               borderRadius: BorderRadius.circular(30),
-            ),
-            child: const Text(
-              'POC',
-              style: TextStyle(
-                color: Color(0xFF3157D5),
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: _trainerMode
+                      ? const Color(0xFFECFDF3)
+                      : const Color(0xFFEEF4FF),
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(
+                    color: _trainerMode
+                        ? const Color(0xFF12B76A)
+                        : const Color(0xFFD6E4FF),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _trainerMode
+                          ? Icons.school_rounded
+                          : Icons.model_training_rounded,
+                      size: 15,
+                      color: _trainerMode
+                          ? const Color(0xFF027A48)
+                          : const Color(0xFF3157D5),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      _trainerMode
+                          ? '훈련사 ON'
+                          : '실시간 머신러닝',
+                      style: TextStyle(
+                        color: _trainerMode
+                            ? const Color(0xFF027A48)
+                            : const Color(0xFF3157D5),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1863,6 +2098,14 @@ class _HomeScreenState extends State<HomeScreen>
                             _handleResearchAction(
                               action,
                               message,
+                            );
+                          },
+                          trainerMode: _trainerMode,
+                          trainerSubmitting: _trainerSubmitting,
+                          onTrainerFeedback: (correct) {
+                            _submitTrainerFeedback(
+                              message,
+                              correct: correct,
                             );
                           },
                         );
@@ -1971,11 +2214,17 @@ class _AssistantBubble extends StatelessWidget {
     required String requestContext,
   }) onClarification;
   final ValueChanged<String> onAction;
+  final bool trainerMode;
+  final bool trainerSubmitting;
+  final ValueChanged<bool> onTrainerFeedback;
 
   const _AssistantBubble({
     required this.message,
     required this.onClarification,
     required this.onAction,
+    required this.trainerMode,
+    required this.trainerSubmitting,
+    required this.onTrainerFeedback,
   });
 
   List<Map<String, dynamic>> _clarifications() {
@@ -1996,6 +2245,9 @@ class _AssistantBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final clarifications = _clarifications();
+    final canTrain = message.mission != null ||
+        (message.businesses?.isNotEmpty ?? false) ||
+        message.badge != null;
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -2098,11 +2350,79 @@ class _AssistantBubble extends StatelessWidget {
                       onSelected: onAction,
                     ),
                   ],
+                  if (trainerMode && canTrain) ...[
+                    const SizedBox(height: 8),
+                    _TrainerFeedbackBar(
+                      submitting: trainerSubmitting,
+                      onCorrect: () => onTrainerFeedback(true),
+                      onWrong: () => onTrainerFeedback(false),
+                    ),
+                  ],
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TrainerFeedbackBar extends StatelessWidget {
+  final bool submitting;
+  final VoidCallback onCorrect;
+  final VoidCallback onWrong;
+
+  const _TrainerFeedbackBar({
+    required this.submitting,
+    required this.onCorrect,
+    required this.onWrong,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6FEF9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFFA6F4C5),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.school_outlined,
+            size: 16,
+            color: Color(0xFF027A48),
+          ),
+          const SizedBox(width: 6),
+          const Expanded(
+            child: Text(
+              '훈련사 평가',
+              style: TextStyle(
+                color: Color(0xFF027A48),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: submitting ? null : onCorrect,
+            child: const Text('정상'),
+          ),
+          const SizedBox(width: 4),
+          FilledButton.tonal(
+            onPressed: submitting ? null : onWrong,
+            child: Text(
+              submitting ? '분석 중…' : '잘못됨 · 학습',
+            ),
+          ),
+        ],
       ),
     );
   }
