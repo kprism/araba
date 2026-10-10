@@ -228,7 +228,7 @@ def enrich_business_with_google_places(
         key=lambda item: item[0],
         reverse=True,
     )
-    if not ranked or ranked[0][0] < 8:
+    if not ranked or ranked[0][0] < 9:
         return dict(business)
 
     _, place = ranked[0]
