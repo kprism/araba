@@ -1,5 +1,7 @@
 import re
 
+from .temporal_service import evaluate_business_now
+
 
 TIME_FIELDS = {"closing_time", "opening_time"}
 RANK_OPERATORS = {"min", "max"}
@@ -310,6 +312,25 @@ def _criterion_value(business, criterion):
             value = business.get(key)
             if isinstance(value, list):
                 return bool(value), key
+
+        label = _text(criterion.get("label"))
+        if any(
+            marker in label
+            for marker in (
+                "주문",
+                "배달",
+                "포장",
+                "현재",
+                "지금",
+            )
+        ):
+            current = evaluate_business_now(
+                business
+            )
+            value = current.get("orderable_now")
+            if isinstance(value, bool):
+                return value, "business_hours_kst"
+
         return None, "availability"
 
     if field == "stock":
