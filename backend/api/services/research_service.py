@@ -1045,12 +1045,6 @@ def _matches_mission(document, mission):
         ]
     )
 
-    if _matches_kakao_category_group(
-        document,
-        keywords,
-    ):
-        return True
-
     category_keywords = [
         token
         for token in re.findall(
@@ -1061,12 +1055,31 @@ def _matches_mission(document, mission):
         )
         if token
     ]
+    specific_keywords = [
+        keyword
+        for keyword in keywords
+        if keyword not in category_keywords
+    ]
+
+    # "피자집", "국밥", "타이어"처럼 사용자가 구체 대상을 말한
+    # 경우에는 같은 상위 Kakao 업종(FD6 등)이라는 이유만으로
+    # 주점·맥주집 같은 다른 업종을 통과시키지 않는다.
+    if specific_keywords:
+        return any(
+            keyword in haystack
+            for keyword in specific_keywords
+        )
+
+    if _matches_kakao_category_group(
+        document,
+        keywords,
+    ):
+        return True
+
     if _matches_kakao_category_group(
         document,
         category_keywords,
     ):
-        # Kakao의 구체 텍스트검색 결과가 실제 기본 업종과 일치하면
-        # 상세 category_name에 "국밥" 같은 단어가 없어도 버리지 않는다.
         return True
 
     return any(
