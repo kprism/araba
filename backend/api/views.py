@@ -124,8 +124,11 @@ def openai_test(request):
 
 @api_view(["POST"])
 def mission_create(request):
+    from concurrent.futures import ThreadPoolExecutor
+
     from .services.mission_service import (
         MISSION_MODEL, MISSION_TIMEOUT_SECONDS, create_mission,
+        split_independent_requests,
     )
 
     started = monotonic()
@@ -170,6 +173,60 @@ def mission_create(request):
             create_kwargs["device_context"] = (
                 device_context
             )
+
+        independent_requests = split_independent_requests(
+            user_request
+        )
+        if len(independent_requests) > 1:
+            api_key = _request_api_key(request)
+
+            def create_independent(part):
+                try:
+                    return create_mission(
+                        part,
+                        api_key,
+                        diagnostics={},
+                        **(
+                            {"device_context": device_context}
+                            if device_context is not None
+                            else {}
+                        ),
+                    )
+                except Exception as exc:
+                    # One failed task must never silently drop its siblings.
+                    return {
+                        "intent": "conversation",
+                        "title": "개별 요청 처리 실패",
+                        "summary": "개별 요청 처리 실패",
+                        "category": "오류",
+                        "response_mode": "answer",
+                        "direct_answer": (
+                            "이 항목을 처리하지 못했습니다. "
+                            f"오류 유형: {type(exc).__name__}. "
+                            "다른 항목의 결과와 구분해 확인해주세요."
+                        ),
+                        "ready_to_research": False,
+                        "task_error": type(exc).__name__,
+                    }
+
+            with ThreadPoolExecutor(
+                max_workers=min(len(independent_requests), 3)
+            ) as executor:
+                missions = list(executor.map(
+                    create_independent,
+                    independent_requests,
+                ))
+            diagnostics["task_count"] = len(missions)
+            diagnostics["task_failure_count"] = sum(
+                bool(item.get("task_error"))
+                for item in missions
+            )
+            diagnostics["stage"] = "complete"
+            return finish({
+                "ok": True,
+                "mission": missions[0],
+                "missions": missions,
+            }, 200)
 
         mission = create_mission(
             user_request,
