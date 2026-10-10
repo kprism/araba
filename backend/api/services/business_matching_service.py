@@ -312,8 +312,10 @@ def _criterion_value(business, criterion):
                 row for row in values
                 if target.lower() in row[1].lower()
             ]
-            if matching:
-                values = matching
+            if not matching:
+                # Do not use the price of a different product as cake price.
+                return None, "target_product_price_unverified"
+            values = matching
         return min(row[0] for row in values), "verified_price"
 
     if field == "distance_m":
@@ -372,6 +374,19 @@ def _criterion_value(business, criterion):
         return None, "rating"
 
     if field == "service":
+        verified_services = business.get("verified_services")
+        expected_service = _text(criterion.get("value"))
+        if isinstance(verified_services, list) and expected_service:
+            for fact in verified_services:
+                if not isinstance(fact, dict):
+                    continue
+                service_name = _text(fact.get("name"))
+                source = _text(fact.get("source_url"))
+                if (
+                    source.startswith(("https://", "http://"))
+                    and expected_service.lower() in service_name.lower()
+                ):
+                    return service_name, source
         haystack = " ".join(
             [
                 _text(business.get("description")),
