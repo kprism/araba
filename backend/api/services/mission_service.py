@@ -6,6 +6,7 @@ from time import monotonic
 from openai import OpenAI
 
 from .intent_brain_service import enhance_mission
+from .execution_planner_service import build_execution_plan
 from .openai_service import get_api_key
 
 
@@ -420,6 +421,9 @@ def _task_state_for(mission):
 def _attach_task_state(mission):
     mission = dict(mission)
     mission["task_state"] = _task_state_for(mission)
+    mission["execution_plan"] = build_execution_plan(
+        mission
+    )
     return mission
 
 
