@@ -1892,7 +1892,8 @@ def create_mission(
         diagnostics["architecture"] = (
             "intent_router_v2+deterministic_place_fallback"
         )
-        diagnostics["stage"] = "parse_intent_fallback"
+        diagnostics["fallback_used"] = True
+        diagnostics["fallback_stage"] = "parse_intent"
         intent = _normalize_intent(
             fallback
         )
