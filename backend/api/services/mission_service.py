@@ -869,6 +869,53 @@ def _requests_current_location(
     )
 
 
+
+def _enforce_explicit_evidence_conditions(intent, request_text):
+    """A user-stated hard condition must not vanish from model JSON."""
+    if intent.get("intent") != "place_search":
+        return intent
+    _, current = _split_contextual_request(request_text)
+    compact = re.sub(r"\s+", "", str(current or ""))
+    result = dict(intent)
+    criteria = _clean_criteria(result.get("criteria"))
+    pending = []
+
+    if "토요일" in compact:
+        pending.append(("opening_day", "eq", "토요일", "토요일 영업"))
+    if re.search(r"주차(?:가|는|도)?(?:가능|되는|되고|있는|있고)", compact):
+        pending.append(("parking_available", "eq", True, "주차 가능"))
+
+    category = " ".join([
+        str(result.get("category") or ""),
+        str(result.get("subject") or ""),
+        compact,
+    ])
+    if "케이크" in compact and any(
+        key in category for key in ("빵집", "베이커리", "제과", "케이크")
+    ):
+        pending.append(("service", "contains", "케이크", "케이크 판매 근거"))
+    if "임플란트" in compact and "치과" in category:
+        pending.append(("service", "contains", "임플란트", "임플란트 시술 근거"))
+
+    for field, operator, value, label in pending:
+        if any(
+            item.get("field") == field
+            and item.get("value") == value
+            for item in criteria
+        ):
+            continue
+        criteria.append({
+            "id": f"evidence-{len(criteria) + 1}",
+            "field": field,
+            "operator": operator,
+            "value": value,
+            "required": True,
+            "label": label,
+        })
+    result["criteria"] = criteria[:12]
+    return result
+
+
 def _apply_device_location_to_intent(
     intent,
     request_text,
@@ -2260,6 +2307,10 @@ def create_mission(
         request_text,
     )
     intent = _apply_explicit_specific_food_term(
+        intent,
+        request_text,
+    )
+    intent = _enforce_explicit_evidence_conditions(
         intent,
         request_text,
     )
