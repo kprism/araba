@@ -13,6 +13,9 @@ from .research_evaluation_service import (
     evaluate_research_result,
 )
 from .business_matching_service import match_businesses
+from .business_agent_service import (
+    enrich_businesses_with_agents,
+)
 from .google_places_service import (
     enrich_businesses_with_google_places,
 )
@@ -1427,6 +1430,10 @@ def enrich_place_businesses(
                 safe,
                 api_key=google_places_api_key,
             )
+            runtime = enrich_businesses_with_agents(
+                mission,
+                runtime,
+            )
             runtime = enforce_business_images(
                 runtime
             )
@@ -1467,6 +1474,10 @@ def enrich_place_businesses(
         runtime = enrich_businesses_with_google_places(
             combined,
             api_key=google_places_api_key,
+        )
+        runtime = enrich_businesses_with_agents(
+            mission,
+            runtime,
         )
         runtime = enforce_business_images(
             runtime
@@ -1528,6 +1539,10 @@ def enrich_place_businesses(
         persisted,
         api_key=google_places_api_key,
     )
+    runtime = enrich_businesses_with_agents(
+        mission,
+        runtime,
+    )
     runtime = enforce_business_images(
         runtime
     )
@@ -1555,11 +1570,16 @@ def search_real_businesses(
     )
     cached_businesses = cached.get("businesses") or []
     if cached.get("complete") is True and cached_businesses:
+        cached_businesses = enrich_businesses_with_google_places(
+            cached_businesses,
+            api_key=google_places_api_key,
+        )
+        cached_businesses = enrich_businesses_with_agents(
+            mission,
+            cached_businesses,
+        )
         cached_businesses = enforce_business_images(
-            enrich_businesses_with_google_places(
-                cached_businesses,
-                api_key=google_places_api_key,
-            )
+            cached_businesses
         )
         cached_businesses = annotate_businesses_now(
             cached_businesses
@@ -1959,11 +1979,16 @@ def search_real_businesses(
             mission,
             detail_refreshed=False,
         )
+        businesses = enrich_businesses_with_google_places(
+            persisted,
+            api_key=google_places_api_key,
+        )
+        businesses = enrich_businesses_with_agents(
+            mission,
+            businesses,
+        )
         businesses = enforce_business_images(
-            enrich_businesses_with_google_places(
-                persisted,
-                api_key=google_places_api_key,
-            )
+            businesses
         )
         businesses = annotate_businesses_now(
             businesses
