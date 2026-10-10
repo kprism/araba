@@ -128,8 +128,24 @@ def _opening_day_state(business, target):
     if target_day is None:
         return None
 
-    raw = _naver(business).get("opening_hours")
-    if not isinstance(raw, list) or not raw:
+    naver_hours = _naver(business).get("opening_hours")
+    google = business.get("google_places")
+    google = google if isinstance(google, dict) else {}
+    # Only use hours attached to the identity-matched business.
+    raw = [
+        *(naver_hours if isinstance(naver_hours, list) else []),
+        *(
+            google.get("current_opening_hours")
+            if isinstance(google.get("current_opening_hours"), list)
+            else []
+        ),
+        *(
+            google.get("regular_opening_hours")
+            if isinstance(google.get("regular_opening_hours"), list)
+            else []
+        ),
+    ]
+    if not raw:
         return None
 
     short = DAY_SHORT[target_day]
