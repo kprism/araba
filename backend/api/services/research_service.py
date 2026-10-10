@@ -124,12 +124,28 @@ def _edit_distance(left, right):
 
 
 def _administrative_tokens(value):
+    raw_tokens = re.findall(
+        r"[가-힣]+",
+        str(value or ""),
+    )
+    suffixes = (
+        "특별시",
+        "광역시",
+        "특별자치시",
+        "특별자치도",
+        "도",
+        "시",
+        "군",
+        "구",
+        "읍",
+        "면",
+        "동",
+        "리",
+    )
     return [
         token
-        for token in re.findall(
-            r"[가-힣]{2,}(?:특별시|광역시|특별자치시|특별자치도|도|시|군|구|읍|면|동|리)",
-            str(value or ""),
-        )
+        for token in raw_tokens
+        if token.endswith(suffixes)
     ]
 
 
@@ -1074,14 +1090,43 @@ def _matches_mission(document, mission):
         if keyword not in category_keywords
     ]
 
-    # "피자집", "국밥", "타이어"처럼 사용자가 구체 대상을 말한
-    # 경우에는 같은 상위 Kakao 업종(FD6 등)이라는 이유만으로
-    # 주점·맥주집 같은 다른 업종을 통과시키지 않는다.
+    # 구체 검색어가 업체명/세부 카테고리에 직접 보이면 가장 강한 근거다.
+    if specific_keywords and any(
+        keyword in haystack
+        for keyword in specific_keywords
+    ):
+        return True
+
     if specific_keywords:
-        return any(
-            keyword in haystack
-            for keyword in specific_keywords
-        )
+        group_code = str(
+            document.get("category_group_code") or ""
+        ).strip()
+        category_text = str(
+            document.get("category_name") or ""
+        ).lower()
+
+        # Kakao가 "국밥" 검색으로 일반 한식 카테고리 업체를 상위에
+        # 돌려주는 경우는 검색 랭킹 신호를 유지한다. 다만 "피자집"
+        # 요청에 술집/주점/호프가 섞이는 식의 명백한 업종 충돌은 제거한다.
+        if group_code == "FD6":
+            incompatible_food_venue_markers = (
+                "술집",
+                "주점",
+                "호프",
+                "맥주",
+                "와인바",
+                "칵테일바",
+                "bar",
+            )
+            if any(
+                marker in category_text
+                for marker in incompatible_food_venue_markers
+            ):
+                return False
+            return True
+
+        # 음식 외의 구체 서비스 검색은 상위 업종 코드만으로 통과시키지 않는다.
+        return False
 
     if _matches_kakao_category_group(
         document,
