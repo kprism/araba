@@ -240,6 +240,7 @@ def enrich_business_with_google_places(
     )
     photos = place.get("photos")
     photo_url = None
+    selected_photo = None
     if isinstance(photos, list):
         for photo in photos[:2]:
             photo_url = _photo_uri(
@@ -247,7 +248,33 @@ def enrich_business_with_google_places(
                 photo,
             )
             if photo_url:
+                selected_photo = photo
                 break
+
+    raw_attributions = (
+        selected_photo.get("authorAttributions")
+        if isinstance(selected_photo, dict)
+        else None
+    )
+    photo_attributions = (
+        [
+            {
+                "display_name": str(
+                    item.get("displayName") or ""
+                ).strip(),
+                "uri": str(
+                    item.get("uri") or ""
+                ).strip(),
+                "photo_uri": str(
+                    item.get("photoUri") or ""
+                ).strip(),
+            }
+            for item in raw_attributions
+            if isinstance(item, dict)
+        ]
+        if isinstance(raw_attributions, list)
+        else []
+    )
 
     raw_display = place.get("displayName")
     display_name = (
@@ -304,6 +331,7 @@ def enrich_business_with_google_places(
             "googleMapsUri"
         ),
         "photo_url": photo_url,
+        "photo_attributions": photo_attributions,
         "source": "google_places_new",
     }
 
@@ -318,6 +346,12 @@ def enrich_business_with_google_places(
             "google_places_verified"
         )
         result["image_identity_verified"] = True
+        result["image_attributions"] = (
+            photo_attributions
+        )
+        result["image_google_maps_uri"] = str(
+            place.get("googleMapsUri") or ""
+        ).strip()
 
     naver = result.get("naver")
     if not isinstance(naver, dict):
