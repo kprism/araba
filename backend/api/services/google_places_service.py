@@ -340,7 +340,9 @@ def enrich_business_with_google_places(
 
     # Runtime-only, identity-verified photo. It is attached after DB persistence
     # so a Google photo URL is not treated as ARABA's durable source of truth.
-    if photo_url:
+    if photo_url and not str(result.get("image_url") or "").strip():
+        # Keep identity-verified durable Kakao/official imagery when present.
+        # Google photoUri is refreshed at runtime and may expire.
         result["image_url"] = photo_url
         result["image_source"] = (
             "google_places_verified"
