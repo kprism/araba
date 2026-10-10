@@ -66,6 +66,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ARABA가 내 주변 업체를 찾을 때 현재 위치를 사용합니다.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ARABA가 사용자의 음성 요청을 듣기 위해 마이크를 사용합니다.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
