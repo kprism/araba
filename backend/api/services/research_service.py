@@ -1420,7 +1420,13 @@ def enrich_place_businesses(
             if item not in fresh
         ]
         if not stale:
-            return safe
+            runtime = enrich_businesses_with_google_places(
+                safe,
+                api_key=google_places_api_key,
+            )
+            return annotate_businesses_now(
+                runtime
+            )
 
         enriched_stale = enrich_businesses_with_openai_web(
             stale,
@@ -1452,7 +1458,13 @@ def enrich_place_businesses(
                 )
             )
             combined.append(refreshed.get(key, item))
-        return combined
+        runtime = enrich_businesses_with_google_places(
+            combined,
+            api_key=google_places_api_key,
+        )
+        return annotate_businesses_now(
+            runtime
+        )
 
     detail_targets = safe[:FAST_DETAIL_ENRICH_LIMIT]
     deferred_targets = safe[FAST_DETAIL_ENRICH_LIMIT:]
@@ -1498,10 +1510,17 @@ def enrich_place_businesses(
         mission,
         api_key=openai_api_key,
     )
-    return persist_businesses(
+    persisted = persist_businesses(
         enriched,
         mission,
         detail_refreshed=True,
+    )
+    runtime = enrich_businesses_with_google_places(
+        persisted,
+        api_key=google_places_api_key,
+    )
+    return annotate_businesses_now(
+        runtime
     )
 
 
@@ -1524,6 +1543,12 @@ def search_real_businesses(
     )
     cached_businesses = cached.get("businesses") or []
     if cached.get("complete") is True and cached_businesses:
+        cached_businesses = annotate_businesses_now(
+            enrich_businesses_with_google_places(
+                cached_businesses,
+                api_key=google_places_api_key,
+            )
+        )
         matching = (
             match_businesses(mission, cached_businesses)
             if not quick_cards
@@ -1575,6 +1600,7 @@ def search_real_businesses(
             "needs_location_clarification": False,
             "reference_origin": None,
             "resolved_location_type": "cached",
+            "time_context": current_time_context(),
         }
 
     resolved_api_key = str(api_key or "").strip()
@@ -1895,10 +1921,16 @@ def search_real_businesses(
     )
 
     if quick_cards:
-        businesses = persist_businesses(
+        persisted = persist_businesses(
             kakao_businesses,
             mission,
             detail_refreshed=False,
+        )
+        businesses = annotate_businesses_now(
+            enrich_businesses_with_google_places(
+                persisted,
+                api_key=google_places_api_key,
+            )
         )
     else:
         businesses = enrich_place_businesses(
@@ -1907,6 +1939,7 @@ def search_real_businesses(
             naver_client_id=naver_client_id,
             naver_client_secret=naver_client_secret,
             openai_api_key=openai_api_key,
+            google_places_api_key=google_places_api_key,
         )
 
     naver_matched_count = sum(
@@ -2089,4 +2122,5 @@ def search_real_businesses(
             "실제 통화 기능이 연결되면 이 업체에 예약을 진행할까요?"
         ),
         "actions": ["예약하기", "다른 후보 보기", "여기까지"],
+        "time_context": current_time_context(),
     }
