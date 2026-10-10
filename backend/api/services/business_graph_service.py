@@ -52,6 +52,7 @@ FACT_TTLS = {
     "parking_available": timedelta(days=30),
     "prices": timedelta(days=7),
     "image_url": timedelta(days=30),
+    "verified_services": timedelta(days=14),
     "phone": timedelta(days=90),
     "address": timedelta(days=180),
 }
@@ -148,7 +149,12 @@ def _fact_payloads(business):
     payloads = {
         "address": business.get("address"),
         "phone": business.get("phone"),
-        "image_url": business.get("image_url"),
+        "image_url": (
+            business.get("image_url")
+            if business.get("image_identity_verified") is True
+            else None
+        ),
+        "verified_services": business.get("verified_services"),
     }
 
     naver = business.get("naver")
@@ -177,6 +183,8 @@ def _fact_source(business, key):
             return "openai_web"
     if key == "image_url":
         return _clean(business.get("image_source")) or "web"
+    if key == "verified_services":
+        return "identity_matched_web_with_sources"
     return _clean(business.get("source")) or "kakao"
 
 
@@ -253,6 +261,17 @@ def serialize_business(record, *, cache_hit=True):
         ).values_list("key", flat=True)
     )
 
+    naver = snapshot.get("naver")
+    naver = naver if isinstance(naver, dict) else {}
+    snapshot["araba_missing_facts"] = [
+        key for key, empty in {
+            "photo": not bool(snapshot.get("image_url")),
+            "opening_hours": not bool(naver.get("opening_hours")),
+            "parking": naver.get("parking_available") is None,
+            "prices": not bool(naver.get("prices")),
+            "phone": not bool(snapshot.get("phone")),
+        }.items() if empty
+    ]
     snapshot.update(
         {
             "araba_business_id": record.id,
