@@ -542,6 +542,32 @@ FOOD_PLACE_TERMS = {
     "밥집",
     "레스토랑",
 }
+
+STRICT_FOOD_TERMS = {
+    "피자",
+    "치킨",
+    "햄버거",
+    "버거",
+    "초밥",
+    "스시",
+    "파스타",
+    "족발",
+    "보쌈",
+    "곱창",
+    "막창",
+    "떡볶이",
+    "샌드위치",
+    "베이커리",
+    "빵",
+}
+
+GENERIC_FOOD_REQUEST_TERMS = {
+    "맛집",
+    "밥집",
+    "음식점",
+    "식당",
+    "레스토랑",
+}
 NON_SERVICE_CORRECTION_WORDS = {
     "오늘",
     "내일",
@@ -622,6 +648,89 @@ def _food_search_term(value):
     if text.endswith("집") and len(text) > 2:
         return text[:-1]
     return text
+
+
+def _explicit_specific_food_term(
+    request_text,
+):
+    _, current = _split_contextual_request(
+        request_text
+    )
+    text = str(current or "").strip()
+    compact = re.sub(r"\s+", "", text)
+
+    for term in sorted(
+        STRICT_FOOD_TERMS,
+        key=len,
+        reverse=True,
+    ):
+        if term in compact:
+            return term
+
+    matches = re.findall(
+        r"([가-힣A-Za-z]{2,12})집",
+        compact,
+    )
+    for raw in reversed(matches):
+        term = raw.strip()
+        if (
+            term
+            and term not in GENERIC_FOOD_REQUEST_TERMS
+            and not term.endswith(
+                ("치과", "병원", "카페", "학원")
+            )
+        ):
+            return term
+
+    return None
+
+
+def _apply_explicit_specific_food_term(
+    intent,
+    request_text,
+):
+    if not isinstance(intent, dict):
+        return intent
+    if intent.get("intent") != "place_search":
+        return intent
+
+    category = _clean_text(
+        intent.get("category")
+    )
+    subject = _clean_text(
+        intent.get("subject")
+    )
+    combined = " ".join(
+        value
+        for value in (category, subject)
+        if value
+    )
+    if (
+        category not in FOOD_PLACE_TERMS
+        and not any(
+            marker in combined
+            for marker in FOOD_PLACE_TERMS
+        )
+    ):
+        return intent
+
+    term = _explicit_specific_food_term(
+        request_text
+    )
+    if not term:
+        return intent
+
+    result = dict(intent)
+    result["category"] = "식당"
+    result["subject"] = (
+        subject
+        if subject
+        and term in subject
+        else f"{term}집"
+    )
+    result["search_terms"] = [term]
+    result["target_business"] = None
+    return result
 
 
 def _apply_spoken_self_correction(
@@ -753,21 +862,25 @@ def _create_intent_response(
     client,
     *,
     request_text,
+    structured=True,
 ):
-    return client.responses.create(
-        model=MISSION_MODEL,
-        instructions=INTENT_SYSTEM_PROMPT,
-        input=request_text,
-        max_output_tokens=900,
-        text={
+    kwargs = {
+        "model": MISSION_MODEL,
+        "instructions": INTENT_SYSTEM_PROMPT,
+        "input": request_text,
+        "max_output_tokens": 900,
+    }
+    if structured:
+        kwargs["text"] = {
             "format": {
                 "type": "json_schema",
                 "name": "araba_intent",
                 "schema": INTENT_OUTPUT_SCHEMA,
                 "strict": True,
             }
-        },
-    )
+        }
+
+    return client.responses.create(**kwargs)
 
 
 def _place_mission(intent):
@@ -1704,20 +1817,46 @@ def create_mission(
                 response.output_text
             )
         )
-        intent = _apply_spoken_self_correction(
-            intent,
-            request_text,
-        )
-        intent = _apply_proactive_clarification(
-            intent,
-        )
     except (
         json.JSONDecodeError,
         ValueError,
-    ) as exc:
-        raise ValueError(
-            "OpenAI가 Intent JSON을 올바르게 반환하지 않았습니다."
-        ) from exc
+    ):
+        diagnostics["intent_retry"] = "plain_json"
+        retry_started = monotonic()
+        try:
+            fallback_response = _create_intent_response(
+                client,
+                request_text=request_text,
+                structured=False,
+            )
+            intent = _normalize_intent(
+                _parse_intent_json(
+                    fallback_response.output_text
+                )
+            )
+        except (
+            json.JSONDecodeError,
+            ValueError,
+        ) as exc:
+            raise ValueError(
+                "OpenAI가 Intent JSON을 올바르게 반환하지 않았습니다."
+            ) from exc
+        finally:
+            diagnostics["intent_retry_elapsed_ms"] = round(
+                (monotonic() - retry_started) * 1000
+            )
+
+    intent = _apply_spoken_self_correction(
+        intent,
+        request_text,
+    )
+    intent = _apply_explicit_specific_food_term(
+        intent,
+        request_text,
+    )
+    intent = _apply_proactive_clarification(
+        intent,
+    )
 
     diagnostics["stage"] = "route_intent"
     diagnostics["route"] = intent["intent"]
