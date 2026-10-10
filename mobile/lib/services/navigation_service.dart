@@ -57,7 +57,6 @@ class NavigationRequest {
   static String _cleanPlace(String value) {
     return value
         .replaceAll(RegExp(r'^(?:지금\s+|출발지(?:는|가)?\s*[:：]?\s*)'), '')
-        .replaceAll(RegExp(r'(?:으로|로)?\s*(?:가(?:는|려면|는길)?|이동|안내|길찾기|길\s*알려).*$',), '')
         .replaceAll(RegExp(r'[\s,.!?]+$'), '')
         .trim();
   }
@@ -92,7 +91,7 @@ class NavigationRequest {
     String destination = '';
     String path = '';
     final startToEnd = RegExp(
-      r'(.+?)(?:에서|부터)\s+(.+?)(?:까지)(?=\s|$)',
+      r'(.+?)(?:에서|부터)\s+(.+?)(?:까지|(?:으)?로(?=\s*(?:가는|가|안내|길|이동)))(?=\s|$)',
     ).firstMatch(text);
 
     if (startToEnd != null) {
@@ -108,8 +107,7 @@ class NavigationRequest {
         path = labels.group(2)?.trim() ?? '';
       } else {
         final onlyDestination = RegExp(
-          r'^(?:지금\s+)?(.+?)(?:까지)\s*(?:가는|가|길|'
-          r'안내|네비|내비|어떻게|경로|$)',
+          r'^(?:지금\s+)?(.+?)\s*까지(?:\s|$)',
         ).firstMatch(text);
         if (onlyDestination == null) return null;
         path = onlyDestination.group(1)?.trim() ?? '';
