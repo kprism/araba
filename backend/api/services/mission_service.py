@@ -1826,6 +1826,22 @@ def _fast_recent_place_comparison(user_request):
             "예약 가능",
         )
 
+    if re.search(
+        (
+            r"(?:지금|현재|오늘)?(?:주문|배달|포장)"
+            r".*(?:가능|되는|돼|되나|받는|받아|할수)|"
+            r"(?:가능|되는|돼|되나).*(?:주문|배달|포장)"
+        ),
+        compact,
+    ):
+        add_fact("현재 주문 가능 여부")
+        add_criterion(
+            "availability",
+            "eq",
+            True,
+            "현재 주문 가능",
+        )
+
     if not criteria:
         return None
 
@@ -1845,6 +1861,17 @@ def _fast_recent_place_comparison(user_request):
         or "장소"
     )
     location = _clean_text(context.get("location"))
+    single_recent = (
+        recent[0]
+        if len(recent) == 1
+        and isinstance(recent[0], dict)
+        else None
+    )
+    single_name = (
+        _clean_text(single_recent.get("name"))
+        if single_recent
+        else None
+    )
 
     return {
         "title": current,
@@ -1857,10 +1884,11 @@ def _fast_recent_place_comparison(user_request):
         "direct_answer": None,
         "location": location,
         "location_explicit": False,
-        "subject": category,
-        "target_business": None,
+        "subject": single_name or category,
+        "target_business": single_name,
         "attributes": {
             "reuse_recent_results": True,
+            "reuse_recent_business_only": bool(single_name),
         },
         "constraints": [
             item["label"]
@@ -1878,8 +1906,12 @@ def _fast_recent_place_comparison(user_request):
         "ready_to_research": True,
         "user_goal": current,
         "decision_needed": (
-            "직전에 확인한 장소들만 대상으로 모든 필수 조건을 "
-            "교집합 판정해서 가장 적합한 곳을 고른다."
+            "직전에 확인한 한 업체의 현재 조건만 확인한다."
+            if single_name
+            else (
+                "직전에 확인한 장소들만 대상으로 모든 필수 조건을 "
+                "교집합 판정해서 가장 적합한 곳을 고른다."
+            )
         ),
         "known_facts": {
             "recent_result_count": len(recent),
