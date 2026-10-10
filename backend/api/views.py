@@ -38,6 +38,12 @@ def _request_naver_client_secret(request):
     ).strip()
 
 
+def _request_google_places_api_key(request):
+    return str(
+        request.headers.get("X-Google-Places-API-Key", "")
+    ).strip()
+
+
 @api_view(["GET"])
 def health(request):
     return Response(
@@ -153,7 +159,10 @@ def mission_create(request):
     try:
         user_request = str(request.data.get("request", "")).strip()
         mission = create_mission(
-            user_request, _request_api_key(request), diagnostics=diagnostics,
+            user_request,
+            _request_api_key(request),
+            diagnostics=diagnostics,
+            device_context=request.data.get("device_context"),
         )
         diagnostics["stage"] = "complete"
         return finish({"ok": True, "mission": mission}, 200)
@@ -463,6 +472,7 @@ def research_enrich(request):
         naver_client_id=_request_naver_client_id(request),
         naver_client_secret=_request_naver_client_secret(request),
         openai_api_key=_request_api_key(request),
+        google_places_api_key=_request_google_places_api_key(request),
         gpt_direct=True,
     )
     matching = match_businesses(
@@ -530,6 +540,7 @@ def research_search(request):
             naver_client_id=_request_naver_client_id(request),
             naver_client_secret=_request_naver_client_secret(request),
             openai_api_key=_request_api_key(request),
+            google_places_api_key=_request_google_places_api_key(request),
             quick_cards=request.data.get("quick_cards") is True,
         )
         return Response(
