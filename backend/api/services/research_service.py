@@ -1641,7 +1641,25 @@ def search_real_businesses(
         or ""
     ).strip()
 
-    if location_type == "reference_point":
+    if location_type == "device_location":
+        try:
+            device_latitude = float(
+                location_context.get("latitude")
+            )
+            device_longitude = float(
+                location_context.get("longitude")
+            )
+        except (TypeError, ValueError):
+            reference_origin = None
+        else:
+            reference_origin = {
+                "label": "현재 위치",
+                "latitude": str(device_latitude),
+                "longitude": str(device_longitude),
+                "source": "device_location",
+                "accuracy": "device_location",
+            }
+    elif location_type == "reference_point":
         reference_origin = (
             _resolve_reference_point_origin(
                 location_value,
@@ -1689,7 +1707,7 @@ def search_real_businesses(
     if (
         reference_origin
         and reference_origin.get("accuracy")
-        == "place_reference"
+        in {"place_reference", "device_location"}
     ):
         resolved_location_type = "reference_point"
 
