@@ -16,6 +16,9 @@ from .business_matching_service import match_businesses
 from .google_places_service import (
     enrich_businesses_with_google_places,
 )
+from .image_identity_service import (
+    enforce_business_images,
+)
 from .temporal_service import (
     annotate_businesses_now,
     current_time_context,
@@ -1424,6 +1427,9 @@ def enrich_place_businesses(
                 safe,
                 api_key=google_places_api_key,
             )
+            runtime = enforce_business_images(
+                runtime
+            )
             return annotate_businesses_now(
                 runtime
             )
@@ -1461,6 +1467,9 @@ def enrich_place_businesses(
         runtime = enrich_businesses_with_google_places(
             combined,
             api_key=google_places_api_key,
+        )
+        runtime = enforce_business_images(
+            runtime
         )
         return annotate_businesses_now(
             runtime
@@ -1519,6 +1528,9 @@ def enrich_place_businesses(
         persisted,
         api_key=google_places_api_key,
     )
+    runtime = enforce_business_images(
+        runtime
+    )
     return annotate_businesses_now(
         runtime
     )
@@ -1543,11 +1555,14 @@ def search_real_businesses(
     )
     cached_businesses = cached.get("businesses") or []
     if cached.get("complete") is True and cached_businesses:
-        cached_businesses = annotate_businesses_now(
+        cached_businesses = enforce_business_images(
             enrich_businesses_with_google_places(
                 cached_businesses,
                 api_key=google_places_api_key,
             )
+        )
+        cached_businesses = annotate_businesses_now(
+            cached_businesses
         )
         matching = (
             match_businesses(mission, cached_businesses)
@@ -1944,11 +1959,14 @@ def search_real_businesses(
             mission,
             detail_refreshed=False,
         )
-        businesses = annotate_businesses_now(
+        businesses = enforce_business_images(
             enrich_businesses_with_google_places(
                 persisted,
                 api_key=google_places_api_key,
             )
+        )
+        businesses = annotate_businesses_now(
+            businesses
         )
     else:
         businesses = enrich_place_businesses(
