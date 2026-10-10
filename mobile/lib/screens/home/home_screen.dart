@@ -1202,11 +1202,18 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _runRealResearch(
-    Map<String, dynamic> mission,
-  ) async {
+    Map<String, dynamic> mission, {
+    bool forceComplete = false,
+  }) async {
     final researchRevision = ++_researchRevision;
     _startResearchProgress();
-    final quickCards = !_isDetailFollowUp(mission);
+    // Required conditions must be checked before a confirmed recommendation.
+    final rawCriteria = mission['criteria'];
+    final hasRequiredCriteria = rawCriteria is List &&
+        rawCriteria.any((item) =>
+            item is Map && item['required'] != false);
+    final quickCards = !forceComplete &&
+        !hasRequiredCriteria && !_isDetailFollowUp(mission);
 
     try {
       if (_isRecentPlaceComparison(mission)) {
@@ -1291,7 +1298,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (quickCards) {
         final messageIndex = _messages.length;
         _addAssistantMessage(
-          text: '조건에 맞는 업체 ${businesses.length}곳을 찾았어요. '
+          text: '지역·업종이 일치하는 후보 ${businesses.length}곳을 찾았어요. '
               '기본 카드를 먼저 보여드리고, '
               '사진·영업시간·주차·가격을 추가 확인하고 있어요.',
           badge: '상세정보 확인 중',
@@ -1936,6 +1943,18 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
+    if (_isPhotoEvidenceQuestion(text) && _lastBusinesses.isNotEmpty) {
+      setState(() {
+        _messages.add(_Message(isUser: true, text: text));
+        _messages.add(_Message(
+          isUser: false,
+          text: _photoEvidenceAnswer(),
+          badge: '사진 출처 검사',
+        ));
+      });
+      _toBottom();
+      return;
+    }
     await _requestMission(
       displayText: text,
       requestText: text,
@@ -1974,6 +1993,41 @@ class _HomeScreenState extends State<HomeScreen>
       r'지금있는곳|지금여기|'
       r'가까운곳|가까운업체|가까운가게',
     ).hasMatch(compact);
+  }
+
+
+  bool _isPhotoEvidenceQuestion(String text) {
+    final compact = text.replaceAll(RegExp(r'\s+'), '');
+    return RegExp(r'사진|이미지|대표사진').hasMatch(compact) &&
+        RegExp(r'출처|근거|실제|맞는사진|어디서').hasMatch(compact);
+  }
+
+  String _photoEvidenceAnswer() {
+    if (_lastBusinesses.isEmpty) {
+      return '출처를 확인할 업체 결과가 없어요. 먼저 업체를 찾아주세요.';
+    }
+    final lines = <String>[];
+    for (final business in _lastBusinesses) {
+      final name = business['name']?.toString().trim() ?? '업체';
+      final url = business['image_url']?.toString().trim() ?? '';
+      final source = business['image_source']?.toString().trim() ?? '';
+      final verified = business['image_identity_verified'] == true ||
+          source == 'kakao_place' ||
+          source == 'naver_place' ||
+          source == 'business_official';
+      if (url.isEmpty || !verified) {
+        lines.add('• $name: 업체 사진 미확인 (검증된 사진 출처 없음)');
+        continue;
+      }
+      final evidence = business['image_source_url']?.toString().trim() ??
+          business['place_url']?.toString().trim() ?? '';
+      lines.add('• $name: 사진 제공처 $source' +
+          (evidence.isEmpty ? ' (원본 링크 미제공)' : '\n  확인 링크: $evidence'));
+    }
+    return '현재 카드에 연결된 사진의 검증 상태입니다.\n'
+        '${lines.join('\n')}\n'
+        '사진이 없는 업체는 실제 사진임을 검증할 근거가 없어 숨겼습니다. '
+        '이 결과를 사진 검증 완료로 표시하지 않습니다.';
   }
 
   Future<void> _requestMission({
