@@ -1059,7 +1059,9 @@ class _HomeScreenState extends State<HomeScreen>
               )
             : (
                 anyDetails
-                    ? '상세정보 보강 완료'
+                    ? (photos == total
+                        ? '상세정보 보강 완료'
+                        : '상세정보 일부 확인 · 사진 미확인')
                     : '상세정보 추가 확인 필요'
               );
         final decisionText = hasCriteria
