@@ -2075,46 +2075,69 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (!mounted) return;
 
-      final mission = result['mission'];
-      if (mission is! Map<String, dynamic>) {
+      final rawMissions = result['missions'];
+      final missions = rawMissions is List
+          ? rawMissions
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+          : <Map<String, dynamic>>[
+              if (result['mission'] is Map)
+                Map<String, dynamic>.from(result['mission'] as Map),
+            ];
+      if (missions.isEmpty) {
         throw const ArabaApiException(
-          '서버 응답 형식이 올바르지 않아요.',
+          '서버가 실행할 요청을 반환하지 않았어요.',
         );
       }
 
-      _conversationContext.rememberMission(mission);
-      final clarifications = _clarifications(mission);
-
-      final responseMode =
-          mission['response_mode']?.toString().trim() ?? '';
-
-      if (clarifications.isNotEmpty || responseMode == 'clarify') {
-        setState(() {
-          _messages.add(
-            _Message(
-              isUser: false,
-              text: _reply(mission),
-              mission: mission,
-              requestContext: contextualRequest,
-            ),
+      for (var index = 0; index < missions.length; index++) {
+        if (!mounted) return;
+        final mission = missions[index];
+        _conversationContext.rememberMission(mission);
+        if (missions.length > 1) {
+          _addAssistantMessage(
+            text: '요청 ${index + 1}/${missions.length}: '
+                '${mission['summary'] ?? mission['title'] ?? '개별 요청'}',
+            badge: '복수 요청 처리',
           );
-        });
-      } else if (
-          responseMode == 'research' ||
-          mission['ready_to_research'] == true) {
-        setState(() => _sending = false);
-        await _runRealResearch(mission);
-      } else {
-        setState(() {
-          _messages.add(
-            _Message(
-              isUser: false,
-              text: _reply(mission),
-              mission: mission,
-              requestContext: contextualRequest,
-            ),
+        }
+        final clarifications = _clarifications(mission);
+        final responseMode =
+            mission['response_mode']?.toString().trim() ?? '';
+
+        if (clarifications.isNotEmpty || responseMode == 'clarify') {
+          setState(() {
+            _messages.add(
+              _Message(
+                isUser: false,
+                text: _reply(mission),
+                mission: mission,
+                requestContext: contextualRequest,
+              ),
+            );
+          });
+        } else if (responseMode == 'research' ||
+            mission['ready_to_research'] == true) {
+          if (missions.length == 1) {
+            setState(() => _sending = false);
+          }
+          await _runRealResearch(
+            mission,
+            forceComplete: missions.length > 1,
           );
-        });
+        } else {
+          setState(() {
+            _messages.add(
+              _Message(
+                isUser: false,
+                text: _reply(mission),
+                mission: mission,
+                requestContext: contextualRequest,
+              ),
+            );
+          });
+        }
       }
     } catch (error) {
       if (!mounted) return;
