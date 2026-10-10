@@ -1100,6 +1100,100 @@ class _MyScreenState extends State<MyScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
+                        'Google Places API',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _maskedGooglePlacesKey == null
+                            ? '등록된 Google Places API Key가 없습니다.'
+                            : '등록된 Key: $_maskedGooglePlacesKey',
+                        style: const TextStyle(
+                          color: Color(0xFF667085),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        '동일 업체를 상호·주소로 재검증한 뒤 사진, 현재 영업시간, '
+                        '배달·포장·예약 지원 여부를 보강합니다. 업체 신원이 맞지 않으면 사진을 사용하지 않습니다.',
+                        style: TextStyle(
+                          color: Color(0xFF98A2B3),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _googlePlacesKeyController,
+                        obscureText: true,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Google Places API Key',
+                          hintText: 'Google Cloud Places API (New) 키',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _googlePlacesSaving
+                              ? null
+                              : _saveGooglePlacesKey,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 13,
+                            ),
+                            child: _googlePlacesSaving
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    _googlePlacesConfigured
+                                        ? 'Google Places Key 교체'
+                                        : 'Google Places Key 저장',
+                                  ),
+                          ),
+                        ),
+                      ),
+                      if (_googlePlacesConfigured) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _googlePlacesSaving
+                                ? null
+                                : _deleteGooglePlacesKey,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            label: const Text('Google Places Key 등록 해제'),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFEAECF0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
                         'Naver Search API',
                         style: TextStyle(
                           fontSize: 18,
