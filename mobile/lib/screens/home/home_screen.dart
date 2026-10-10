@@ -42,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _appInForeground = true;
   bool _autoReconnectingLive = false;
   List<Map<String, dynamic>> _lastBusinesses = const [];
+  final List<Map<String, dynamic>> _recentBusinessGroups = [];
 
   final List<_Message> _messages = [
     _Message(
@@ -1029,11 +1030,7 @@ class _HomeScreenState extends State<HomeScreen>
       final remembered = updated.isNotEmpty
           ? updated
           : initialBusinesses;
-      _lastBusinesses = remembered;
-      _conversationContext.rememberBusinessResults(
-        mission,
-        remembered,
-      );
+      _rememberBusinessGroup(mission, remembered);
 
       final detailStatus = anyDetails
           ? '각 카드에 확인된 정보를 반영했어요.'
@@ -1095,11 +1092,67 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+
+  void _rememberBusinessGroup(
+    Map<String, dynamic> mission,
+    List<Map<String, dynamic>> businesses,
+  ) {
+    _lastBusinesses = businesses;
+    _conversationContext.rememberBusinessResults(mission, businesses);
+    if (businesses.isEmpty) return;
+    final category = mission['category']?.toString().trim() ?? '';
+    final subject = mission['subject']?.toString().trim() ?? '';
+    final location = mission['location']?.toString().trim() ?? '';
+    _recentBusinessGroups.removeWhere((group) =>
+        group['category'] == category &&
+        group['subject'] == subject &&
+        group['location'] == location);
+    _recentBusinessGroups.insert(0, {
+      'category': category,
+      'subject': subject,
+      'location': location,
+      'businesses': businesses
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(),
+    });
+    if (_recentBusinessGroups.length > 3) {
+      _recentBusinessGroups.removeRange(
+        3, _recentBusinessGroups.length);
+    }
+  }
+
+  List<Map<String, dynamic>> _comparisonCandidates(
+      Map<String, dynamic> mission) {
+    final request =
+        (mission['user_goal'] ?? mission['summary'] ?? '')
+            .toString().replaceAll(RegExp(r'\s+'), '');
+    if (RegExp(r'아까|이전에|전에찾은|처음찾은').hasMatch(request)) {
+      for (final group in _recentBusinessGroups) {
+        final subject =
+            group['subject']?.toString().replaceAll(' ', '') ?? '';
+        final category =
+            group['category']?.toString().replaceAll(' ', '') ?? '';
+        final specific = subject.length >= 2 ? subject : category;
+        if (specific.length < 2 || !request.contains(specific)) {
+          continue;
+        }
+        final saved = group['businesses'];
+        if (saved is List) {
+          return saved
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
+        }
+      }
+    }
+    return _lastBusinesses;
+  }
+
   // Reuse the visible result set for contextual comparison follow-ups.
   bool _isRecentPlaceComparison(
     Map<String, dynamic> mission,
   ) {
-    if (_lastBusinesses.isEmpty) return false;
+    if (_comparisonCandidates(mission).isEmpty) return false;
     final mode =
         mission['search_mode']?.toString().trim() ?? '';
     final attributes = mission['attributes'];
@@ -1112,7 +1165,7 @@ class _HomeScreenState extends State<HomeScreen>
     Map<String, dynamic> mission,
     int revision,
   ) async {
-    final candidates = _lastBusinesses
+    final candidates = _comparisonCandidates(mission)
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
 
@@ -1168,11 +1221,7 @@ class _HomeScreenState extends State<HomeScreen>
     final remembered = selected.isNotEmpty
         ? selected
         : candidates;
-    _lastBusinesses = remembered;
-    _conversationContext.rememberBusinessResults(
-      mission,
-      remembered,
-    );
+    _rememberBusinessGroup(mission, remembered);
 
     if (selected.length == 1) {
       _conversationContext.rememberBusiness(
@@ -1286,11 +1335,7 @@ class _HomeScreenState extends State<HomeScreen>
           businesses.first,
         );
       }
-      _conversationContext.rememberBusinessResults(
-        mission,
-        businesses,
-      );
-      _lastBusinesses = businesses;
+      _rememberBusinessGroup(mission, businesses);
 
       if (businesses.isEmpty) {
         const noResult =
