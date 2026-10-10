@@ -3279,7 +3279,7 @@ class _BusinessCards extends StatelessWidget {
     );
 
     return SizedBox(
-      height: hasMock ? 590 : 572,
+      height: hasMock ? 620 : 600,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: businesses.length,
