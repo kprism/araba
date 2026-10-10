@@ -97,6 +97,190 @@ def _place_identity_text(value):
     ).replace("특례", "").lower()
 
 
+def _edit_distance(left, right):
+    a = str(left or "")
+    b = str(right or "")
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+
+    previous = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, start=1):
+        current = [i]
+        for j, char_b in enumerate(b, start=1):
+            current.append(
+                min(
+                    current[-1] + 1,
+                    previous[j] + 1,
+                    previous[j - 1]
+                    + (0 if char_a == char_b else 1),
+                )
+            )
+        previous = current
+    return previous[-1]
+
+
+def _administrative_tokens(value):
+    raw_tokens = re.findall(
+        r"[가-힣]+",
+        str(value or ""),
+    )
+    suffixes = (
+        "특별시",
+        "광역시",
+        "특별자치시",
+        "특별자치도",
+        "도",
+        "시",
+        "군",
+        "구",
+        "읍",
+        "면",
+        "동",
+        "리",
+    )
+    return [
+        token
+        for token in raw_tokens
+        if token.endswith(suffixes)
+    ]
+
+
+def _fuzzy_admin_document_match(query, document):
+    query_tokens = _administrative_tokens(query)
+    if not query_tokens:
+        return None
+
+    address_text = " ".join(
+        [
+            str(document.get("address_name") or ""),
+            str(document.get("road_address_name") or ""),
+        ]
+    ).strip()
+    address_tokens = _administrative_tokens(
+        address_text
+    )
+    if not address_tokens:
+        return None
+
+    query_leaf = query_tokens[-1]
+    address_leaf_candidates = [
+        token
+        for token in address_tokens
+        if token.endswith(
+            ("읍", "면", "동", "리")
+        )
+    ]
+    if not address_leaf_candidates:
+        return None
+
+    parent_query = query_tokens[:-1]
+    parent_haystack = set(address_tokens)
+    if parent_query and not all(
+        token in parent_haystack
+        for token in parent_query
+    ):
+        return None
+
+    best_leaf = min(
+        address_leaf_candidates,
+        key=lambda token: _edit_distance(
+            query_leaf,
+            token,
+        ),
+    )
+    if _edit_distance(
+        query_leaf,
+        best_leaf,
+    ) > 1:
+        return None
+
+    corrected_tokens = []
+    for token in address_tokens:
+        if token not in corrected_tokens:
+            corrected_tokens.append(token)
+
+    return {
+        "label": " ".join(corrected_tokens),
+        "leaf": best_leaf,
+    }
+
+
+def _resolve_fuzzy_admin_origin(
+    location,
+    api_key,
+):
+    query = " ".join(
+        str(location or "").split()
+    ).strip()
+    if not query:
+        return None
+
+    query_tokens = _administrative_tokens(query)
+    if not query_tokens:
+        return None
+
+    try:
+        response = httpx.get(
+            KAKAO_LOCAL_SEARCH_URL,
+            headers={
+                "Authorization": f"KakaoAK {api_key}",
+            },
+            params={
+                "query": query,
+                "size": 5,
+            },
+            timeout=httpx.Timeout(
+                3.0,
+                connect=1.5,
+            ),
+        )
+    except httpx.HTTPError:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    payload = response.json()
+    documents = payload.get("documents", [])
+    if not isinstance(documents, list):
+        return None
+
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        fuzzy = _fuzzy_admin_document_match(
+            query,
+            document,
+        )
+        if fuzzy is None:
+            continue
+
+        latitude = str(
+            document.get("y") or ""
+        ).strip()
+        longitude = str(
+            document.get("x") or ""
+        ).strip()
+        if not latitude or not longitude:
+            continue
+
+        return {
+            "label": fuzzy["label"],
+            "latitude": latitude,
+            "longitude": longitude,
+            "source": "fuzzy_admin_recovery",
+            "accuracy": "region_reference",
+            "spoken_location": query,
+            "corrected_leaf": fuzzy["leaf"],
+        }
+
+    return None
+
+
 def _resolve_reference_point_origin(
     reference_point,
     api_key,
@@ -317,6 +501,16 @@ def _resolve_location_origin(location, api_key):
             "source": "user_search_region",
             "accuracy": "region_reference",
         }
+
+    # 음성인식에서 행정동 한 글자가 비슷하게 잘못 들어온 경우
+    # 상위 시/구가 일치하고 하위 읍/면/동/리가 한 글자 차이면
+    # Kakao 결과의 실제 주소로 안전하게 교정한다.
+    fuzzy_admin = _resolve_fuzzy_admin_origin(
+        normalized,
+        api_key,
+    )
+    if fuzzy_admin is not None:
+        return fuzzy_admin
 
     # 주소가 아니었던 문자열은 장소명일 수 있다.
     # Mission 분류가 administrative_area로 잘못 와도
@@ -772,6 +966,19 @@ def _mission_keywords(mission):
             ):
                 continue
             keywords.append(token)
+            for suffix in (
+                "전문점",
+                "가게",
+                "매장",
+                "집",
+            ):
+                if token.endswith(suffix):
+                    base = token[: -len(suffix)].strip()
+                    if (
+                        len(base) >= 2
+                        and base not in keywords
+                    ):
+                        keywords.append(base)
 
     # "자동차 타이어"처럼 넓은 category 단어와
     # 구체 서비스 단어가 같이 들어오면 구체 단어를 우선한다.
@@ -867,12 +1074,6 @@ def _matches_mission(document, mission):
         ]
     )
 
-    if _matches_kakao_category_group(
-        document,
-        keywords,
-    ):
-        return True
-
     category_keywords = [
         token
         for token in re.findall(
@@ -883,12 +1084,60 @@ def _matches_mission(document, mission):
         )
         if token
     ]
+    specific_keywords = [
+        keyword
+        for keyword in keywords
+        if keyword not in category_keywords
+    ]
+
+    # 구체 검색어가 업체명/세부 카테고리에 직접 보이면 가장 강한 근거다.
+    if specific_keywords and any(
+        keyword in haystack
+        for keyword in specific_keywords
+    ):
+        return True
+
+    if specific_keywords:
+        group_code = str(
+            document.get("category_group_code") or ""
+        ).strip()
+        category_text = str(
+            document.get("category_name") or ""
+        ).lower()
+
+        # Kakao가 "국밥" 검색으로 일반 한식 카테고리 업체를 상위에
+        # 돌려주는 경우는 검색 랭킹 신호를 유지한다. 다만 "피자집"
+        # 요청에 술집/주점/호프가 섞이는 식의 명백한 업종 충돌은 제거한다.
+        if group_code == "FD6":
+            incompatible_food_venue_markers = (
+                "술집",
+                "주점",
+                "호프",
+                "맥주",
+                "와인바",
+                "칵테일바",
+                "bar",
+            )
+            if any(
+                marker in category_text
+                for marker in incompatible_food_venue_markers
+            ):
+                return False
+            return True
+
+        # 음식 외의 구체 서비스 검색은 상위 업종 코드만으로 통과시키지 않는다.
+        return False
+
+    if _matches_kakao_category_group(
+        document,
+        keywords,
+    ):
+        return True
+
     if _matches_kakao_category_group(
         document,
         category_keywords,
     ):
-        # Kakao의 구체 텍스트검색 결과가 실제 기본 업종과 일치하면
-        # 상세 category_name에 "국밥" 같은 단어가 없어도 버리지 않는다.
         return True
 
     return any(
