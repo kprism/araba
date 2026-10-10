@@ -43,6 +43,18 @@ void main() {
       expect(result?.destination, '북면고등학교');
     });
 
+    test('destination only with go-to wording', () {
+      expect(
+        NavigationRequest.tryParse('부산역으로 안내해줘')?.destination,
+        '부산역',
+      );
+      expect(
+        NavigationRequest.tryParse('북면고등학교 가는 길 알려줘')
+            ?.destination,
+        '북면고등학교',
+      );
+    });
+
     test('specific origin to transit destination', () {
       final result = NavigationRequest.tryParse(
         '서울역에서 인천공항까지 대중교통으로 가는 길 찾아줘',
