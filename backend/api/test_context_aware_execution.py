@@ -736,3 +736,47 @@ class RegressionFamiliesTests(TestCase):
             mismatch["kakao_photo_status"],
             "identity_not_confirmed",
         )
+
+
+    def test_mission_api_returns_all_independent_tasks(self):
+        from rest_framework.test import APIRequestFactory
+        from api.views import mission_create
+
+        request = APIRequestFactory().post(
+            "/api/mission",
+            {
+                "request": (
+                    "창원시 중동 치과 3곳 찾아주고, "
+                    "창원시청 주변 식당 3곳 찾아줘"
+                )
+            },
+            format="json",
+        )
+
+        def fake_mission(text, api_key, **kwargs):
+            return {
+                "intent": "place_search",
+                "summary": text,
+                "response_mode": "research",
+                "ready_to_research": True,
+            }
+
+        with patch(
+            "api.services.mission_service.create_mission",
+            side_effect=fake_mission,
+        ), patch(
+            "api.views._request_api_key",
+            return_value="fake-key",
+        ):
+            response = mission_create(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["missions"]), 2)
+        self.assertIn(
+            "치과",
+            response.data["missions"][0]["summary"],
+        )
+        self.assertIn(
+            "식당",
+            response.data["missions"][1]["summary"],
+        )
