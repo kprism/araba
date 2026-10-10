@@ -102,18 +102,25 @@ def _sanitize_business_image(value):
         result.get("image_source")
     )
 
-    if (
-        image_url
-        and image_source
-        not in TRUSTED_IMAGE_SOURCES
+    if image_url and (
+        image_source not in TRUSTED_IMAGE_SOURCES
+        or result.get("image_identity_verified") is not True
     ):
         for key in (
             "image_url",
             "image_source",
             "image_source_url",
             "image_caption",
+            "image_attributions",
         ):
             result.pop(key, None)
+        image_url = ""
+
+    # Never persist a proof-of-identity flag without its verified image.
+    # A transient Google photoUri is runtime-only and cannot validate some
+    # different, later image introduced through an unrelated provider.
+    if not image_url:
+        result["image_identity_verified"] = False
 
     return result
 
