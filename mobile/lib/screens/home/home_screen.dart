@@ -2087,8 +2087,10 @@ class _HomeScreenState extends State<HomeScreen>
       }
       final evidence = business['image_source_url']?.toString().trim() ??
           business['place_url']?.toString().trim() ?? '';
-      lines.add('• $name: 사진 제공처 $source' +
-          (evidence.isEmpty ? ' (원본 링크 미제공)' : '\n  확인 링크: $evidence'));
+      final citation = evidence.isEmpty
+          ? ' (원본 링크 미제공)'
+          : '\n  확인 링크: $evidence';
+      lines.add('• $name: 사진 제공처 $source$citation');
     }
     return '현재 카드에 연결된 사진의 검증 상태입니다.\n'
         '${lines.join('\n')}\n'
