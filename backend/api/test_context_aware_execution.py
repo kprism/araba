@@ -674,3 +674,65 @@ class RegressionFamiliesTests(TestCase):
             origin,
             3,
         ))
+
+
+    def test_last_spoken_location_correction_overrides_bad_recognition(self):
+        from api.services.mission_service import (
+            _apply_latest_spoken_location_correction,
+        )
+
+        intent = {
+            "intent": "place_search",
+            "location": {
+                "value": "성원시 의청구 중동",
+                "type": "administrative_area",
+                "explicit": True,
+            },
+            "attributes": {"reuse_recent_results": True},
+            "target_business": "지난 가게",
+        }
+        corrected = _apply_latest_spoken_location_correction(
+            intent,
+            "성원시 의청구 중동에 치과 찾아줘. "
+            "잠깐 성원시가 아니고 창원시 의창구 중동이야",
+        )
+        self.assertEqual(
+            corrected["location"]["value"],
+            "창원시 의창구 중동",
+        )
+        self.assertTrue(corrected["location"]["explicit"])
+        self.assertNotIn("reuse_recent_results", corrected["attributes"])
+
+    @patch("api.services.kakao_place_service.inspect_kakao_place_page")
+    def test_kakao_photo_requires_exact_id(self, inspect):
+        from api.services.kakao_place_service import _enrich_one_business
+
+        inspect.return_value = {
+            "checked": True,
+            "image_url": "https://t1.daumcdn.net/real.jpg",
+            "source_url": "https://place.map.kakao.com/12345",
+        }
+        result = _enrich_one_business({
+            "id": "12345",
+            "name": "정확한 치과",
+            "place_url": "https://place.map.kakao.com/12345",
+        })
+        self.assertTrue(result["image_identity_verified"])
+        self.assertEqual(
+            result["image_source_url"],
+            "https://place.map.kakao.com/12345",
+        )
+
+        inspect.return_value["source_url"] = (
+            "https://place.map.kakao.com/99999"
+        )
+        mismatch = _enrich_one_business({
+            "id": "12345",
+            "name": "다른 치과",
+            "place_url": "https://place.map.kakao.com/12345",
+        })
+        self.assertFalse(bool(mismatch.get("image_url")))
+        self.assertEqual(
+            mismatch["kakao_photo_status"],
+            "identity_not_confirmed",
+        )
