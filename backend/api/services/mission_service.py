@@ -93,6 +93,12 @@ INTENT_SYSTEM_PROMPT = """
     "아까 치과", "아까 미용실" 같은 후속표현을 해당 결과의 실제 상호명으로 해석한다.
     특정 순번이나 한 업체의 주소·전화·영업시간·주차·가격 등을 묻는 경우
     intent=place_detail로 하고 target_business에는 문맥에 있는 정확한 상호명을 넣는다.
+    또한 직전 장소 결과 직후 사용자가 새 지역·새 업종을 제시하지 않고
+    "토요일에도 가능?", "주차되는 곳?", "8시까지 하는 데?", "가장 싼 곳?"
+    처럼 조건을 추가하면 새 업체검색이 아니라 직전 결과 집합을 그대로 대상으로 삼는다.
+    이 경우 attributes.reuse_recent_results=true로 두고, 새 조건만 필요한 사실을 조사한다.
+    사용자가 "다른 곳", "새로 찾아", "더 찾아", "범위를 넓혀"라고 명시한 경우에만
+    직전 결과 범위를 벗어나 새 후보를 찾는다.
 14. 사용자가 새 업종을 말하면 recent_place_results의 직전 업종에 끌려가지 않는다.
 15. "거기 아니고 X", "X 말고 Y", "지역은 Y야", "아니, Y에서"처럼 사용자가 장소나 지역을 정정하면 이전 위치를 폐기하고 정정한 위치를 현재 요청의 location으로 사용한다. 정정된 위치는 explicit=true로 처리하고, 직전 검색 결과를 재사용하지 말고 새 위치에서 다시 조사한다.
 16. 한 발화 안에서 사용자가 말을 고친 경우 마지막 정정이 최종 의도다. "쌈밥이 아니고 국밥집"이면 쌈밥은 완전히 버리고 category="식당", subject="국밥집", search_terms=["국밥"]처럼 구조화한다. "치과 말고 피부과"면 치과를 버리고 피부과만 남긴다. 부정되거나 취소된 단어를 category, subject, search_terms, constraints에 남기지 않는다.
@@ -176,6 +182,7 @@ INTENT_OUTPUT_SCHEMA = {
                             "parking_available",
                             "closing_time",
                             "opening_time",
+                            "opening_day",
                             "price",
                             "distance_m",
                             "availability",
@@ -1216,6 +1223,70 @@ def _has_conflicting_place_category(
     )
 
 
+DAY_NAMES = (
+    "월요일",
+    "화요일",
+    "수요일",
+    "목요일",
+    "금요일",
+    "토요일",
+    "일요일",
+)
+
+
+def _explicit_new_location_in_followup(
+    current,
+    existing_location,
+):
+    text = str(current or "").strip()
+    compact = re.sub(r"\s+", "", text)
+    existing = re.sub(
+        r"\s+",
+        "",
+        str(existing_location or ""),
+    )
+
+    candidates = re.findall(
+        (
+            r"([가-힣]{2,}(?:특별시|광역시|특별자치시|특별자치도|도|시|군|구|동|읍|면|리))"
+            r"(?=에서|에|근처|주변|쪽)"
+        ),
+        compact,
+    )
+    simple_city = re.search(
+        (
+            r"(서울|부산|대구|인천|광주|대전|울산|세종|제주|수원|창원)"
+            r"(?=에서|에|근처|주변|쪽)"
+        ),
+        compact,
+    )
+    if simple_city:
+        candidates.append(simple_city.group(1))
+
+    return any(
+        candidate
+        and candidate not in existing
+        for candidate in candidates
+    )
+
+
+def _explicit_scope_expansion(current):
+    compact = re.sub(
+        r"\s+",
+        "",
+        str(current or ""),
+    )
+    return bool(
+        re.search(
+            (
+                r"다른곳|다른업체|새로찾|새로운곳|추가로찾|더찾아|"
+                r"더찾아봐|범위.*넓|후보.*추가|다른데도"
+            ),
+            compact,
+        )
+    )
+
+
 def _fast_recent_place_comparison(user_request):
     context, current = _split_contextual_request(
         user_request
@@ -1237,10 +1308,12 @@ def _fast_recent_place_comparison(user_request):
         ),
         compact,
     )
-    if not followup_scope:
-        return None
 
-    if "말고" in compact or "대신" in compact:
+    if (
+        "말고" in compact
+        or "대신" in compact
+        or _explicit_scope_expansion(current)
+    ):
         return None
 
     existing_category = _clean_text(
@@ -1252,9 +1325,41 @@ def _fast_recent_place_comparison(user_request):
     ):
         return None
 
+    existing_location = _clean_text(
+        context.get("location")
+    )
+    if _explicit_new_location_in_followup(
+        current,
+        existing_location,
+    ):
+        return None
+
     criteria = []
     facts = []
     comparison = "criteria_filter"
+
+    previous_criteria = context.get("criteria")
+    if isinstance(previous_criteria, list):
+        for item in previous_criteria:
+            if not isinstance(item, dict):
+                continue
+            field = str(item.get("field") or "").strip()
+            operator = str(item.get("operator") or "eq").strip()
+            if not field:
+                continue
+            criteria.append(
+                {
+                    "id": f"c{len(criteria) + 1}",
+                    "field": field,
+                    "operator": operator,
+                    "value": item.get("value"),
+                    "required": item.get("required") is not False,
+                    "label": (
+                        str(item.get("label") or field).strip()
+                        or field
+                    ),
+                }
+            )
 
     def add_fact(value):
         if value not in facts:
@@ -1344,6 +1449,20 @@ def _fast_recent_place_comparison(user_request):
             "가장 저렴한 곳",
         )
 
+    day_match = re.search(
+        r"(월요일|화요일|수요일|목요일|금요일|토요일|일요일)",
+        compact,
+    )
+    if day_match:
+        target_day = day_match.group(1)
+        add_fact("영업시간")
+        add_criterion(
+            "opening_day",
+            "eq",
+            target_day,
+            f"{target_day} 영업",
+        )
+
     time_match = re.search(
         r"(새벽|오전|낮|오후|저녁|밤)?"
         r"(\d{1,2})시(?:이후|넘어서|넘게|까지)",
@@ -1428,6 +1547,17 @@ def _fast_recent_place_comparison(user_request):
     if not criteria:
         return None
 
+    # 명시적으로 "그중"이라고 하지 않아도 직전 결과 직후 새 조건만
+    # 덧붙인 경우에는 같은 후보 집합의 후속 판정으로 본다.
+    if not followup_scope:
+        newly_added_count = len(criteria) - (
+            len(previous_criteria)
+            if isinstance(previous_criteria, list)
+            else 0
+        )
+        if newly_added_count <= 0:
+            return None
+
     category = (
         _clean_text(context.get("category"))
         or "장소"
@@ -1504,7 +1634,7 @@ def _fast_recent_place_comparison(user_request):
             "requested_facts": facts,
             "criteria": criteria,
         },
-        "brain_version": "recent-comparison-fast-v2",
+        "brain_version": "recent-comparison-fast-v3",
     }
 
 

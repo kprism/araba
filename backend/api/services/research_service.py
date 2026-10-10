@@ -979,11 +979,46 @@ def enrich_place_businesses(
     safe = merge_businesses_from_graph(safe)
 
     if gpt_direct:
+        raw_criteria = mission.get("criteria")
+        criteria = (
+            [
+                item
+                for item in raw_criteria
+                if isinstance(item, dict)
+            ]
+            if isinstance(raw_criteria, list)
+            else []
+        )
+        realtime_fields = {
+            str(item.get("field") or "").strip()
+            for item in criteria
+            if str(item.get("field") or "").strip()
+            in {"availability", "stock"}
+        }
+
+        def needs_followup_evidence(item):
+            if realtime_fields:
+                return True
+            if not criteria:
+                return False
+            matching = match_businesses(
+                mission,
+                [item],
+            )
+            return (
+                matching.get(
+                    "unverified_count",
+                    0,
+                )
+                > 0
+            )
+
         fresh = [
             item
             for item in safe
             if item.get("araba_cache_hit") is True
             and item.get("araba_detail_fresh") is True
+            and not needs_followup_evidence(item)
         ]
         stale = [
             item

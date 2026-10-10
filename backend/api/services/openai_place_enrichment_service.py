@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 
 from openai import OpenAI
 
+from .business_matching_service import match_businesses
+
 
 WEB_ENRICH_MODEL = (
     os.getenv(
@@ -159,6 +161,44 @@ def _missing_fields(business):
         missing.append("전화번호")
 
     return missing
+
+
+def _mission_condition_labels(mission):
+    if not isinstance(mission, dict):
+        return []
+
+    raw = mission.get("criteria")
+    if not isinstance(raw, list):
+        return []
+
+    labels = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        label = str(
+            item.get("label")
+            or item.get("field")
+            or ""
+        ).strip()
+        if label and label not in labels:
+            labels.append(label)
+    return labels[:12]
+
+
+def _needs_mission_evidence(business, mission):
+    if not isinstance(mission, dict):
+        return False
+    raw = mission.get("criteria")
+    if not isinstance(raw, list) or not raw:
+        return False
+
+    matching = match_businesses(
+        mission,
+        [business],
+    )
+    return (
+        matching.get("unverified_count", 0) > 0
+    )
 
 
 def _parse_json(raw):
@@ -541,8 +581,13 @@ def _build_batch_prompt(
                     )
                     or ""
                 ).strip(),
-                "missing": _missing_fields(
-                    business
+                "missing": list(
+                    dict.fromkeys(
+                        [
+                            *_missing_fields(business),
+                            *_mission_condition_labels(mission),
+                        ]
+                    )
                 ),
             }
         )
@@ -573,6 +618,8 @@ def _build_batch_prompt(
         "가격은 항목명과 금액이 함께 확인된 경우만 넣는다.\n"
         "주차는 가능/불가가 명시된 경우만 boolean으로 넣고 불명확하면 null이다.\n"
         "영업시간은 출처에 적힌 문자열을 짧게 정리한다.\n"
+        "추가 조건에 특정 요일이 있으면 그 요일의 영업/운영 여부를 반드시 확인하고, "
+        "확인되면 opening_hours에 해당 요일과 시간을 명시한다. 휴무가 확인되면 그 요일 휴무라고 적는다.\n"
         "대표사진은 JSON에 만들지 말고 검색 결과의 이미지 결과를 사용한다.\n"
         f"추가 조건: {', '.join(constraints) if constraints else '없음'}\n\n"
         "확인 대상:\n"
@@ -656,15 +703,23 @@ def _apply_one_result(
         parsed.get("opening_hours")
     )
 
-    if (
-        not naver.get("opening_hours")
-        and opening_hours
-    ):
-        naver["opening_hours"] = (
-            opening_hours[:14]
+    if opening_hours:
+        existing_hours = _clean_list(
+            naver.get("opening_hours")
         )
+        merged_hours = list(
+            dict.fromkeys(
+                [
+                    *existing_hours,
+                    *opening_hours,
+                ]
+            )
+        )[:14]
+        naver["opening_hours"] = merged_hours
         naver["opening_hours_source"] = (
             "openai_web"
+            if not existing_hours
+            else "stored+openai_web"
         )
 
     parking_available = parsed.get(
@@ -937,7 +992,14 @@ def enrich_businesses_with_openai_web(
 
     for offset in range(0, len(primary), 1):
         group = primary[offset:offset + 1]
-        if not any(_missing_fields(item) for item in group):
+        if not any(
+            _missing_fields(item)
+            or _needs_mission_evidence(
+                item,
+                mission,
+            )
+            for item in group
+        ):
             results[offset:offset + len(group)] = [
                 _empty_status(item, "not_needed")
                 for item in group
