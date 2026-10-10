@@ -1400,19 +1400,21 @@ def enrich_place_businesses(
         def needs_followup_evidence(item):
             if realtime_fields:
                 return True
+            # A fresh timestamp on an incomplete record must never prevent
+            # discovering missing photos, opening hours, product evidence, etc.
+            naver = item.get("naver")
+            naver = naver if isinstance(naver, dict) else {}
+            if (
+                not str(item.get("image_url") or "").strip()
+                or not naver.get("opening_hours")
+                or naver.get("parking_available") is None
+                or not naver.get("prices")
+            ):
+                return True
             if not criteria:
                 return False
-            matching = match_businesses(
-                mission,
-                [item],
-            )
-            return (
-                matching.get(
-                    "unverified_count",
-                    0,
-                )
-                > 0
-            )
+            matching = match_businesses(mission, [item])
+            return matching.get("unverified_count", 0) > 0
 
         fresh = [
             item
@@ -1438,12 +1440,43 @@ def enrich_place_businesses(
             runtime = enforce_business_images(
                 runtime
             )
+            persist_businesses(
+                runtime, mission, detail_refreshed=False
+            )
             return annotate_businesses_now(
                 runtime
             )
 
+        # Refresh from the actual provider identity before considering
+        # model-extracted facts. Preserve the original business identity.
+        identity_ready = [
+            item for item in stale[:FAST_DETAIL_ENRICH_LIMIT]
+            if str(item.get("place_url") or "").startswith(
+                "https://place.map.kakao.com/"
+            ) and str(item.get("id") or "").strip()
+        ]
+        inspected = (
+            enrich_businesses_with_kakao_pages(identity_ready)
+            if identity_ready else []
+        )
+        inspected_by_id = {
+            str(item.get("id") or ""): item for item in inspected
+        }
+        refreshed_kakao = [
+            inspected_by_id.get(str(item.get("id") or ""), item)
+            for item in stale[:FAST_DETAIL_ENRICH_LIMIT]
+        ]
+        refreshed_naver = (
+            enrich_businesses_with_naver(
+                refreshed_kakao,
+                client_id=naver_client_id,
+                client_secret=naver_client_secret,
+            )
+            if naver_client_id and naver_client_secret
+            else refreshed_kakao
+        )
         enriched_stale = enrich_businesses_with_openai_web(
-            stale,
+            [*refreshed_naver, *stale[FAST_DETAIL_ENRICH_LIMIT:]],
             mission,
             api_key=openai_api_key,
         )
@@ -1482,6 +1515,11 @@ def enrich_place_businesses(
         )
         runtime = enforce_business_images(
             runtime
+        )
+        # Google facts (hours/phone/source) were previously runtime-only;
+        # write verified factual improvements back into the ARABA Graph.
+        persist_businesses(
+            runtime, mission, detail_refreshed=False
         )
         return annotate_businesses_now(
             runtime
@@ -1547,6 +1585,9 @@ def enrich_place_businesses(
     runtime = enforce_business_images(
         runtime
     )
+    persist_businesses(
+        runtime, mission, detail_refreshed=False
+    )
     return annotate_businesses_now(
         runtime
     )
@@ -1599,6 +1640,10 @@ def search_real_businesses(
     )
     cached_businesses = cached.get("businesses") or []
     if cached.get("complete") is True and cached_businesses:
+        # Cache completeness is about *business count*, not fact completeness.
+        # Required conditions and missing photo/details must be revisited.
+        # Cached records remain the identity source of truth; verified external
+        # evidence is merged back into those same records.
         # Cached cards created before source verification may have no image.
         # Retry only identity-unverified Kakao candidates, not broad web images.
         missing_photo_candidates = [
@@ -1626,14 +1671,32 @@ def search_real_businesses(
                 mission,
                 detail_refreshed=False,
             )
-        cached_businesses = enrich_businesses_with_google_places(
-            cached_businesses,
-            api_key=google_places_api_key,
-        )
-        cached_businesses = enrich_businesses_with_agents(
-            mission,
-            cached_businesses,
-        )
+        if not quick_cards:
+            cached_businesses = enrich_place_businesses(
+                cached_businesses,
+                mission,
+                naver_client_id=naver_client_id,
+                naver_client_secret=naver_client_secret,
+                openai_api_key=openai_api_key,
+                google_places_api_key=google_places_api_key,
+                gpt_direct=True,
+            )
+        else:
+            cached_businesses = enrich_businesses_with_google_places(
+                cached_businesses,
+                api_key=google_places_api_key,
+            )
+            # Persist newly verified hours, phone and source metadata without
+            # treating transient Google photo URLs as durable image files.
+            persist_businesses(
+                cached_businesses,
+                mission,
+                detail_refreshed=False,
+            )
+            cached_businesses = enrich_businesses_with_agents(
+                mission,
+                cached_businesses,
+            )
         cached_businesses = enforce_business_images(
             cached_businesses
         )
@@ -1649,6 +1712,11 @@ def search_real_businesses(
             matching["display_businesses"]
             if isinstance(matching, dict)
             else cached_businesses
+        )
+        unverified_businesses = (
+            matching["unverified_businesses"]
+            if isinstance(matching, dict)
+            else []
         )
         evaluation = evaluate_research_result(
             mission,
@@ -1666,6 +1734,7 @@ def search_real_businesses(
                 mission.get("search_mode") or ""
             ).strip(),
             "businesses": display_businesses,
+            "unverified_businesses": unverified_businesses,
             "matching": matching,
             "displayed_count": len(display_businesses),
             "requested_count": requested_count,
@@ -2054,6 +2123,9 @@ def search_real_businesses(
         businesses = enforce_business_images(
             businesses
         )
+        persist_businesses(
+            businesses, mission, detail_refreshed=False
+        )
         businesses = annotate_businesses_now(
             businesses
         )
@@ -2097,6 +2169,11 @@ def search_real_businesses(
         if isinstance(matching, dict)
         else businesses
     )
+    unverified_businesses = (
+        matching["unverified_businesses"]
+        if isinstance(matching, dict)
+        else []
+    )
 
     evaluation = evaluate_research_result(
         mission,
@@ -2127,6 +2204,7 @@ def search_real_businesses(
             or ""
         ).strip(),
         "businesses": display_businesses,
+        "unverified_businesses": unverified_businesses,
         "matching": matching,
         "displayed_count": len(display_businesses),
         "requested_count": requested_count,

@@ -311,6 +311,9 @@ def _source_urls(parsed, raw_results):
     if actual:
         return actual[:8]
 
+    # Legacy evidence-extraction clients may expose only structured
+    # source URLs. Retain these for diagnostics and existing facts, but
+    # never use them alone as proof of a product/service claim.
     urls = []
     raw_sources = parsed.get("source_urls")
     if isinstance(raw_sources, list):
@@ -622,6 +625,9 @@ def _build_batch_prompt(
         "그 다음 신뢰할 수 있는 웹페이지와 블로그를 참고한다.\n"
         "현재 웹에서 명시적으로 확인한 값만 사용하고 추측하지 않는다.\n"
         "가격은 항목명과 금액이 함께 확인된 경우만 넣는다.\n"
+        "케이크·임플란트 등 구체 상품이나 서비스는 판매·제공 사실이 "
+        "출처에 명시적으로 나타날 때에만 verified_services에 넣고, "
+        "실제 열람한 source_urls 중 해당 사실의 URL을 source_url로 함께 넣는다.\n"
         "주차는 가능/불가가 명시된 경우만 boolean으로 넣고 불명확하면 null이다.\n"
         "영업시간은 출처에 적힌 문자열을 짧게 정리한다.\n"
         "추가 조건에 특정 요일이 있으면 그 요일의 영업/운영 여부를 반드시 확인하고, "
@@ -645,6 +651,7 @@ def _build_batch_prompt(
         '      "parking_available": null,\n'
         '      "parking_text": null,\n'
         '      "prices": [],\n'
+        '      "verified_services": [],\n'
         '      "phone": null,\n'
         '      "address": null,\n'
         '      "price_link": null,\n'
@@ -820,6 +827,39 @@ def _apply_one_result(
             image.get("caption")
         )
 
+    # A business being a bakery does not prove it sells birthday cake.
+    # Store product/service evidence only when the model cites a source that
+    # was actually returned for this exact verified business.
+    independently_cited_urls = {
+        url
+        for item in raw_results
+        if isinstance(item, dict) and item.get("type") != "image_result"
+        for field in ("url", "source_website_url")
+        if (url := _safe_url(item.get(field)))
+    }
+    services = []
+    for evidence in parsed.get("verified_services") or []:
+        if not isinstance(evidence, dict):
+            continue
+        name = _clean_text(evidence.get("name"))
+        source_url = _safe_url(evidence.get("source_url"))
+        if (
+            name and source_url
+            and source_url in sources
+            and source_url in independently_cited_urls
+        ):
+            services.append({
+                "name": name,
+                "source_url": source_url,
+            })
+    if services:
+        existing = item.get("verified_services")
+        previous = existing if isinstance(existing, list) else []
+        item["verified_services"] = list({
+            (value.get("name"), value.get("source_url")): value
+            for value in [*previous, *services]
+            if isinstance(value, dict) and value.get("name")
+        }.values())
     item["naver"] = naver
 
     detail_found = (
@@ -831,6 +871,7 @@ def _apply_one_result(
         or bool(prices)
         or bool(phone)
         or bool(image)
+        or bool(services)
     )
 
     image_result_count = sum(
@@ -854,6 +895,7 @@ def _apply_one_result(
         "prices_found": bool(prices),
         "phone_found": bool(phone),
         "image_found": bool(image),
+        "verified_services_found": len(services),
         "image_result_count": image_result_count,
     }
 

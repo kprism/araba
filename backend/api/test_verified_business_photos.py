@@ -106,6 +106,7 @@ class VerifiedBusinessPhotoTests(TestCase):
             snapshot={
                 "image_url": "https://t1.kakaocdn.net/place.jpg",
                 "image_source": "kakao_place",
+                "image_identity_verified": True,
             },
         )
 
