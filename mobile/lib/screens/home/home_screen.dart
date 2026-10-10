@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
 import '../../services/conversation_context.dart';
+import '../../services/device_location_service.dart';
+import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
 import '../../services/naver_credential_store.dart';
@@ -28,6 +30,8 @@ class _HomeScreenState extends State<HomeScreen>
   final _imagePicker = ImagePicker();
   final _keyStore = ApiKeyStore();
   final _kakaoStore = KakaoCredentialStore();
+  final _googlePlacesStore = GooglePlacesCredentialStore();
+  final _deviceLocation = const DeviceLocationService();
   final _naverStore = NaverCredentialStore();
   final _voicePreferenceStore = VoicePreferenceStore();
   final _conversationContext = ConversationContext();
@@ -900,6 +904,7 @@ class _HomeScreenState extends State<HomeScreen>
     required String openAiApiKey,
     String? naverClientId,
     String? naverClientSecret,
+    String? googlePlacesApiKey,
   }) async {
     try {
       final result = await _api.enrichBusinesses(
@@ -908,6 +913,7 @@ class _HomeScreenState extends State<HomeScreen>
         openAiApiKey: openAiApiKey,
         naverClientId: naverClientId,
         naverClientSecret: naverClientSecret,
+        googlePlacesApiKey: googlePlacesApiKey,
       );
 
       if (!mounted || revision != _researchRevision) return;
@@ -1110,6 +1116,8 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     final naverCredentials = await _naverStore.read();
+    final googlePlacesApiKey =
+        await _googlePlacesStore.read();
     _updateResearchStage(
       '직전 업체를 새로 검색하지 않고 조건별 근거를 판정하는 중…',
       revision: revision,
@@ -1121,6 +1129,7 @@ class _HomeScreenState extends State<HomeScreen>
       openAiApiKey: openAiApiKey,
       naverClientId: naverCredentials?.clientId,
       naverClientSecret: naverCredentials?.clientSecret,
+      googlePlacesApiKey: googlePlacesApiKey,
     );
 
     if (!mounted || revision != _researchRevision) {
@@ -1209,6 +1218,8 @@ class _HomeScreenState extends State<HomeScreen>
       }
       final openAiApiKey = await _keyStore.read();
       final kakaoRestApiKey = await _kakaoStore.read();
+      final googlePlacesApiKey =
+          await _googlePlacesStore.read();
 
       if (openAiApiKey == null) {
         throw const ArabaApiException(
@@ -1231,6 +1242,7 @@ class _HomeScreenState extends State<HomeScreen>
         openAiApiKey: openAiApiKey,
         naverClientId: naverCredentials?.clientId,
         naverClientSecret: naverCredentials?.clientSecret,
+        googlePlacesApiKey: googlePlacesApiKey,
         quickCards: quickCards,
       );
 
@@ -1298,6 +1310,7 @@ class _HomeScreenState extends State<HomeScreen>
             openAiApiKey: openAiApiKey,
             naverClientId: naverCredentials?.clientId,
             naverClientSecret: naverCredentials?.clientSecret,
+            googlePlacesApiKey: googlePlacesApiKey,
           ),
         );
         return;
@@ -1949,6 +1962,20 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  bool _needsDeviceLocation(String text) {
+    final compact = text.replaceAll(
+      RegExp(r'\s+'),
+      '',
+    );
+    return RegExp(
+      r'내(?:가)?(?:있는|있는곳|위치|주변|근처)|'
+      r'현재위치|현위치|내위치|'
+      r'여기(?:주변|근처)|'
+      r'지금있는곳|지금여기|'
+      r'가까운곳|가까운업체|가까운가게',
+    ).hasMatch(compact);
+  }
+
   Future<void> _requestMission({
     required String displayText,
     required String requestText,
@@ -1977,9 +2004,19 @@ class _HomeScreenState extends State<HomeScreen>
 
       final contextualRequest =
           _conversationContext.enrichRequest(requestText);
+      Map<String, dynamic>? deviceContext;
+      if (_needsDeviceLocation(requestText)) {
+        try {
+          deviceContext =
+              await _deviceLocation.currentContext();
+        } catch (_) {
+          deviceContext = null;
+        }
+      }
       final result = await _api.createMission(
         contextualRequest,
         apiKey: apiKey,
+        deviceContext: deviceContext,
       );
 
       if (!mounted) return;
