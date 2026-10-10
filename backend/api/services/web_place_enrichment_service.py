@@ -743,7 +743,11 @@ def enrich_one_business_with_web(
         "prices": prices,
         "price_link": price_link,
         "phone": phone,
-        "image_url": best_image,
+        # A blog/web page og:image is not guaranteed to depict the business
+        # even when the page text mentions it. Keep only as an unverified
+        # diagnostic candidate and never promote it to the business card.
+        "image_candidate_url": best_image,
+        "image_verified": False,
     }
 
     naver = item.get("naver")
@@ -752,15 +756,6 @@ def enrich_one_business_with_web(
         if isinstance(naver, dict)
         else {}
     )
-
-    if (
-        not str(
-            item.get("image_url") or ""
-        ).strip()
-        and best_image
-    ):
-        item["image_url"] = best_image
-        item["image_source"] = "web_evidence"
 
     if (
         not str(

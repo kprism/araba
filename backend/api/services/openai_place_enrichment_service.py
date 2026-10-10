@@ -448,15 +448,21 @@ def _image_candidate(
         if category_match:
             score += 12
 
-        # One web search call is dedicated to exactly one verified business.
-        # If image metadata is sparse, prefer the top search image instead of
-        # throwing every image away. Explicit conflicting signals still lose.
-        if (
-            score == 0
-            and single_business_search
-            and order == 0
-        ):
-            score = 5
+        # A photo must carry business-identity evidence of its own.
+        # Never accept the first image merely because the surrounding search
+        # was for one business. That can surface a generic building/blog image.
+        strong_identity = (
+            source_match
+            or (
+                name_match
+                and (
+                    location_match
+                    or category_match
+                )
+            )
+        )
+        if not strong_identity:
+            continue
 
         if score <= 0:
             continue

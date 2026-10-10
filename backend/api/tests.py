@@ -1271,7 +1271,9 @@ class OpenAIPlaceEnrichmentTests(TestCase):
         self.assertIsNotNone(image)
 
 
-    def test_single_business_image_search_accepts_top_sparse_result(self):
+    def test_single_business_image_search_rejects_sparse_unverified_result(
+        self,
+    ):
         from api.services.openai_place_enrichment_service import (
             _image_candidate,
         )
@@ -1296,11 +1298,7 @@ class OpenAIPlaceEnrichmentTests(TestCase):
             single_business_search=True,
         )
 
-        self.assertIsNotNone(image)
-        self.assertEqual(
-            image["image_url"],
-            "https://example.com/yuni.jpg",
-        )
+        self.assertIsNone(image)
 
     def test_image_candidate_rejects_unrelated_photo(self):
         from api.services.openai_place_enrichment_service import (
