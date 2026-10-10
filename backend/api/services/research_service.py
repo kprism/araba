@@ -1599,6 +1599,33 @@ def search_real_businesses(
     )
     cached_businesses = cached.get("businesses") or []
     if cached.get("complete") is True and cached_businesses:
+        # Cached cards created before source verification may have no image.
+        # Retry only identity-unverified Kakao candidates, not broad web images.
+        missing_photo_candidates = [
+            item for item in cached_businesses[:FAST_DETAIL_ENRICH_LIMIT]
+            if not str(item.get("image_url") or "").strip()
+            and str(item.get("place_url") or "").startswith(
+                "https://place.map.kakao.com/"
+            )
+            and item.get("kakao_photo_status") != "no_image_in_page"
+        ]
+        if missing_photo_candidates:
+            checked = enrich_businesses_with_kakao_pages(
+                missing_photo_candidates
+            )
+            by_id = {
+                str(item.get("id") or ""): item
+                for item in checked
+            }
+            cached_businesses = [
+                by_id.get(str(item.get("id") or ""), item)
+                for item in cached_businesses
+            ]
+            persist_businesses(
+                checked,
+                mission,
+                detail_refreshed=False,
+            )
         cached_businesses = enrich_businesses_with_google_places(
             cached_businesses,
             api_key=google_places_api_key,
