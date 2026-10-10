@@ -203,6 +203,10 @@ class BusinessExperienceApiTests(TestCase):
         )
 
 
+class BusinessEvidenceRefreshTests(TestCase):
+    def setUp(self):
+        BusinessGraphTests.setUp(self)
+
     @patch("api.services.research_service.enrich_businesses_with_naver")
     @patch("api.services.research_service.enrich_businesses_with_kakao_pages")
     @patch("api.services.research_service.enrich_businesses_with_openai_web")
