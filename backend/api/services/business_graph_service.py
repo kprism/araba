@@ -424,12 +424,21 @@ def _mission_terms(mission):
     subject = _clean(
         mission.get("subject")
     )
-    if subject and subject not in values:
+    subject_is_strict_food = any(
+        term in subject
+        for term in STRICT_FOOD_TERMS
+    )
+    if (
+        subject_is_strict_food
+        and subject
+        and subject not in values
+    ):
         values.append(subject)
 
     if not values:
         values.append(
-            _clean(mission.get("category"))
+            subject
+            or _clean(mission.get("category"))
         )
 
     generic = {
