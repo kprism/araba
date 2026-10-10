@@ -384,6 +384,13 @@ def _criterion_value(business, criterion):
                 ),
             ]
         ).strip()
+        expected_service = _text(criterion.get("value"))
+        if (
+            expected_service
+            and expected_service.lower() not in haystack.lower()
+        ):
+            # No mention is not proof the service is unavailable.
+            return None, "service_evidence_missing"
         return haystack or None, "business_text"
 
     return None, "unsupported_field"
