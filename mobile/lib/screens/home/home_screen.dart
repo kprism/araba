@@ -263,7 +263,15 @@ class _HomeScreenState extends State<HomeScreen>
           );
           return true;
         },
-        onMission: (mission, requestContext) {
+        resolveDeviceContext: (text) async {
+          if (!_needsDeviceLocation(text)) return null;
+          try {
+            return await _deviceLocation.currentContext();
+          } catch (_) {
+            return null;
+          }
+        },
+        onMission: (mission, requestContext) async {
           if (!mounted || _liveVoice != liveVoice) return;
 
           // Core에 하나의 발화로 확정된 시점부터 다음 사용자 발화는
@@ -295,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen>
 
           if (responseMode == 'research' ||
               mission['ready_to_research'] == true) {
-            unawaited(_runRealResearch(mission));
+            await _runRealResearch(mission, forceComplete: true);
             return;
           }
 
