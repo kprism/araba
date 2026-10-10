@@ -1353,11 +1353,55 @@ class _HomeScreenState extends State<HomeScreen>
       _rememberBusinessGroup(mission, businesses);
 
       if (businesses.isEmpty) {
+        final rawUnknown = result['unverified_businesses'];
+        final unverified = rawUnknown is List
+            ? rawUnknown
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList()
+            : <Map<String, dynamic>>[];
+        if (unverified.isNotEmpty) {
+          _rememberBusinessGroup(mission, unverified);
+          final rawMatching = result['matching'];
+          final matching = rawMatching is Map
+              ? Map<String, dynamic>.from(rawMatching)
+              : <String, dynamic>{};
+          final missing = <String>{};
+          final matrix = matching['matrix'];
+          if (matrix is List) {
+            for (final row in matrix.whereType<Map>()) {
+              final criteria = row['criteria'];
+              if (criteria is! List) continue;
+              for (final item in criteria.whereType<Map>()) {
+                if (item['state'] == 'unknown') {
+                  final label = item['label']?.toString().trim() ?? '';
+                  if (label.isNotEmpty) missing.add(label);
+                }
+              }
+            }
+          }
+          final text =
+              '관련 업종 후보 ${unverified.length}곳을 찾았지만 '
+              '필수 조건을 모두 검증한 업체는 아직 없어요. '
+              '다음 후보는 조건 충족 업체가 아닌 확인이 필요한 업체입니다.'
+              '${missing.isEmpty ? '' : '\n미확인 조건: ${missing.join(' · ')}'}';
+          _addAssistantMessage(
+            text: text,
+            badge: '조건 근거 확인 필요',
+            businesses: unverified,
+          );
+          _speakProgress(
+            '후보 업체는 찾았지만 필수 조건은 아직 검증되지 않았어요.',
+          );
+          return;
+        }
         const noResult =
-            '관련 업종만 걸러서 찾아봤지만 조건에 맞는 실제 업체를 찾지 못했어요.';
+            '지정한 지역에서 해당 업종의 업체 후보를 확인하지 못했어요. '
+            '조건에 맞는 업체가 없다는 의미는 아닙니다. '
+            '검색 범위를 넓히거나 검색 제공처를 다시 확인해 주세요.';
         _addAssistantMessage(
           text: noResult,
-          badge: '검색 결과 없음',
+          badge: '업체 후보 미발견',
         );
         _speakProgress(noResult);
         return;
