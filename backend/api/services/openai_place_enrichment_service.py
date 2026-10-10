@@ -308,9 +308,20 @@ def _source_urls(parsed, raw_results):
             if url and url not in actual:
                 actual.append(url)
 
-    # Only server-observed search results or cited links can authorize facts.
-    # A model-generated URL string is not independent evidence.
-    return actual[:8]
+    if actual:
+        return actual[:8]
+
+    # Legacy evidence-extraction clients may expose only structured
+    # source URLs. Retain these for diagnostics and existing facts, but
+    # never use them alone as proof of a product/service claim.
+    urls = []
+    raw_sources = parsed.get("source_urls")
+    if isinstance(raw_sources, list):
+        for raw in raw_sources:
+            url = _safe_url(raw)
+            if url and url not in urls:
+                urls.append(url)
+    return urls[:8]
 
 
 def _business_name_variants(value):
@@ -819,13 +830,24 @@ def _apply_one_result(
     # A business being a bakery does not prove it sells birthday cake.
     # Store product/service evidence only when the model cites a source that
     # was actually returned for this exact verified business.
+    independently_cited_urls = {
+        url
+        for item in raw_results
+        if isinstance(item, dict) and item.get("type") != "image_result"
+        for field in ("url", "source_website_url")
+        if (url := _safe_url(item.get(field)))
+    }
     services = []
     for evidence in parsed.get("verified_services") or []:
         if not isinstance(evidence, dict):
             continue
         name = _clean_text(evidence.get("name"))
         source_url = _safe_url(evidence.get("source_url"))
-        if name and source_url and source_url in sources:
+        if (
+            name and source_url
+            and source_url in sources
+            and source_url in independently_cited_urls
+        ):
             services.append({
                 "name": name,
                 "source_url": source_url,
