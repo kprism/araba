@@ -299,8 +299,6 @@ def _resolve_fuzzy_admin_origin(
     if not query_tokens:
         return None
 
-    matches = []
-
     for recovery_query in _fuzzy_recovery_queries(
         query,
         mission,
@@ -331,6 +329,7 @@ def _resolve_fuzzy_admin_origin(
         if not isinstance(documents, list):
             continue
 
+        matches = []
         for document in documents:
             if not isinstance(document, dict):
                 continue
@@ -364,34 +363,36 @@ def _resolve_fuzzy_admin_origin(
                 )
             )
 
-    if not matches:
-        return None
+        if not matches:
+            continue
 
-    matches.sort(
-        key=lambda item: (
-            item[0],
-            item[1],
+        matches.sort(
+            key=lambda item: (
+                item[0],
+                item[1],
+            )
         )
-    )
-    best_distance = matches[0][0]
-    best_leaves = {
-        item[1]
-        for item in matches
-        if item[0] == best_distance
-    }
-    if len(best_leaves) != 1:
-        return None
+        best_distance = matches[0][0]
+        best_leaves = {
+            item[1]
+            for item in matches
+            if item[0] == best_distance
+        }
+        if len(best_leaves) != 1:
+            continue
 
-    _, _, fuzzy, latitude, longitude = matches[0]
-    return {
-        "label": fuzzy["label"],
-        "latitude": latitude,
-        "longitude": longitude,
-        "source": "fuzzy_admin_recovery",
-        "accuracy": "region_reference",
-        "spoken_location": query,
-        "corrected_leaf": fuzzy["leaf"],
-    }
+        _, _, fuzzy, latitude, longitude = matches[0]
+        return {
+            "label": fuzzy["label"],
+            "latitude": latitude,
+            "longitude": longitude,
+            "source": "fuzzy_admin_recovery",
+            "accuracy": "region_reference",
+            "spoken_location": query,
+            "corrected_leaf": fuzzy["leaf"],
+        }
+
+    return None
 
 
 def _resolve_reference_point_origin(
@@ -1050,14 +1051,20 @@ def _mission_keywords(mission):
     subject_value = str(
         mission.get("subject") or ""
     ).lower().strip()
+    subject_is_strict_food = any(
+        term in subject_value
+        for term in STRICT_FOOD_KEYWORDS
+    )
     if (
-        subject_value
+        subject_is_strict_food
+        and subject_value
         and subject_value not in values
     ):
         values.append(subject_value)
     if not values:
         values = [
-            str(
+            subject_value
+            or str(
                 mission.get("category") or ""
             ).lower().strip()
         ]
