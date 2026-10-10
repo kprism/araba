@@ -274,6 +274,19 @@ class _HomeScreenState extends State<HomeScreen>
         },
         onMission: (mission, requestContext) async {
           if (!mounted || _liveVoice != liveVoice) return;
+          final currentText = requestContext.contains('[현재 요청]')
+              ? requestContext.split('[현재 요청]').last.trim()
+              : requestContext;
+          if (_isPhotoEvidenceQuestion(currentText) &&
+              _lastBusinesses.isNotEmpty) {
+            final answer = _photoEvidenceAnswer();
+            _addAssistantMessage(
+              text: answer,
+              badge: '사진 출처 검사',
+            );
+            _speakProgress(answer);
+            return;
+          }
 
           // Core에 하나의 발화로 확정된 시점부터 다음 사용자 발화는
           // 새 말풍선으로 시작한다. 확정 전의 짧은 쉼은 같은 말풍선에 남는다.
