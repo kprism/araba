@@ -94,7 +94,12 @@ class BusinessGraphTests(TestCase):
         self.assertTrue(
             result["businesses"][0]["araba_cache_hit"]
         )
-        mocked_get.assert_not_called()
+        # Cached lookup must not rediscover businesses through Kakao Local.
+        # Fetching a missing official Kakao place photo is allowed.
+        self.assertFalse(any(
+            "/v2/local/search/" in str(call.args[0])
+            for call in mocked_get.call_args_list
+        ))
 
     @patch(
         "api.services.research_service."
