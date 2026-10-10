@@ -1156,6 +1156,180 @@ def _split_contextual_request(value):
     )
 
 
+def _fallback_place_intent_from_request(
+    request_text,
+):
+    context, current = _split_contextual_request(
+        request_text
+    )
+    current_text = str(current or "").strip()
+    if not current_text:
+        return None
+
+    admin_tokens = []
+    admin_suffixes = (
+        "특별시",
+        "광역시",
+        "특별자치시",
+        "특별자치도",
+        "도",
+        "시",
+        "군",
+        "구",
+        "읍",
+        "면",
+        "동",
+        "리",
+    )
+    spoken_endings = (
+        "이에요",
+        "예요",
+        "입니다",
+        "이야",
+        "이고",
+        "에서",
+        "으로",
+        "은",
+        "는",
+        "이",
+        "가",
+        "에",
+        "로",
+    )
+    for raw_token in re.findall(
+        r"[가-힣]+",
+        current_text,
+    ):
+        token = raw_token
+        for ending in spoken_endings:
+            if (
+                token.endswith(ending)
+                and len(token) > len(ending) + 1
+            ):
+                token = token[: -len(ending)]
+                break
+        if token.endswith(admin_suffixes):
+            admin_tokens.append(token)
+    new_location = " ".join(
+        admin_tokens[:5]
+    ).strip()
+
+    context_location = str(
+        context.get("location") or ""
+    ).strip()
+    location = new_location or context_location
+
+    category = str(
+        context.get("category") or ""
+    ).strip()
+    subject = str(
+        context.get("subject") or ""
+    ).strip()
+
+    raw_terms = context.get("search_terms")
+    search_terms = (
+        [
+            str(item).strip()
+            for item in raw_terms
+            if str(item).strip()
+        ]
+        if isinstance(raw_terms, list)
+        else []
+    )
+
+    explicit_food = re.search(
+        (
+            r"([가-힣A-Za-z0-9]{2,20}집)"
+            r"(?:을|를|은|는)?"
+            r".{0,12}"
+            r"(?:알려|찾아|추천|검색)"
+        ),
+        current_text,
+    )
+    if explicit_food:
+        subject = explicit_food.group(1)
+        category = "식당"
+        base = subject[:-1].strip()
+        search_terms = [base or subject]
+    elif (
+        category == "식당"
+        and subject.endswith("집")
+        and not search_terms
+    ):
+        base = subject[:-1].strip()
+        search_terms = [base or subject]
+
+    search_signal = bool(
+        re.search(
+            r"찾아|알려|추천|검색|어디|근처|주변",
+            current_text,
+        )
+    )
+    correction_signal = bool(
+        new_location
+        and isinstance(context, dict)
+        and (
+            context.get("category")
+            or context.get("subject")
+        )
+    )
+
+    if not (
+        (location and (category or subject))
+        and (search_signal or correction_signal)
+    ):
+        return None
+
+    if not category:
+        category = subject
+    if not subject:
+        subject = category
+    if not search_terms and subject:
+        search_terms = [subject]
+
+    raw_count = (
+        context.get("requested_count")
+        if isinstance(context, dict)
+        else None
+    )
+    try:
+        count = (
+            int(raw_count)
+            if raw_count is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        count = None
+
+    return {
+        "intent": "place_search",
+        "goal": current_text,
+        "location": {
+            "value": location or None,
+            "type": (
+                "administrative_area"
+                if location
+                else "none"
+            ),
+            "explicit": bool(new_location),
+        },
+        "category": category or None,
+        "subject": subject or None,
+        "search_terms": search_terms[:6],
+        "target_business": None,
+        "count": count,
+        "constraints": [],
+        "criteria": [],
+        "attributes": {},
+        "requested_facts": [],
+        "sort": "relevance",
+        "needs_fresh_data": True,
+        "needs_clarification": False,
+        "clarification_question": None,
+        "direct_answer": None,
+    }
+
+
 PLACE_CATEGORY_GROUPS = (
     {"치과", "치과의원"},
     {"병원", "의원", "클리닉"},
@@ -1704,20 +1878,33 @@ def create_mission(
                 response.output_text
             )
         )
-        intent = _apply_spoken_self_correction(
-            intent,
-            request_text,
-        )
-        intent = _apply_proactive_clarification(
-            intent,
-        )
     except (
         json.JSONDecodeError,
         ValueError,
     ) as exc:
-        raise ValueError(
-            "OpenAI가 Intent JSON을 올바르게 반환하지 않았습니다."
-        ) from exc
+        fallback = _fallback_place_intent_from_request(
+            request_text
+        )
+        if fallback is None:
+            raise ValueError(
+                "OpenAI가 Intent JSON을 올바르게 반환하지 않았습니다."
+            ) from exc
+        diagnostics["architecture"] = (
+            "intent_router_v2+deterministic_place_fallback"
+        )
+        diagnostics["fallback_used"] = True
+        diagnostics["fallback_stage"] = "parse_intent"
+        intent = _normalize_intent(
+            fallback
+        )
+
+    intent = _apply_spoken_self_correction(
+        intent,
+        request_text,
+    )
+    intent = _apply_proactive_clarification(
+        intent,
+    )
 
     diagnostics["stage"] = "route_intent"
     diagnostics["route"] = intent["intent"]
