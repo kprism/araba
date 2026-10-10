@@ -1449,13 +1449,31 @@ def enrich_place_businesses(
 
         # Refresh from the actual provider identity before considering
         # model-extracted facts. Preserve the original business identity.
-        refreshed_kakao = enrich_businesses_with_kakao_pages(
-            stale[:FAST_DETAIL_ENRICH_LIMIT]
+        identity_ready = [
+            item for item in stale[:FAST_DETAIL_ENRICH_LIMIT]
+            if str(item.get("place_url") or "").startswith(
+                "https://place.map.kakao.com/"
+            ) and str(item.get("id") or "").strip()
+        ]
+        inspected = (
+            enrich_businesses_with_kakao_pages(identity_ready)
+            if identity_ready else []
         )
-        refreshed_naver = enrich_businesses_with_naver(
-            refreshed_kakao,
-            client_id=naver_client_id,
-            client_secret=naver_client_secret,
+        inspected_by_id = {
+            str(item.get("id") or ""): item for item in inspected
+        }
+        refreshed_kakao = [
+            inspected_by_id.get(str(item.get("id") or ""), item)
+            for item in stale[:FAST_DETAIL_ENRICH_LIMIT]
+        ]
+        refreshed_naver = (
+            enrich_businesses_with_naver(
+                refreshed_kakao,
+                client_id=naver_client_id,
+                client_secret=naver_client_secret,
+            )
+            if naver_client_id and naver_client_secret
+            else refreshed_kakao
         )
         enriched_stale = enrich_businesses_with_openai_web(
             [*refreshed_naver, *stale[FAST_DETAIL_ENRICH_LIMIT:]],
