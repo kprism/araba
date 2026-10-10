@@ -158,11 +158,21 @@ def mission_create(request):
 
     try:
         user_request = str(request.data.get("request", "")).strip()
+        create_kwargs = {
+            "diagnostics": diagnostics,
+        }
+        device_context = request.data.get(
+            "device_context"
+        )
+        if device_context is not None:
+            create_kwargs["device_context"] = (
+                device_context
+            )
+
         mission = create_mission(
             user_request,
             _request_api_key(request),
-            diagnostics=diagnostics,
-            device_context=request.data.get("device_context"),
+            **create_kwargs,
         )
         diagnostics["stage"] = "complete"
         return finish({"ok": True, "mission": mission}, 200)
