@@ -2130,7 +2130,7 @@ INDEPENDENT_PLACE_PATTERN = re.compile(
     r"타이어|정비소|꽃집|호텔|펜션|주유소|헬스장"
 )
 INDEPENDENT_ACTION_PATTERN = re.compile(
-    r"찾아|알려|조사|추천|몇\\s*곳|어디|확인해|검색"
+    r"찾아|알려|조사|추천|몇\s*곳|어디|확인해|검색"
 )
 
 
@@ -2140,13 +2140,13 @@ def split_independent_requests(request_text):
     if not current:
         return [request_text]
     parts = [
-        text.strip(" \\t,.!?")
+        text.strip(" \t,.!?")
         for text in re.split(
-            r"\\s*(?:[,，]\\s*|[.!?]\\s*|"
-            r"그리고\\s+|또한\\s+|마지막으로\\s+)",
+            r"\s*(?:[,，]\s*|[.!?]\s*|"
+            r"그리고\s+|또한\s+|마지막으로\s+)",
             current,
         )
-        if text.strip(" \\t,.!?")
+        if text.strip(" \t,.!?")
     ]
     if not (2 <= len(parts) <= 5):
         return [request_text]
@@ -2163,7 +2163,7 @@ def split_independent_requests(request_text):
     marker = "[현재 요청]"
     prefix = str(request_text).rsplit(marker, 1)[0]
     return [
-        f"{prefix}{marker}\\n{part}"
+        f"{prefix}{marker}\n{part}"
         for part in parts
     ]
 
