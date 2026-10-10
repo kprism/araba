@@ -2123,6 +2123,51 @@ def _fast_recent_place_comparison(user_request):
     }
 
 
+
+INDEPENDENT_PLACE_PATTERN = re.compile(
+    r"치과|피자집|빵집|베이커리|제과점|식당|음식점|맛집|"
+    r"카페|커피숍|병원|약국|학원|미용실|주차장|"
+    r"타이어|정비소|꽃집|호텔|펜션|주유소|헬스장"
+)
+INDEPENDENT_ACTION_PATTERN = re.compile(
+    r"찾아|알려|조사|추천|몇\\s*곳|어디|확인해|검색"
+)
+
+
+def split_independent_requests(request_text):
+    """Split explicit standalone tasks, never split conjunctive criteria."""
+    context, current = _split_contextual_request(request_text)
+    if not current:
+        return [request_text]
+    parts = [
+        text.strip(" \\t,.!?")
+        for text in re.split(
+            r"\\s*(?:[,，]\\s*|[.!?]\\s*|"
+            r"그리고\\s+|또한\\s+|마지막으로\\s+)",
+            current,
+        )
+        if text.strip(" \\t,.!?")
+    ]
+    if not (2 <= len(parts) <= 5):
+        return [request_text]
+    valid = all(
+        INDEPENDENT_PLACE_PATTERN.search(part)
+        and INDEPENDENT_ACTION_PATTERN.search(part)
+        for part in parts
+    )
+    if not valid:
+        return [request_text]
+    if not context:
+        return parts
+    # Preserve context as optional reference, not as a task to execute.
+    marker = "[현재 요청]"
+    prefix = str(request_text).rsplit(marker, 1)[0]
+    return [
+        f"{prefix}{marker}\\n{part}"
+        for part in parts
+    ]
+
+
 def create_mission(
     user_request,
     api_key=None,
