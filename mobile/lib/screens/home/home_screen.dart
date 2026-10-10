@@ -3021,6 +3021,59 @@ class _BusinessCards extends StatelessWidget {
     );
   }
 
+
+  Future<void> _navigateToBusiness(
+    BuildContext context,
+    Map<String, dynamic> business,
+  ) async {
+    final name = business['name']?.toString().trim() ?? '';
+    final address = business['address']?.toString().trim() ?? '';
+    final lat = double.tryParse(business['latitude']?.toString() ?? '');
+    final lon = double.tryParse(business['longitude']?.toString() ?? '');
+    final coordinatesValid = lat != null && lon != null &&
+        lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    final destination = coordinatesValid
+        ? '$lat,$lon'
+        : [name, address].where((item) => item.isNotEmpty).join(' ');
+    if (destination.isEmpty) return;
+    try {
+      final device = await const DeviceLocationService().currentContext();
+      if (!context.mounted) return;
+      if (device == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('현재 위치가 필요합니다. 휴대전화 위치 서비스와 ARABA 권한을 확인해 주세요.'),
+          ),
+        );
+        return;
+      }
+      final request = NavigationRequest(
+        origin: '',
+        destination: destination,
+        currentLocation: true,
+      );
+      final latValue = device['latitude'];
+      final lonValue = device['longitude'];
+      final uri = NavigationLauncher.directionsUri(
+        request,
+        latitude: latValue is num ? latValue.toDouble() : null,
+        longitude: lonValue is num ? lonValue.toDouble() : null,
+      );
+      final opened = await NavigationLauncher.open(uri);
+      if (!context.mounted) return;
+      if (!opened) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('지도 앱을 열지 못했습니다. 내비게이션 앱 설치를 확인해 주세요.')),
+        );
+      }
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('길안내를 실행하지 못했습니다. 출발지 또는 목적지를 확인해 주세요.')),
+      );
+    }
+  }
+
   Future<void> _callPhone(String phone) async {
     final normalized = phone.replaceAll(
       RegExp(r'[^0-9+]'),
@@ -3539,6 +3592,17 @@ class _BusinessCards extends StatelessWidget {
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: (address.isEmpty && name.isEmpty)
+                                ? null
+                                : () => _navigateToBusiness(context, business),
+                            icon: const Icon(Icons.navigation_rounded),
+                            label: const Text('현재 위치에서 길안내 시작'),
+                          ),
                         ),
                         const SizedBox(height: 10),
                         SizedBox(
@@ -4426,6 +4490,23 @@ class _BusinessCards extends StatelessWidget {
                                   ),
                                 ),
                               ),
+                            TextButton(
+                              onPressed: () =>
+                                  _navigateToBusiness(context, business),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 3,
+                                ),
+                              ),
+                              child: const Text(
+                                '길안내',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                             TextButton(
                               onPressed: placeUrl.isEmpty
                                   ? null
