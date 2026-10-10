@@ -11,6 +11,34 @@ from api.models import Business, BusinessExperience, BusinessFact
 
 DETAIL_CACHE_TTL_HOURS = 24
 
+STRICT_FOOD_TERMS = {
+    "피자",
+    "치킨",
+    "햄버거",
+    "버거",
+    "초밥",
+    "스시",
+    "파스타",
+    "족발",
+    "보쌈",
+    "곱창",
+    "막창",
+    "떡볶이",
+    "샌드위치",
+    "베이커리",
+    "빵",
+}
+
+INCOMPATIBLE_FOOD_VENUE_MARKERS = (
+    "술집",
+    "주점",
+    "호프",
+    "맥주",
+    "와인바",
+    "칵테일바",
+    "bar",
+)
+
 FACT_TTLS = {
     "opening_hours": timedelta(days=2),
     "parking_available": timedelta(days=30),
@@ -393,12 +421,24 @@ def _mission_terms(mission):
     if isinstance(raw_subcategories, list):
         values.extend(_clean(item) for item in raw_subcategories)
 
+    subject = _clean(
+        mission.get("subject")
+    )
+    subject_is_strict_food = any(
+        term in subject
+        for term in STRICT_FOOD_TERMS
+    )
+    if (
+        subject_is_strict_food
+        and subject
+        and subject not in values
+    ):
+        values.append(subject)
+
     if not values:
-        values.extend(
-            [
-                _clean(mission.get("subject")),
-                _clean(mission.get("category")),
-            ]
+        values.append(
+            subject
+            or _clean(mission.get("category"))
         )
 
     generic = {
@@ -474,6 +514,27 @@ def cached_businesses_for_mission(mission, requested_count=5):
                 else "",
             ]
         ).lower()
+
+        category_text = _clean(
+            record.category
+        ).lower()
+        strict_food = [
+            token
+            for token in terms
+            if token in STRICT_FOOD_TERMS
+        ]
+
+        if strict_food and any(
+            marker in category_text
+            for marker in INCOMPATIBLE_FOOD_VENUE_MARKERS
+        ):
+            continue
+
+        if strict_food and not any(
+            token.lower() in haystack
+            for token in strict_food
+        ):
+            continue
 
         if terms and not any(
             token.lower() in haystack

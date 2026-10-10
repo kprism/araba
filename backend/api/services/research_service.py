@@ -32,6 +32,34 @@ KAKAO_ADDRESS_SEARCH_URL = (
 FAST_DETAIL_ENRICH_LIMIT = 5
 MAX_KAKAO_QUERY_ATTEMPTS = 5
 
+STRICT_FOOD_KEYWORDS = {
+    "피자",
+    "치킨",
+    "햄버거",
+    "버거",
+    "초밥",
+    "스시",
+    "파스타",
+    "족발",
+    "보쌈",
+    "곱창",
+    "막창",
+    "떡볶이",
+    "샌드위치",
+    "베이커리",
+    "빵",
+}
+
+INCOMPATIBLE_FOOD_VENUE_MARKERS = (
+    "술집",
+    "주점",
+    "호프",
+    "맥주",
+    "와인바",
+    "칵테일바",
+    "bar",
+)
+
 
 class ResearchConfigurationError(ValueError):
     pass
@@ -209,9 +237,57 @@ def _fuzzy_admin_document_match(query, document):
     }
 
 
+def _fuzzy_recovery_queries(
+    query,
+    mission=None,
+):
+    queries = [query]
+    tokens = _administrative_tokens(query)
+    if len(tokens) < 2:
+        return queries
+
+    parent = " ".join(tokens[:-1]).strip()
+    raw_terms = (
+        mission.get("search_terms")
+        if isinstance(mission, dict)
+        else None
+    )
+    terms = (
+        [
+            str(item).strip()
+            for item in raw_terms
+            if str(item).strip()
+        ]
+        if isinstance(raw_terms, list)
+        else []
+    )
+
+    if isinstance(mission, dict):
+        for value in (
+            mission.get("subject"),
+            mission.get("category"),
+        ):
+            text = str(value or "").strip()
+            if text and text not in terms:
+                terms.append(text)
+
+    for term in terms[:3]:
+        for variant in _compact_term_variants(term):
+            candidate = f"{parent} {variant}".strip()
+            if candidate not in queries:
+                queries.append(candidate)
+            if len(queries) >= 5:
+                return queries
+
+    if parent and parent not in queries:
+        queries.append(parent)
+    return queries[:5]
+
+
 def _resolve_fuzzy_admin_origin(
     location,
     api_key,
+    mission=None,
 ):
     query = " ".join(
         str(location or "").split()
@@ -223,51 +299,89 @@ def _resolve_fuzzy_admin_origin(
     if not query_tokens:
         return None
 
-    try:
-        response = httpx.get(
-            KAKAO_LOCAL_SEARCH_URL,
-            headers={
-                "Authorization": f"KakaoAK {api_key}",
-            },
-            params={
-                "query": query,
-                "size": 5,
-            },
-            timeout=httpx.Timeout(
-                3.0,
-                connect=1.5,
-            ),
+    for recovery_query in _fuzzy_recovery_queries(
+        query,
+        mission,
+    ):
+        try:
+            response = httpx.get(
+                KAKAO_LOCAL_SEARCH_URL,
+                headers={
+                    "Authorization": f"KakaoAK {api_key}",
+                },
+                params={
+                    "query": recovery_query,
+                    "size": 15,
+                },
+                timeout=httpx.Timeout(
+                    3.0,
+                    connect=1.5,
+                ),
+            )
+        except httpx.HTTPError:
+            continue
+
+        if response.status_code != 200:
+            continue
+
+        payload = response.json()
+        documents = payload.get("documents", [])
+        if not isinstance(documents, list):
+            continue
+
+        matches = []
+        for document in documents:
+            if not isinstance(document, dict):
+                continue
+            fuzzy = _fuzzy_admin_document_match(
+                query,
+                document,
+            )
+            if fuzzy is None:
+                continue
+
+            latitude = str(
+                document.get("y") or ""
+            ).strip()
+            longitude = str(
+                document.get("x") or ""
+            ).strip()
+            if not latitude or not longitude:
+                continue
+
+            distance = _edit_distance(
+                query_tokens[-1],
+                fuzzy["leaf"],
+            )
+            matches.append(
+                (
+                    distance,
+                    fuzzy["leaf"],
+                    fuzzy,
+                    latitude,
+                    longitude,
+                )
+            )
+
+        if not matches:
+            continue
+
+        matches.sort(
+            key=lambda item: (
+                item[0],
+                item[1],
+            )
         )
-    except httpx.HTTPError:
-        return None
-
-    if response.status_code != 200:
-        return None
-
-    payload = response.json()
-    documents = payload.get("documents", [])
-    if not isinstance(documents, list):
-        return None
-
-    for document in documents:
-        if not isinstance(document, dict):
-            continue
-        fuzzy = _fuzzy_admin_document_match(
-            query,
-            document,
-        )
-        if fuzzy is None:
+        best_distance = matches[0][0]
+        best_leaves = {
+            item[1]
+            for item in matches
+            if item[0] == best_distance
+        }
+        if len(best_leaves) != 1:
             continue
 
-        latitude = str(
-            document.get("y") or ""
-        ).strip()
-        longitude = str(
-            document.get("x") or ""
-        ).strip()
-        if not latitude or not longitude:
-            continue
-
+        _, _, fuzzy, latitude, longitude = matches[0]
         return {
             "label": fuzzy["label"],
             "latitude": latitude,
@@ -426,7 +540,11 @@ def _location_address_candidates(location):
     return candidates
 
 
-def _resolve_location_origin(location, api_key):
+def _resolve_location_origin(
+    location,
+    api_key,
+    mission=None,
+):
     normalized = " ".join(
         str(location or "").split()
     ).strip()
@@ -508,6 +626,7 @@ def _resolve_location_origin(location, api_key):
     fuzzy_admin = _resolve_fuzzy_admin_origin(
         normalized,
         api_key,
+        mission=mission,
     )
     if fuzzy_admin is not None:
         return fuzzy_admin
@@ -928,11 +1047,25 @@ def _mission_keywords(mission):
     # 우선한다. "임플란트", "야간진료"처럼 세부조건만으로
     # 정상 업체 전체를 탈락시키지 않도록 subcategories는
     # 검색어가 없을 때의 보조 신호로만 사용한다.
-    values = search_terms or subcategories
+    values = list(search_terms or subcategories)
+    subject_value = str(
+        mission.get("subject") or ""
+    ).lower().strip()
+    subject_is_strict_food = any(
+        term in subject_value
+        for term in STRICT_FOOD_KEYWORDS
+    )
+    if (
+        subject_is_strict_food
+        and subject_value
+        and subject_value not in values
+    ):
+        values.append(subject_value)
     if not values:
         values = [
-            str(
-                mission.get("subject") or ""
+            subject_value
+            or str(
+                mission.get("category") or ""
             ).lower().strip()
         ]
 
@@ -1090,7 +1223,35 @@ def _matches_mission(document, mission):
         if keyword not in category_keywords
     ]
 
-    # 구체 검색어가 업체명/세부 카테고리에 직접 보이면 가장 강한 근거다.
+    group_code = str(
+        document.get("category_group_code") or ""
+    ).strip()
+    category_text = str(
+        document.get("category_name") or ""
+    ).lower()
+
+    if (
+        group_code == "FD6"
+        and specific_keywords
+        and any(
+            marker in category_text
+            for marker in INCOMPATIBLE_FOOD_VENUE_MARKERS
+        )
+    ):
+        return False
+
+    strict_food_requested = any(
+        keyword in STRICT_FOOD_KEYWORDS
+        for keyword in specific_keywords
+    )
+
+    if strict_food_requested:
+        return any(
+            keyword in haystack
+            for keyword in specific_keywords
+            if keyword in STRICT_FOOD_KEYWORDS
+        )
+
     if specific_keywords and any(
         keyword in haystack
         for keyword in specific_keywords
@@ -1098,34 +1259,9 @@ def _matches_mission(document, mission):
         return True
 
     if specific_keywords:
-        group_code = str(
-            document.get("category_group_code") or ""
-        ).strip()
-        category_text = str(
-            document.get("category_name") or ""
-        ).lower()
-
-        # Kakao가 "국밥" 검색으로 일반 한식 카테고리 업체를 상위에
-        # 돌려주는 경우는 검색 랭킹 신호를 유지한다. 다만 "피자집"
-        # 요청에 술집/주점/호프가 섞이는 식의 명백한 업종 충돌은 제거한다.
         if group_code == "FD6":
-            incompatible_food_venue_markers = (
-                "술집",
-                "주점",
-                "호프",
-                "맥주",
-                "와인바",
-                "칵테일바",
-                "bar",
-            )
-            if any(
-                marker in category_text
-                for marker in incompatible_food_venue_markers
-            ):
-                return False
             return True
 
-        # 음식 외의 구체 서비스 검색은 상위 업종 코드만으로 통과시키지 않는다.
         return False
 
     if _matches_kakao_category_group(
@@ -1480,6 +1616,7 @@ def search_real_businesses(
         reference_origin = _resolve_location_origin(
             mission.get("location"),
             resolved_api_key,
+            mission=mission,
         )
 
     if (
