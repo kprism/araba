@@ -13,6 +13,14 @@ from .research_evaluation_service import (
     evaluate_research_result,
 )
 from .business_matching_service import match_businesses
+from .google_places_service import (
+    enrich_businesses_with_google_places,
+)
+from .temporal_service import (
+    annotate_businesses_now,
+    current_time_context,
+)
+
 from .business_graph_service import (
     cached_businesses_for_mission,
     merge_businesses_from_graph,
@@ -1343,6 +1351,7 @@ def enrich_place_businesses(
     naver_client_id=None,
     naver_client_secret=None,
     openai_api_key=None,
+    google_places_api_key=None,
     gpt_direct=False,
 ):
     """Enrich already verified Kakao candidates without searching again."""
@@ -1503,6 +1512,7 @@ def search_real_businesses(
     naver_client_id=None,
     naver_client_secret=None,
     openai_api_key=None,
+    google_places_api_key=None,
     quick_cards=False,
 ):
     requested_count = _requested_result_count(
