@@ -2795,6 +2795,46 @@ class _BusinessCards extends StatelessWidget {
         business['image_url']?.toString().trim() ?? '';
     final imageSource =
         business['image_source']?.toString().trim() ?? '';
+    final rawImageAttributions =
+        business['image_attributions'];
+    final imageAttributions =
+        rawImageAttributions is List
+            ? rawImageAttributions
+                .whereType<Map>()
+                .map(
+                  (item) =>
+                      Map<String, dynamic>.from(item),
+                )
+                .toList()
+            : <Map<String, dynamic>>[];
+    final imageAuthor =
+        imageAttributions.isNotEmpty
+            ? imageAttributions.first['display_name']
+                    ?.toString()
+                    .trim() ??
+                ''
+            : '';
+    final imageGoogleMapsUri =
+        business['image_google_maps_uri']
+                ?.toString()
+                .trim() ??
+            '';
+    final imageCredit =
+        imageSource == 'google_places_verified'
+            ? (
+                imageAuthor.isNotEmpty
+                    ? 'Google Maps · 사진: $imageAuthor'
+                    : 'Google Maps'
+              )
+            : (
+                imageSource == 'kakao_place'
+                    ? '카카오 등록사진'
+                    : (
+                        imageSource == 'naver_place'
+                            ? '네이버 플레이스 확인사진'
+                            : '업체 확인사진'
+                      )
+              );
     final placeUrl =
         business['place_url']?.toString().trim() ?? '';
     final naverValue = business['naver'];
@@ -2979,17 +3019,7 @@ class _BusinessCards extends StatelessWidget {
                                   vertical: 6,
                                 ),
                                 child: Text(
-                                  imageSource == 'google_places_verified'
-                                      ? 'Google Places 확인사진'
-                                      : (
-                                          imageSource == 'kakao_place'
-                                              ? '카카오 등록사진'
-                                              : (
-                                                  imageSource == 'naver_place'
-                                                      ? '네이버 플레이스 확인사진'
-                                                      : '업체 확인사진'
-                                                )
-                                        ),
+                                  imageCredit,
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 11,
@@ -3184,6 +3214,26 @@ class _BusinessCards extends StatelessWidget {
                             ),
                           ),
                         ],
+                        if (imageGoogleMapsUri.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  _openPlace(imageGoogleMapsUri),
+                              icon: const Icon(
+                                Icons.map_rounded,
+                              ),
+                              label: const Text(
+                                'Google Maps에서 사진 출처 보기',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize:
+                                    const Size.fromHeight(48),
+                              ),
+                            ),
+                          ),
+                        ],
                         if (priceLink.isNotEmpty) ...[
                           const SizedBox(height: 10),
                           SizedBox(
@@ -3300,6 +3350,42 @@ class _BusinessCards extends StatelessWidget {
               business['image_url']?.toString().trim() ?? '';
           final imageSource =
               business['image_source']?.toString().trim() ?? '';
+          final rawImageAttributions =
+              business['image_attributions'];
+          final imageAttributions =
+              rawImageAttributions is List
+                  ? rawImageAttributions
+                      .whereType<Map>()
+                      .map(
+                        (item) => Map<String, dynamic>.from(
+                          item,
+                        ),
+                      )
+                      .toList()
+                  : <Map<String, dynamic>>[];
+          final imageAuthor =
+              imageAttributions.isNotEmpty
+                  ? imageAttributions.first['display_name']
+                          ?.toString()
+                          .trim() ??
+                      ''
+                  : '';
+          final imageCredit =
+              imageSource == 'google_places_verified'
+                  ? (
+                      imageAuthor.isNotEmpty
+                          ? 'Google Maps · $imageAuthor'
+                          : 'Google Maps'
+                    )
+                  : (
+                      imageSource == 'kakao_place'
+                          ? '카카오 등록사진'
+                          : (
+                              imageSource == 'naver_place'
+                                  ? '네이버 확인사진'
+                                  : '업체 확인사진'
+                            )
+                    );
           final callResult =
               business['mock_call_result']?.toString().trim() ?? '';
           final cacheHit =
@@ -3470,17 +3556,7 @@ class _BusinessCards extends StatelessWidget {
                                 vertical: 4,
                               ),
                               child: Text(
-                                imageSource == 'kakao_place'
-                                    ? '카카오 등록사진'
-                                    : (
-                                        imageSource == 'naver_place'
-                                            ? '네이버 플레이스 사진'
-                                            : (
-                                                imageSource == 'web_evidence'
-                                                    ? '웹 확인 사진'
-                                                    : '업체 사진'
-                                              )
-                                      ),
+                                imageCredit,
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,
