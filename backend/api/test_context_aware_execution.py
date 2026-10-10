@@ -5,8 +5,13 @@ from zoneinfo import ZoneInfo
 
 from django.test import TestCase
 
+from api.models import Business
+
 from api.services.business_matching_service import (
     match_businesses,
+)
+from api.services.business_graph_service import (
+    cached_businesses_for_mission,
 )
 from api.services.execution_planner_service import (
     build_execution_plan,
@@ -462,4 +467,57 @@ class GooglePlacesAdapterTests(TestCase):
         )
         self.assertFalse(
             bool(result.get("image_url")),
+        )
+
+
+class NearbyBusinessGraphTests(TestCase):
+    def test_device_location_uses_coordinates_not_literal_current_location(self):
+        Business.objects.create(
+            provider="kakao",
+            provider_place_id="near-pizza",
+            identity_key="n" * 64,
+            name="근처피자",
+            normalized_name="근처피자",
+            category="음식점 > 피자",
+            address="경남 창원시 의창구 중동",
+            latitude="35.2301",
+            longitude="128.6801",
+        )
+        Business.objects.create(
+            provider="kakao",
+            provider_place_id="far-pizza",
+            identity_key="f" * 64,
+            name="먼피자",
+            normalized_name="먼피자",
+            category="음식점 > 피자",
+            address="부산광역시",
+            latitude="35.1000",
+            longitude="129.0400",
+        )
+
+        result = cached_businesses_for_mission(
+            {
+                "intent": "place_search",
+                "location": "현재 위치",
+                "location_context": {
+                    "type": "device_location",
+                    "latitude": 35.23,
+                    "longitude": 128.68,
+                    "radius_hint_km": 3,
+                },
+                "category": "식당",
+                "subject": "피자집",
+                "search_terms": ["피자"],
+            },
+            requested_count=1,
+        )
+
+        self.assertTrue(result["complete"])
+        self.assertEqual(
+            result["businesses"][0]["name"],
+            "근처피자",
+        )
+        self.assertEqual(
+            result["businesses"][0]["distance_source"],
+            "device_location",
         )
