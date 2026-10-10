@@ -96,7 +96,14 @@ class IntentParseFallbackTests(TestCase):
         )
         self.assertEqual(
             diagnostics["stage"],
-            "parse_intent_fallback",
+            "route_intent",
+        )
+        self.assertTrue(
+            diagnostics["fallback_used"]
+        )
+        self.assertEqual(
+            diagnostics["fallback_stage"],
+            "parse_intent",
         )
 
     @patch("api.services.mission_service.OpenAI")
