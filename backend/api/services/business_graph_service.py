@@ -39,6 +39,13 @@ INCOMPATIBLE_FOOD_VENUE_MARKERS = (
     "bar",
 )
 
+TRUSTED_IMAGE_SOURCES = {
+    "kakao_place",
+    "naver_place",
+    "google_places",
+    "business_official",
+}
+
 FACT_TTLS = {
     "opening_hours": timedelta(days=2),
     "parking_available": timedelta(days=30),
@@ -78,6 +85,35 @@ def _identity_key(business):
             ]
         )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _sanitize_business_image(value):
+    result = (
+        deepcopy(value)
+        if isinstance(value, dict)
+        else {}
+    )
+    image_url = _clean(
+        result.get("image_url")
+    )
+    image_source = _clean(
+        result.get("image_source")
+    )
+
+    if (
+        image_url
+        and image_source
+        not in TRUSTED_IMAGE_SOURCES
+    ):
+        for key in (
+            "image_url",
+            "image_source",
+            "image_source_url",
+            "image_caption",
+        ):
+            result.pop(key, None)
+
+    return result
 
 
 def _meaningful(value):
@@ -182,8 +218,8 @@ def _experience_summary(record):
 
 
 def serialize_business(record, *, cache_hit=True):
-    snapshot = (
-        deepcopy(record.snapshot)
+    snapshot = _sanitize_business_image(
+        record.snapshot
         if isinstance(record.snapshot, dict)
         else {}
     )
@@ -236,6 +272,7 @@ def serialize_business(record, *, cache_hit=True):
 
 
 def _upsert_business(business, mission=None, *, detail_refreshed=False):
+    business = _sanitize_business_image(business)
     identity_key = _identity_key(business)
     now = timezone.now()
     provider = _clean(business.get("source") or "kakao")[:30] or "kakao"
@@ -254,9 +291,11 @@ def _upsert_business(business, mission=None, *, detail_refreshed=False):
         },
     )
 
-    snapshot = _deep_merge(
-        record.snapshot if isinstance(record.snapshot, dict) else {},
-        business,
+    snapshot = _sanitize_business_image(
+        _deep_merge(
+            record.snapshot if isinstance(record.snapshot, dict) else {},
+            business,
+        )
     )
     source_meta = (
         deepcopy(record.source_meta)
