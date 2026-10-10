@@ -51,6 +51,41 @@ class ConversationContext {
         _known['category']?.toString().trim() ?? '';
     final nextCategory =
         mission['category']?.toString().trim() ?? '';
+    final previousLocation =
+        _known['location']?.toString().trim() ?? '';
+    final nextLocation =
+        mission['location']?.toString().trim() ?? '';
+    final nextMode =
+        mission['search_mode']?.toString().trim() ?? '';
+    final nextAttributes = mission['attributes'];
+    final reuseRecent = nextAttributes is Map &&
+        nextAttributes['reuse_recent_results'] == true;
+    final newSearch = !reuseRecent &&
+        (nextMode == 'category_discovery' ||
+         nextMode == 'area_discovery' ||
+         nextMode == 'exact_place');
+    final locationChanged = previousLocation.isNotEmpty &&
+        nextLocation.isNotEmpty &&
+        previousLocation != nextLocation &&
+        mission['location_explicit'] == true;
+    // Each new search has its own criteria and results. Retain only the
+    // bounded search history for references such as "아까 빵집".
+    if (newSearch) {
+      for (final key in [
+        'criteria',
+        'constraints',
+        'attributes',
+        'task_state',
+        'recent_place_results',
+      ]) {
+        _known.remove(key);
+      }
+    }
+
+    if (locationChanged) {
+      _known.remove('target_business');
+      _known.remove('subject');
+    }
 
     if (previousCategory.isNotEmpty &&
         nextCategory.isNotEmpty &&
