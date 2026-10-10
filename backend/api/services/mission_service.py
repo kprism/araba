@@ -1166,29 +1166,50 @@ def _fallback_place_intent_from_request(
     if not current_text:
         return None
 
-    admin_tokens = [
-        token
-        for token in re.findall(
-            r"[가-힣]+",
-            current_text,
-        )
-        if token.endswith(
-            (
-                "특별시",
-                "광역시",
-                "특별자치시",
-                "특별자치도",
-                "도",
-                "시",
-                "군",
-                "구",
-                "읍",
-                "면",
-                "동",
-                "리",
-            )
-        )
-    ]
+    admin_tokens = []
+    admin_suffixes = (
+        "특별시",
+        "광역시",
+        "특별자치시",
+        "특별자치도",
+        "도",
+        "시",
+        "군",
+        "구",
+        "읍",
+        "면",
+        "동",
+        "리",
+    )
+    spoken_endings = (
+        "이에요",
+        "예요",
+        "입니다",
+        "이야",
+        "이고",
+        "에서",
+        "으로",
+        "은",
+        "는",
+        "이",
+        "가",
+        "에",
+        "로",
+    )
+    for raw_token in re.findall(
+        r"[가-힣]+",
+        current_text,
+    ):
+        token = raw_token
+        for ending in spoken_endings:
+            if (
+                token.endswith(ending)
+                and len(token) > len(ending) + 1
+            ):
+                token = token[: -len(ending)]
+                break
+        if token.endswith(admin_suffixes):
+            admin_tokens.append(token)
     new_location = " ".join(
         admin_tokens[:5]
     ).strip()
