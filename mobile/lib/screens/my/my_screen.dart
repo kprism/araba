@@ -4,6 +4,7 @@ import 'business_db_screen.dart';
 
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
+import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/naver_credential_store.dart';
 import '../../services/twilio_credential_store.dart';
@@ -20,11 +21,15 @@ class _MyScreenState extends State<MyScreen> {
   final ArabaApi _api = ArabaApi();
   final ApiKeyStore _apiKeyStore = ApiKeyStore();
   final KakaoCredentialStore _kakaoStore = KakaoCredentialStore();
+  final GooglePlacesCredentialStore _googlePlacesStore =
+      GooglePlacesCredentialStore();
   final NaverCredentialStore _naverStore = NaverCredentialStore();
   final TwilioCredentialStore _twilioStore = TwilioCredentialStore();
   final VoicePreferenceStore _voicePreferenceStore = VoicePreferenceStore();
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _kakaoKeyController = TextEditingController();
+  final TextEditingController _googlePlacesKeyController =
+      TextEditingController();
   final TextEditingController _naverClientIdController =
       TextEditingController();
   final TextEditingController _naverClientSecretController =
@@ -43,10 +48,12 @@ class _MyScreenState extends State<MyScreen> {
   bool _testing = false;
   bool _voiceTesting = false;
   bool _kakaoSaving = false;
+  bool _googlePlacesSaving = false;
   bool _naverSaving = false;
   bool _twilioSaving = false;
   bool _voiceReady = false;
   bool _kakaoConfigured = false;
+  bool _googlePlacesConfigured = false;
   bool _naverConfigured = false;
   bool _twilioConfigured = false;
   bool _trainingBusy = false;
@@ -57,6 +64,7 @@ class _MyScreenState extends State<MyScreen> {
 
   String? _maskedKey;
   String? _maskedKakaoKey;
+  String? _maskedGooglePlacesKey;
   String? _maskedNaverClientId;
   String? _maskedTwilioSid;
   String? _twilioFromNumber;
@@ -76,6 +84,7 @@ class _MyScreenState extends State<MyScreen> {
   void dispose() {
     _apiKeyController.dispose();
     _kakaoKeyController.dispose();
+    _googlePlacesKeyController.dispose();
     _naverClientIdController.dispose();
     _naverClientSecretController.dispose();
     _twilioSidController.dispose();
@@ -114,6 +123,8 @@ class _MyScreenState extends State<MyScreen> {
     try {
       savedKey = await _apiKeyStore.read();
       final kakaoKey = await _kakaoStore.read();
+      final googlePlacesKey =
+          await _googlePlacesStore.read();
       final naverCredentials = await _naverStore.read();
       final twilioCredentials = await _twilioStore.read();
       final voicePreferences = await _voicePreferenceStore.read();
@@ -124,6 +135,10 @@ class _MyScreenState extends State<MyScreen> {
           _maskedKey = _maskKey(savedKey);
           _kakaoConfigured = kakaoKey != null;
           _maskedKakaoKey = _maskKey(kakaoKey);
+          _googlePlacesConfigured =
+              googlePlacesKey != null;
+          _maskedGooglePlacesKey =
+              _maskKey(googlePlacesKey);
           _naverConfigured = naverCredentials != null;
           _maskedNaverClientId = _maskKey(
             naverCredentials?.clientId,
@@ -365,6 +380,63 @@ class _MyScreenState extends State<MyScreen> {
         setState(() {
           _kakaoSaving = false;
         });
+      }
+    }
+  }
+
+  Future<void> _saveGooglePlacesKey() async {
+    final key = _googlePlacesKeyController.text.trim();
+    if (key.isEmpty) {
+      _showMessage('Google Places API Key를 입력해주세요.');
+      return;
+    }
+
+    setState(() {
+      _googlePlacesSaving = true;
+      _message = null;
+    });
+
+    try {
+      await _googlePlacesStore.write(key);
+      if (!mounted) return;
+      _googlePlacesKeyController.clear();
+      setState(() {
+        _googlePlacesConfigured = true;
+        _maskedGooglePlacesKey = _maskKey(key);
+        _message =
+            'Google Places API Key가 이 기기에 안전하게 저장되었습니다.';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _googlePlacesSaving = false);
+      }
+    }
+  }
+
+  Future<void> _deleteGooglePlacesKey() async {
+    setState(() {
+      _googlePlacesSaving = true;
+      _message = null;
+    });
+
+    try {
+      await _googlePlacesStore.delete();
+      if (!mounted) return;
+      _googlePlacesKeyController.clear();
+      setState(() {
+        _googlePlacesConfigured = false;
+        _maskedGooglePlacesKey = null;
+        _message = 'Google Places API 등록을 해제했습니다.';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _googlePlacesSaving = false);
       }
     }
   }
