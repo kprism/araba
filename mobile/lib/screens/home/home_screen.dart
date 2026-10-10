@@ -11,6 +11,7 @@ import '../../services/device_location_service.dart';
 import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
+import '../../services/navigation_service.dart';
 import '../../services/naver_credential_store.dart';
 import '../../services/voice_preference_store.dart';
 
@@ -43,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _autoReconnectingLive = false;
   List<Map<String, dynamic>> _lastBusinesses = const [];
   final List<Map<String, dynamic>> _recentBusinessGroups = [];
+  NavigationRequest? _lastNavigationRequest;
 
   final List<_Message> _messages = [
     _Message(
@@ -233,6 +235,10 @@ class _HomeScreenState extends State<HomeScreen>
         },
         onUserUtterance: (text) async {
           if (!mounted || _liveVoice != liveVoice) return false;
+          if (!_trainerMode &&
+              await _tryHandleNavigation(text, fromVoice: true)) {
+            return true;
+          }
 
           final target = _trainerFeedbackTarget;
           if (!_trainerMode || target == null) {
@@ -435,6 +441,7 @@ class _HomeScreenState extends State<HomeScreen>
     List<Map<String, dynamic>>? businesses,
     String? actionQuestion,
     List<String>? actions,
+    Uri? navigationUri,
   }) {
     if (!mounted) return;
 
@@ -447,6 +454,7 @@ class _HomeScreenState extends State<HomeScreen>
           businesses: businesses,
           actionQuestion: actionQuestion,
           actions: actions,
+          navigationUri: navigationUri,
         ),
       );
     });
@@ -2034,6 +2042,10 @@ class _HomeScreenState extends State<HomeScreen>
       }
     }
 
+    if (await _tryHandleNavigation(text, fromVoice: false)) {
+      return;
+    }
+
     if (_isStatusQuestion(text)) {
       setState(() {
         _messages.add(
@@ -2091,6 +2103,148 @@ class _HomeScreenState extends State<HomeScreen>
       displayText: option,
       requestText: combinedRequest,
     );
+  }
+
+
+  /// Movement requests bypass business search and always use real map apps.
+  /// Both typed requests and GPT-Live utterances use the same handler.
+  Future<bool> _tryHandleNavigation(
+    String text, {
+    required bool fromVoice,
+  }) async {
+    var route = NavigationRequest.tryParse(text);
+    final isOriginFollowUp =
+        NavigationRequest.isCurrentOriginFollowUp(text);
+    if (route == null && isOriginFollowUp) {
+      var last = _lastNavigationRequest;
+      if (last == null) {
+        for (final message in _messages.reversed) {
+          if (!message.isUser) continue;
+          last = NavigationRequest.tryParse(message.text);
+          if (last != null) break;
+        }
+      }
+      if (last != null) route = last.fromCurrentLocation();
+    }
+    if (route == null &&
+        !isOriginFollowUp &&
+        !NavigationRequest.hasNavigationIntent(text)) {
+      return false;
+    }
+    if (!fromVoice && mounted) {
+      setState(() {
+        _messages.add(_Message(isUser: true, text: text));
+      });
+    }
+
+    if (route == null) {
+      _addAssistantMessage(
+        text: '출발지와 목적지를 알려주세요. '
+            '예: 창원시청에서 부산역까지 안내해 줘. '
+            '출발지가 현재 위치라면 목적지만 말해도 됩니다.',
+        badge: '길안내 확인',
+      );
+      return true;
+    }
+
+    // Resolve previous search references only when there is one candidate.
+    if (RegExp(r'아까|방금|그\s*곳|그\s*가게').hasMatch(route.destination)) {
+      final compact = route.destination.replaceAll(RegExp(r'\s+'), '');
+      final candidates = <Map<String, dynamic>>[];
+      for (final group in _recentBusinessGroups) {
+        final subject = group['subject']?.toString().trim() ?? '';
+        final category = group['category']?.toString().trim() ?? '';
+        if (!(
+            (subject.isNotEmpty && compact.contains(subject)) ||
+            (category.isNotEmpty && compact.contains(category)))) {
+          continue;
+        }
+        final found = group['businesses'];
+        if (found is List) {
+          candidates.addAll(
+            found.whereType<Map>().map(
+              (item) => Map<String, dynamic>.from(item),
+            ),
+          );
+        }
+        break;
+      }
+      if (candidates.length == 1) {
+        final business = candidates.single;
+        route = route.toDestination([
+          business['name']?.toString().trim() ?? '',
+          business['address']?.toString().trim() ?? '',
+        ].where((value) => value.isNotEmpty).join(' '));
+      } else {
+        final hint = candidates.isEmpty
+            ? '이전 검색에서 그 장소를 확인하지 못했어요.'
+            : '후보가 ${candidates.length}곳이에요.';
+        _addAssistantMessage(
+          text: '$hint 목적지의 정확한 상호명이나 주소를 알려주세요.',
+          badge: '목적지 확인 필요',
+        );
+        return true;
+      }
+    }
+
+    _lastNavigationRequest = route;
+    final originLabel = route.currentLocation ? '현재 위치' : route.origin;
+    Map<String, dynamic>? device;
+    if (route.currentLocation) {
+      try {
+        device = await _deviceLocation.currentContext();
+      } catch (_) {
+        device = null;
+      }
+      if (device == null) {
+        _addAssistantMessage(
+          text: '현재 위치를 확인하지 못했습니다. '
+              '휴대전화 위치 서비스를 켜고 ARABA의 위치 권한을 허용해 주세요. '
+              '또는 출발지를 주소로 지정해 주세요.',
+          badge: '출발지 위치 확인 필요',
+        );
+        return true;
+      }
+    }
+
+    try {
+      final lat = device?['latitude'];
+      final lon = device?['longitude'];
+      final uri = NavigationLauncher.directionsUri(
+        route,
+        latitude: lat is num ? lat.toDouble() : null,
+        longitude: lon is num ? lon.toDouble() : null,
+      );
+      if (!mounted) return true;
+      final via = route.waypoints.isEmpty
+          ? ''
+          : ' (경유: ${route.waypoints.join(' → ')})';
+      _addAssistantMessage(
+        text: '$originLabel → ${route.destination}$via\n'
+            '내비게이션에 출발지와 목적지를 입력해 경로를 엽니다. '
+            '실제 경로와 운행 시작은 지도 앱에서 확인해 주세요.',
+        badge: '내비게이션 실행',
+        navigationUri: uri,
+      );
+      _speakProgress('내비게이션에서 경로를 열겠습니다.');
+      final opened = await NavigationLauncher.open(uri);
+      if (!opened && mounted) {
+        _addAssistantMessage(
+          text: '지도 앱을 자동으로 열지 못했어요. '
+              '위의 내비게이션 다시 열기 버튼으로 시도해 주세요.',
+          badge: '외부 지도 실행 실패',
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        _addAssistantMessage(
+          text: '내비게이션을 실행하지 못했습니다. '
+              '출발지와 목적지를 다시 확인해 주세요.',
+          badge: '길안내 오류',
+        );
+      }
+    }
+    return true;
   }
 
   bool _needsDeviceLocation(String text) {
@@ -2489,6 +2643,7 @@ class _Message {
   List<Map<String, dynamic>>? businesses;
   final String? actionQuestion;
   final List<String>? actions;
+  final Uri? navigationUri;
 
   _Message({
     required this.isUser,
@@ -2500,6 +2655,7 @@ class _Message {
     this.businesses,
     this.actionQuestion,
     this.actions,
+    this.navigationUri,
   });
 }
 
@@ -2675,6 +2831,16 @@ class _AssistantBubble extends StatelessWidget {
                     const SizedBox(height: 10),
                     _BusinessCards(
                       businesses: message.businesses!,
+                    ),
+                  ],
+                  if (message.navigationUri != null) ...[
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: () => NavigationLauncher.open(
+                        message.navigationUri!,
+                      ),
+                      icon: const Icon(Icons.navigation_rounded),
+                      label: const Text('내비게이션 다시 열기'),
                     ),
                   ],
                   if (message.actionQuestion != null &&
