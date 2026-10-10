@@ -1599,6 +1599,10 @@ def search_real_businesses(
     )
     cached_businesses = cached.get("businesses") or []
     if cached.get("complete") is True and cached_businesses:
+        # Cache completeness is about *business count*, not fact completeness.
+        # Required conditions and missing photo/details must be revisited.
+        # Cached records remain the identity source of truth; verified external
+        # evidence is merged back into those same records.
         # Cached cards created before source verification may have no image.
         # Retry only identity-unverified Kakao candidates, not broad web images.
         missing_photo_candidates = [
@@ -1626,14 +1630,32 @@ def search_real_businesses(
                 mission,
                 detail_refreshed=False,
             )
-        cached_businesses = enrich_businesses_with_google_places(
-            cached_businesses,
-            api_key=google_places_api_key,
-        )
-        cached_businesses = enrich_businesses_with_agents(
-            mission,
-            cached_businesses,
-        )
+        if not quick_cards:
+            cached_businesses = enrich_place_businesses(
+                cached_businesses,
+                mission,
+                naver_client_id=naver_client_id,
+                naver_client_secret=naver_client_secret,
+                openai_api_key=openai_api_key,
+                google_places_api_key=google_places_api_key,
+                gpt_direct=True,
+            )
+        else:
+            cached_businesses = enrich_businesses_with_google_places(
+                cached_businesses,
+                api_key=google_places_api_key,
+            )
+            # Persist newly verified hours, phone and source metadata without
+            # treating transient Google photo URLs as durable image files.
+            persist_businesses(
+                cached_businesses,
+                mission,
+                detail_refreshed=False,
+            )
+            cached_businesses = enrich_businesses_with_agents(
+                mission,
+                cached_businesses,
+            )
         cached_businesses = enforce_business_images(
             cached_businesses
         )
@@ -1649,6 +1671,11 @@ def search_real_businesses(
             matching["display_businesses"]
             if isinstance(matching, dict)
             else cached_businesses
+        )
+        unverified_businesses = (
+            matching["unverified_businesses"]
+            if isinstance(matching, dict)
+            else []
         )
         evaluation = evaluate_research_result(
             mission,
@@ -1666,6 +1693,7 @@ def search_real_businesses(
                 mission.get("search_mode") or ""
             ).strip(),
             "businesses": display_businesses,
+            "unverified_businesses": unverified_businesses,
             "matching": matching,
             "displayed_count": len(display_businesses),
             "requested_count": requested_count,
@@ -2097,6 +2125,11 @@ def search_real_businesses(
         if isinstance(matching, dict)
         else businesses
     )
+    unverified_businesses = (
+        matching["unverified_businesses"]
+        if isinstance(matching, dict)
+        else []
+    )
 
     evaluation = evaluate_research_result(
         mission,
@@ -2127,6 +2160,7 @@ def search_real_businesses(
             or ""
         ).strip(),
         "businesses": display_businesses,
+        "unverified_businesses": unverified_businesses,
         "matching": matching,
         "displayed_count": len(display_businesses),
         "requested_count": requested_count,
