@@ -13,7 +13,7 @@ typedef LiveTranscriptCallback = void Function({
   required bool isUser,
   required String delta,
 });
-typedef LiveMissionCallback = void Function(
+typedef LiveMissionCallback = Future<void> Function(
   Map<String, dynamic> mission,
   String requestContext,
 );
@@ -30,6 +30,7 @@ class LiveVoiceService {
   final LiveStatusCallback onStatus;
   final LiveTranscriptCallback onTranscript;
   final LiveMissionCallback onMission;
+  final Future<Map<String, dynamic>?> Function(String text)? resolveDeviceContext;
   final LiveUserUtteranceInterceptor? onUserUtterance;
   final void Function(String message) onError;
   final void Function(String message)? onDiagnostic;
@@ -61,6 +62,7 @@ class LiveVoiceService {
     required this.onStatus,
     required this.onTranscript,
     required this.onMission,
+    this.resolveDeviceContext,
     this.onUserUtterance,
     required this.onError,
     this.onDiagnostic,
@@ -425,22 +427,38 @@ class LiveVoiceService {
       );
       preparedRequestText = requestText;
 
+      final deviceContext = resolveDeviceContext == null
+          ? null
+          : await resolveDeviceContext!(latestUserText);
       final result = await api.createMission(
         requestText,
         apiKey: apiKey,
+        deviceContext: deviceContext,
       );
 
-      final mission = result['mission'];
-      if (mission is! Map<String, dynamic>) {
+      final rawMissions = result['missions'];
+      final missions = rawMissions is List
+          ? rawMissions
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+          : <Map<String, dynamic>>[
+              if (result['mission'] is Map)
+                Map<String, dynamic>.from(result['mission'] as Map),
+            ];
+      if (missions.isEmpty) {
         throw const ArabaApiException(
-          '조사 엔진 응답 형식이 올바르지 않아요.',
+          '조사 엔진이 실행할 요청을 반환하지 않았어요.',
         );
       }
 
-      conversationContext.rememberMission(mission);
       _consumeProcessedTranscript(latestUserText);
-      onMission(mission, requestText);
+      for (final mission in missions) {
+        conversationContext.rememberMission(mission);
+        await onMission(mission, requestText);
+      }
 
+      final mission = missions.last;
       final ready =
           mission['ready_to_research'] == true;
       final questions =
