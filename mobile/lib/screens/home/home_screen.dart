@@ -2814,6 +2814,13 @@ class _BusinessCards extends StatelessWidget {
                     .trim() ??
                 ''
             : '';
+    final imageAuthorUri =
+        imageAttributions.isNotEmpty
+            ? imageAttributions.first['uri']
+                    ?.toString()
+                    .trim() ??
+                ''
+            : '';
     final imageGoogleMapsUri =
         business['image_google_maps_uri']
                 ?.toString()
@@ -3226,6 +3233,28 @@ class _BusinessCards extends StatelessWidget {
                               ),
                               label: const Text(
                                 'Google Maps에서 사진 출처 보기',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize:
+                                    const Size.fromHeight(48),
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (imageAuthorUri.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  _openPlace(imageAuthorUri),
+                              icon: const Icon(
+                                Icons.person_outline_rounded,
+                              ),
+                              label: Text(
+                                imageAuthor.isNotEmpty
+                                    ? '사진 제공자 $imageAuthor 보기'
+                                    : '사진 제공자 보기',
                               ),
                               style: OutlinedButton.styleFrom(
                                 minimumSize:
