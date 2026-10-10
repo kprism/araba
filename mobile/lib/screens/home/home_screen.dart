@@ -3570,6 +3570,18 @@ class _BusinessCards extends StatelessWidget {
               business['image_url']?.toString().trim() ?? '';
           final imageSource =
               business['image_source']?.toString().trim() ?? '';
+          final photoStatus =
+              business['kakao_photo_status']?.toString().trim() ?? '';
+          final photoMissingReason = switch (photoStatus) {
+            'no_image_in_page' => '카카오 페이지에 확인된 사진 없음',
+            'identity_not_confirmed' => '업체와 사진 출처 일치 확인 불가',
+            'page_fetch_failed' => '카카오 사진 페이지 연결 실패',
+            'page_unavailable' => '카카오 사진 페이지 이용 불가',
+            'not_kakao_place_url' => '업체 등록 사진 링크 미확인',
+            _ => imageSource == 'identity_unverified_hidden'
+                ? '사진과 업체 일치 근거 부족'
+                : '검증 가능한 업체 사진 미확보',
+          };
           final rawImageAttributions =
               business['image_attributions'];
           final imageAttributions =
@@ -3757,8 +3769,8 @@ class _BusinessCards extends StatelessWidget {
                           },
                         )
                       else
-                        const _BusinessImageFallback(
-                          message: '업체 사진 정보 없음',
+                        _BusinessImageFallback(
+                          message: photoMissingReason,
                           iconSize: 38,
                         ),
                       if (imageUrl.isNotEmpty)
