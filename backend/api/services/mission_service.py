@@ -870,6 +870,42 @@ def _requests_current_location(
 
 
 
+
+def _apply_latest_spoken_location_correction(intent, request_text):
+    """The last explicit full address after '아니고' wins over STT errors."""
+    if intent.get("intent") != "place_search":
+        return intent
+    _, current = _split_contextual_request(request_text)
+    correction = list(re.finditer(
+        r"아니고|아니라|잠깐|정정|정확히는|그게아니라",
+        str(current or ""),
+    ))
+    if not correction:
+        return intent
+    tail = str(current)[correction[-1].end():]
+    full_area = re.findall(
+        r"([가-힣]{2,}(?:특별시|광역시|시|군)"
+        r"\s+[가-힣]{2,}(?:구|군)"
+        r"\s+[가-힣]{1,}(?:동|읍|면|리))",
+        tail,
+    )
+    if not full_area:
+        return intent
+    corrected_location = re.sub(r"\s+", " ", full_area[-1]).strip()
+    result = dict(intent)
+    result["location"] = {
+        "value": corrected_location,
+        "type": "administrative_area",
+        "explicit": True,
+    }
+    attrs = dict(result.get("attributes") or {})
+    attrs.pop("reuse_recent_results", None)
+    attrs.pop("reuse_recent_business_only", None)
+    result["attributes"] = attrs
+    result["target_business"] = None
+    return result
+
+
 def _enforce_explicit_evidence_conditions(intent, request_text):
     """A user-stated hard condition must not vanish from model JSON."""
     if intent.get("intent") != "place_search":
@@ -2303,6 +2339,10 @@ def create_mission(
         )
 
     intent = _apply_spoken_self_correction(
+        intent,
+        request_text,
+    )
+    intent = _apply_latest_spoken_location_correction(
         intent,
         request_text,
     )
