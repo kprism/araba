@@ -343,3 +343,16 @@ class BusinessEvidenceRefreshTests(TestCase):
             fact.value["value"][0]["source_url"],
             "https://example.com/source",
         )
+
+    def test_transient_photo_identity_flag_does_not_poison_db(self):
+        from api.services.business_graph_service import serialize_business
+        persist_businesses([{
+            **self.business,
+            "image_url": "https://google.example/temporary-photo",
+            "image_source": "google_places_verified",
+            "image_identity_verified": True,
+        }], self.mission, detail_refreshed=True)
+        stored = serialize_business(Business.objects.get())
+        self.assertFalse(stored.get("image_url"))
+        self.assertFalse(stored.get("image_identity_verified"))
+        self.assertIn("photo", stored["araba_missing_facts"])
