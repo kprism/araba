@@ -1,6 +1,5 @@
 TRUSTED_IMAGE_SOURCES = {
     "google_places_verified",
-    "kakao_place",
 }
 
 
@@ -22,7 +21,7 @@ def enforce_business_image_identity(business):
     )
 
     if (
-        source == "naver_place"
+        source in {"naver_place", "kakao_place"}
         and item.get("image_identity_verified") is True
     ):
         verified = True
