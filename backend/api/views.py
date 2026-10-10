@@ -50,6 +50,8 @@ def health(request):
         {
             "ok": True,
             "service": "ARABA API",
+            "execution_core": "context-aware-v1",
+            "timezone": "Asia/Seoul",
         }
     )
 
