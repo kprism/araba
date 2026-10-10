@@ -51,6 +51,152 @@ def _opening_ranges(business):
     return ranges
 
 
+DAY_ORDER = {
+    "월요일": 0,
+    "화요일": 1,
+    "수요일": 2,
+    "목요일": 3,
+    "금요일": 4,
+    "토요일": 5,
+    "일요일": 6,
+}
+
+DAY_SHORT = {
+    "월요일": "월",
+    "화요일": "화",
+    "수요일": "수",
+    "목요일": "목",
+    "금요일": "금",
+    "토요일": "토",
+    "일요일": "일",
+}
+
+DAY_ENGLISH = {
+    "월요일": ("monday", "mon"),
+    "화요일": ("tuesday", "tue"),
+    "수요일": ("wednesday", "wed"),
+    "목요일": ("thursday", "thu"),
+    "금요일": ("friday", "fri"),
+    "토요일": ("saturday", "sat"),
+    "일요일": ("sunday", "sun"),
+}
+
+
+def _canonical_day(value):
+    text = _text(value).lower()
+    for day, short in DAY_SHORT.items():
+        if day in text or f"{short}요일" in text:
+            return day
+        if text == short:
+            return day
+        if any(
+            text == alias
+            for alias in DAY_ENGLISH[day]
+        ):
+            return day
+    return None
+
+
+def _day_in_korean_range(text, target_day):
+    target_index = DAY_ORDER[target_day]
+    pattern = re.compile(
+        r"([월화수목금토일])(?:요일)?\s*[~\-–]\s*"
+        r"([월화수목금토일])(?:요일)?"
+    )
+    reverse = {
+        value: DAY_ORDER[day]
+        for day, value in DAY_SHORT.items()
+    }
+    for match in pattern.finditer(text):
+        start = reverse[match.group(1)]
+        end = reverse[match.group(2)]
+        if start <= end:
+            indices = range(start, end + 1)
+        else:
+            indices = list(range(start, 7)) + list(
+                range(0, end + 1)
+            )
+        if target_index in indices:
+            return True
+    return False
+
+
+def _opening_day_state(business, target):
+    target_day = _canonical_day(target)
+    if target_day is None:
+        return None
+
+    raw = _naver(business).get("opening_hours")
+    if not isinstance(raw, list) or not raw:
+        return None
+
+    short = DAY_SHORT[target_day]
+    english = DAY_ENGLISH[target_day]
+    target_index = DAY_ORDER[target_day]
+
+    for item in raw:
+        text = _text(item)
+        if not text:
+            continue
+        lower = text.lower()
+        compact = re.sub(r"\s+", "", text)
+
+        applies = False
+        if "매일" in compact or "daily" in lower:
+            applies = True
+        if target_day in text or f"{short}요일" in text:
+            applies = True
+        if re.search(
+            rf"(?<![월화수목금토일]){short}(?![월화수목금토일])",
+            compact,
+        ):
+            applies = True
+        if any(
+            re.search(
+                rf"\b{re.escape(alias)}\b",
+                lower,
+            )
+            for alias in english
+        ):
+            applies = True
+        if _day_in_korean_range(
+            text,
+            target_day,
+        ):
+            applies = True
+
+        if (
+            target_index in {5, 6}
+            and "주말" in compact
+        ):
+            applies = True
+
+        if not applies:
+            continue
+
+        closed = bool(
+            re.search(
+                r"휴무|휴점|정기휴무|closed|영업안함|운영안함",
+                lower,
+            )
+        )
+        if closed:
+            return False
+
+        if (
+            re.search(
+                r"\d{1,2}:\d{2}",
+                text,
+            )
+            or "24시간" in compact
+            or "영업" in compact
+            or "운영" in compact
+        ):
+            return True
+
+    return None
+
+
 def _price_number(value):
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
@@ -125,6 +271,18 @@ def _criterion_value(business, criterion):
         if field == "closing_time":
             return max(value[1] for value in ranges), "opening_hours"
         return min(value[0] for value in ranges), "opening_hours"
+
+    if field == "opening_day":
+        expected_day = _text(criterion.get("value"))
+        state = _opening_day_state(
+            business,
+            expected_day,
+        )
+        if state is True:
+            return expected_day, "opening_hours"
+        if state is False:
+            return "휴무", "opening_hours"
+        return None, "opening_hours"
 
     if field == "price":
         values = _prices(business)
