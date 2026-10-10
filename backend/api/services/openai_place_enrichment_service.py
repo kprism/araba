@@ -308,17 +308,9 @@ def _source_urls(parsed, raw_results):
             if url and url not in actual:
                 actual.append(url)
 
-    if actual:
-        return actual[:8]
-
-    urls = []
-    raw_sources = parsed.get("source_urls")
-    if isinstance(raw_sources, list):
-        for raw in raw_sources:
-            url = _safe_url(raw)
-            if url and url not in urls:
-                urls.append(url)
-    return urls[:8]
+    # Only server-observed search results or cited links can authorize facts.
+    # A model-generated URL string is not independent evidence.
+    return actual[:8]
 
 
 def _business_name_variants(value):
