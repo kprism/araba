@@ -4003,6 +4003,40 @@ class _BusinessCards extends StatelessWidget {
                           message: photoMissingReason,
                           iconSize: 38,
                         ),
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        child: Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          elevation: 1,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () =>
+                                _navigateToBusiness(context, business),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.navigation_rounded,
+                                      size: 15, color: Color(0xFF3157D5)),
+                                  SizedBox(width: 4),
+                                  Text('길안내',
+                                      style: TextStyle(
+                                        color: Color(0xFF3157D5),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                      )),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                       if (imageUrl.isNotEmpty)
                         Positioned(
                           left: 8,
@@ -4490,23 +4524,6 @@ class _BusinessCards extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                            TextButton(
-                              onPressed: () =>
-                                  _navigateToBusiness(context, business),
-                              style: TextButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 3,
-                                ),
-                              ),
-                              child: const Text(
-                                '길안내',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
                             TextButton(
                               onPressed: placeUrl.isEmpty
                                   ? null
