@@ -751,8 +751,25 @@ def enrich_one_business(
     ).strip()
     page = inspect_naver_place_page(link)
 
+    image_identity_verified = (
+        score >= 77
+        and bool(
+            _address_tokens(
+                business.get("road_address")
+                or business.get("address")
+                or ""
+            )
+            & _address_tokens(
+                item.get("roadAddress")
+                or item.get("address")
+                or ""
+            )
+        )
+    )
+
     if (
-        not str(
+        image_identity_verified
+        and not str(
             business.get("image_url") or ""
         ).strip()
         and str(
@@ -765,6 +782,7 @@ def enrich_one_business(
         business["image_source"] = (
             "naver_place"
         )
+        business["image_identity_verified"] = True
 
     business["naver"] = {
         "matched": True,

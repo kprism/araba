@@ -4,6 +4,7 @@ import 'business_db_screen.dart';
 
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
+import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/naver_credential_store.dart';
 import '../../services/twilio_credential_store.dart';
@@ -20,11 +21,15 @@ class _MyScreenState extends State<MyScreen> {
   final ArabaApi _api = ArabaApi();
   final ApiKeyStore _apiKeyStore = ApiKeyStore();
   final KakaoCredentialStore _kakaoStore = KakaoCredentialStore();
+  final GooglePlacesCredentialStore _googlePlacesStore =
+      GooglePlacesCredentialStore();
   final NaverCredentialStore _naverStore = NaverCredentialStore();
   final TwilioCredentialStore _twilioStore = TwilioCredentialStore();
   final VoicePreferenceStore _voicePreferenceStore = VoicePreferenceStore();
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _kakaoKeyController = TextEditingController();
+  final TextEditingController _googlePlacesKeyController =
+      TextEditingController();
   final TextEditingController _naverClientIdController =
       TextEditingController();
   final TextEditingController _naverClientSecretController =
@@ -43,10 +48,12 @@ class _MyScreenState extends State<MyScreen> {
   bool _testing = false;
   bool _voiceTesting = false;
   bool _kakaoSaving = false;
+  bool _googlePlacesSaving = false;
   bool _naverSaving = false;
   bool _twilioSaving = false;
   bool _voiceReady = false;
   bool _kakaoConfigured = false;
+  bool _googlePlacesConfigured = false;
   bool _naverConfigured = false;
   bool _twilioConfigured = false;
   bool _trainingBusy = false;
@@ -57,6 +64,7 @@ class _MyScreenState extends State<MyScreen> {
 
   String? _maskedKey;
   String? _maskedKakaoKey;
+  String? _maskedGooglePlacesKey;
   String? _maskedNaverClientId;
   String? _maskedTwilioSid;
   String? _twilioFromNumber;
@@ -76,6 +84,7 @@ class _MyScreenState extends State<MyScreen> {
   void dispose() {
     _apiKeyController.dispose();
     _kakaoKeyController.dispose();
+    _googlePlacesKeyController.dispose();
     _naverClientIdController.dispose();
     _naverClientSecretController.dispose();
     _twilioSidController.dispose();
@@ -114,6 +123,8 @@ class _MyScreenState extends State<MyScreen> {
     try {
       savedKey = await _apiKeyStore.read();
       final kakaoKey = await _kakaoStore.read();
+      final googlePlacesKey =
+          await _googlePlacesStore.read();
       final naverCredentials = await _naverStore.read();
       final twilioCredentials = await _twilioStore.read();
       final voicePreferences = await _voicePreferenceStore.read();
@@ -124,6 +135,10 @@ class _MyScreenState extends State<MyScreen> {
           _maskedKey = _maskKey(savedKey);
           _kakaoConfigured = kakaoKey != null;
           _maskedKakaoKey = _maskKey(kakaoKey);
+          _googlePlacesConfigured =
+              googlePlacesKey != null;
+          _maskedGooglePlacesKey =
+              _maskKey(googlePlacesKey);
           _naverConfigured = naverCredentials != null;
           _maskedNaverClientId = _maskKey(
             naverCredentials?.clientId,
@@ -365,6 +380,63 @@ class _MyScreenState extends State<MyScreen> {
         setState(() {
           _kakaoSaving = false;
         });
+      }
+    }
+  }
+
+  Future<void> _saveGooglePlacesKey() async {
+    final key = _googlePlacesKeyController.text.trim();
+    if (key.isEmpty) {
+      _showMessage('Google Places API Key를 입력해주세요.');
+      return;
+    }
+
+    setState(() {
+      _googlePlacesSaving = true;
+      _message = null;
+    });
+
+    try {
+      await _googlePlacesStore.write(key);
+      if (!mounted) return;
+      _googlePlacesKeyController.clear();
+      setState(() {
+        _googlePlacesConfigured = true;
+        _maskedGooglePlacesKey = _maskKey(key);
+        _message =
+            'Google Places API Key가 이 기기에 안전하게 저장되었습니다.';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _googlePlacesSaving = false);
+      }
+    }
+  }
+
+  Future<void> _deleteGooglePlacesKey() async {
+    setState(() {
+      _googlePlacesSaving = true;
+      _message = null;
+    });
+
+    try {
+      await _googlePlacesStore.delete();
+      if (!mounted) return;
+      _googlePlacesKeyController.clear();
+      setState(() {
+        _googlePlacesConfigured = false;
+        _maskedGooglePlacesKey = null;
+        _message = 'Google Places API 등록을 해제했습니다.';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _message = error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _googlePlacesSaving = false);
       }
     }
   }
@@ -1009,6 +1081,100 @@ class _MyScreenState extends State<MyScreen> {
                                 : _deleteKakaoKey,
                             icon: const Icon(Icons.delete_outline_rounded),
                             label: const Text('Kakao Key 등록 해제'),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFEAECF0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Google Places API',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _maskedGooglePlacesKey == null
+                            ? '등록된 Google Places API Key가 없습니다.'
+                            : '등록된 Key: $_maskedGooglePlacesKey',
+                        style: const TextStyle(
+                          color: Color(0xFF667085),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        '동일 업체를 상호·주소로 재검증한 뒤 사진, 현재 영업시간, '
+                        '배달·포장·예약 지원 여부를 보강합니다. 업체 신원이 맞지 않으면 사진을 사용하지 않습니다.',
+                        style: TextStyle(
+                          color: Color(0xFF98A2B3),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _googlePlacesKeyController,
+                        obscureText: true,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Google Places API Key',
+                          hintText: 'Google Cloud Places API (New) 키',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: _googlePlacesSaving
+                              ? null
+                              : _saveGooglePlacesKey,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 13,
+                            ),
+                            child: _googlePlacesSaving
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    _googlePlacesConfigured
+                                        ? 'Google Places Key 교체'
+                                        : 'Google Places Key 저장',
+                                  ),
+                          ),
+                        ),
+                      ),
+                      if (_googlePlacesConfigured) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _googlePlacesSaving
+                                ? null
+                                : _deleteGooglePlacesKey,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            label: const Text('Google Places Key 등록 해제'),
                           ),
                         ),
                       ],

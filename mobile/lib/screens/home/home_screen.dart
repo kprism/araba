@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_key_store.dart';
 import '../../services/araba_api.dart';
 import '../../services/conversation_context.dart';
+import '../../services/device_location_service.dart';
+import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
 import '../../services/naver_credential_store.dart';
@@ -28,6 +30,8 @@ class _HomeScreenState extends State<HomeScreen>
   final _imagePicker = ImagePicker();
   final _keyStore = ApiKeyStore();
   final _kakaoStore = KakaoCredentialStore();
+  final _googlePlacesStore = GooglePlacesCredentialStore();
+  final _deviceLocation = const DeviceLocationService();
   final _naverStore = NaverCredentialStore();
   final _voicePreferenceStore = VoicePreferenceStore();
   final _conversationContext = ConversationContext();
@@ -900,6 +904,7 @@ class _HomeScreenState extends State<HomeScreen>
     required String openAiApiKey,
     String? naverClientId,
     String? naverClientSecret,
+    String? googlePlacesApiKey,
   }) async {
     try {
       final result = await _api.enrichBusinesses(
@@ -908,6 +913,7 @@ class _HomeScreenState extends State<HomeScreen>
         openAiApiKey: openAiApiKey,
         naverClientId: naverClientId,
         naverClientSecret: naverClientSecret,
+        googlePlacesApiKey: googlePlacesApiKey,
       );
 
       if (!mounted || revision != _researchRevision) return;
@@ -1110,6 +1116,8 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     final naverCredentials = await _naverStore.read();
+    final googlePlacesApiKey =
+        await _googlePlacesStore.read();
     _updateResearchStage(
       '직전 업체를 새로 검색하지 않고 조건별 근거를 판정하는 중…',
       revision: revision,
@@ -1121,6 +1129,7 @@ class _HomeScreenState extends State<HomeScreen>
       openAiApiKey: openAiApiKey,
       naverClientId: naverCredentials?.clientId,
       naverClientSecret: naverCredentials?.clientSecret,
+      googlePlacesApiKey: googlePlacesApiKey,
     );
 
     if (!mounted || revision != _researchRevision) {
@@ -1209,6 +1218,8 @@ class _HomeScreenState extends State<HomeScreen>
       }
       final openAiApiKey = await _keyStore.read();
       final kakaoRestApiKey = await _kakaoStore.read();
+      final googlePlacesApiKey =
+          await _googlePlacesStore.read();
 
       if (openAiApiKey == null) {
         throw const ArabaApiException(
@@ -1231,6 +1242,7 @@ class _HomeScreenState extends State<HomeScreen>
         openAiApiKey: openAiApiKey,
         naverClientId: naverCredentials?.clientId,
         naverClientSecret: naverCredentials?.clientSecret,
+        googlePlacesApiKey: googlePlacesApiKey,
         quickCards: quickCards,
       );
 
@@ -1298,6 +1310,7 @@ class _HomeScreenState extends State<HomeScreen>
             openAiApiKey: openAiApiKey,
             naverClientId: naverCredentials?.clientId,
             naverClientSecret: naverCredentials?.clientSecret,
+            googlePlacesApiKey: googlePlacesApiKey,
           ),
         );
         return;
@@ -1949,6 +1962,20 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  bool _needsDeviceLocation(String text) {
+    final compact = text.replaceAll(
+      RegExp(r'\s+'),
+      '',
+    );
+    return RegExp(
+      r'내(?:가)?(?:있는|있는곳|위치|주변|근처)|'
+      r'현재위치|현위치|내위치|'
+      r'여기(?:주변|근처)|'
+      r'지금있는곳|지금여기|'
+      r'가까운곳|가까운업체|가까운가게',
+    ).hasMatch(compact);
+  }
+
   Future<void> _requestMission({
     required String displayText,
     required String requestText,
@@ -1977,9 +2004,19 @@ class _HomeScreenState extends State<HomeScreen>
 
       final contextualRequest =
           _conversationContext.enrichRequest(requestText);
+      Map<String, dynamic>? deviceContext;
+      if (_needsDeviceLocation(requestText)) {
+        try {
+          deviceContext =
+              await _deviceLocation.currentContext();
+        } catch (_) {
+          deviceContext = null;
+        }
+      }
       final result = await _api.createMission(
         contextualRequest,
         apiKey: apiKey,
+        deviceContext: deviceContext,
       );
 
       if (!mounted) return;
@@ -2758,6 +2795,53 @@ class _BusinessCards extends StatelessWidget {
         business['image_url']?.toString().trim() ?? '';
     final imageSource =
         business['image_source']?.toString().trim() ?? '';
+    final rawImageAttributions =
+        business['image_attributions'];
+    final imageAttributions =
+        rawImageAttributions is List
+            ? rawImageAttributions
+                .whereType<Map>()
+                .map(
+                  (item) =>
+                      Map<String, dynamic>.from(item),
+                )
+                .toList()
+            : <Map<String, dynamic>>[];
+    final imageAuthor =
+        imageAttributions.isNotEmpty
+            ? imageAttributions.first['display_name']
+                    ?.toString()
+                    .trim() ??
+                ''
+            : '';
+    final imageAuthorUri =
+        imageAttributions.isNotEmpty
+            ? imageAttributions.first['uri']
+                    ?.toString()
+                    .trim() ??
+                ''
+            : '';
+    final imageGoogleMapsUri =
+        business['image_google_maps_uri']
+                ?.toString()
+                .trim() ??
+            '';
+    final imageCredit =
+        imageSource == 'google_places_verified'
+            ? (
+                imageAuthor.isNotEmpty
+                    ? 'Google Maps · 사진: $imageAuthor'
+                    : 'Google Maps'
+              )
+            : (
+                imageSource == 'kakao_place'
+                    ? '카카오 등록사진'
+                    : (
+                        imageSource == 'naver_place'
+                            ? '네이버 플레이스 확인사진'
+                            : '업체 확인사진'
+                      )
+              );
     final placeUrl =
         business['place_url']?.toString().trim() ?? '';
     final naverValue = business['naver'];
@@ -2846,6 +2930,14 @@ class _BusinessCards extends StatelessWidget {
     final parkingAvailable =
         naver['parking_available'];
     final priceText = _priceText(prices);
+    final isOpenNow = business['is_open_now'];
+    final orderableNow = business['orderable_now'];
+    final currentStatusValue = business['current_status'];
+    final currentStatus = currentStatusValue is Map
+        ? Map<String, dynamic>.from(currentStatusValue)
+        : <String, dynamic>{};
+    final checkedAt =
+        currentStatus['checked_at']?.toString().trim() ?? '';
 
     await showModalBottomSheet<void>(
       context: context,
@@ -2934,21 +3026,7 @@ class _BusinessCards extends StatelessWidget {
                                   vertical: 6,
                                 ),
                                 child: Text(
-                                  imageSource == 'kakao_place'
-                                      ? '카카오 등록사진'
-                                      : (
-                                          imageSource == 'naver_place'
-                                              ? '네이버 플레이스 사진'
-                                              : (
-                                                  imageSource == 'openai_web'
-                                                      ? '웹검색 대표사진'
-                                                      : (
-                                                          imageSource == 'web_evidence'
-                                                              ? '웹 확인 사진'
-                                                              : '업체 사진'
-                                                        )
-                                                )
-                                        ),
+                                  imageCredit,
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 11,
@@ -3006,6 +3084,20 @@ class _BusinessCards extends StatelessWidget {
                           ),
                         ],
                         const SizedBox(height: 18),
+                        if (isOpenNow is bool)
+                          _BusinessDetailRow(
+                            icon: isOpenNow
+                                ? Icons.store_mall_directory_rounded
+                                : Icons.store_mall_directory_outlined,
+                            title: '현재 상태 · KST',
+                            value: [
+                              isOpenNow ? '영업 중' : '영업시간 외',
+                              if (orderableNow == true)
+                                '영업시간 기준 주문 가능',
+                              if (checkedAt.isNotEmpty)
+                                '확인 $checkedAt',
+                            ].join(' · '),
+                          ),
                         if (openingHours.isNotEmpty)
                           _BusinessDetailRow(
                             icon: Icons.schedule_rounded,
@@ -3129,6 +3221,48 @@ class _BusinessCards extends StatelessWidget {
                             ),
                           ),
                         ],
+                        if (imageGoogleMapsUri.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  _openPlace(imageGoogleMapsUri),
+                              icon: const Icon(
+                                Icons.map_rounded,
+                              ),
+                              label: const Text(
+                                'Google Maps에서 사진 출처 보기',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize:
+                                    const Size.fromHeight(48),
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (imageAuthorUri.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  _openPlace(imageAuthorUri),
+                              icon: const Icon(
+                                Icons.person_outline_rounded,
+                              ),
+                              label: Text(
+                                imageAuthor.isNotEmpty
+                                    ? '사진 제공자 $imageAuthor 보기'
+                                    : '사진 제공자 보기',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize:
+                                    const Size.fromHeight(48),
+                              ),
+                            ),
+                          ),
+                        ],
                         if (priceLink.isNotEmpty) ...[
                           const SizedBox(height: 10),
                           SizedBox(
@@ -3224,7 +3358,7 @@ class _BusinessCards extends StatelessWidget {
     );
 
     return SizedBox(
-      height: hasMock ? 590 : 572,
+      height: hasMock ? 620 : 600,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: businesses.length,
@@ -3245,6 +3379,42 @@ class _BusinessCards extends StatelessWidget {
               business['image_url']?.toString().trim() ?? '';
           final imageSource =
               business['image_source']?.toString().trim() ?? '';
+          final rawImageAttributions =
+              business['image_attributions'];
+          final imageAttributions =
+              rawImageAttributions is List
+                  ? rawImageAttributions
+                      .whereType<Map>()
+                      .map(
+                        (item) => Map<String, dynamic>.from(
+                          item,
+                        ),
+                      )
+                      .toList()
+                  : <Map<String, dynamic>>[];
+          final imageAuthor =
+              imageAttributions.isNotEmpty
+                  ? imageAttributions.first['display_name']
+                          ?.toString()
+                          .trim() ??
+                      ''
+                  : '';
+          final imageCredit =
+              imageSource == 'google_places_verified'
+                  ? (
+                      imageAuthor.isNotEmpty
+                          ? 'Google Maps · $imageAuthor'
+                          : 'Google Maps'
+                    )
+                  : (
+                      imageSource == 'kakao_place'
+                          ? '카카오 등록사진'
+                          : (
+                              imageSource == 'naver_place'
+                                  ? '네이버 확인사진'
+                                  : '업체 확인사진'
+                            )
+                    );
           final callResult =
               business['mock_call_result']?.toString().trim() ?? '';
           final cacheHit =
@@ -3341,6 +3511,8 @@ class _BusinessCards extends StatelessWidget {
           final webVerified =
               openAiWeb['matched'] == true ||
               web['status'] == 'matched';
+          final isOpenNow = business['is_open_now'];
+          final orderableNow = business['orderable_now'];
 
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
@@ -3413,17 +3585,7 @@ class _BusinessCards extends StatelessWidget {
                                 vertical: 4,
                               ),
                               child: Text(
-                                imageSource == 'kakao_place'
-                                    ? '카카오 등록사진'
-                                    : (
-                                        imageSource == 'naver_place'
-                                            ? '네이버 플레이스 사진'
-                                            : (
-                                                imageSource == 'web_evidence'
-                                                    ? '웹 확인 사진'
-                                                    : '업체 사진'
-                                              )
-                                      ),
+                                imageCredit,
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,
@@ -3599,6 +3761,43 @@ class _BusinessCards extends StatelessWidget {
                                     color: Color(0xFF3157D5),
                                     fontSize: 11.2,
                                     fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (isOpenNow is bool) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(
+                                isOpenNow
+                                    ? Icons.storefront_rounded
+                                    : Icons.storefront_outlined,
+                                size: 15,
+                                color: isOpenNow
+                                    ? const Color(0xFF027A48)
+                                    : const Color(0xFF667085),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  isOpenNow
+                                      ? (
+                                          orderableNow == true
+                                              ? '지금 영업 중 · 영업시간 기준 주문 가능'
+                                              : '지금 영업 중'
+                                        )
+                                      : '현재 영업시간 외',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isOpenNow
+                                        ? const Color(0xFF027A48)
+                                        : const Color(0xFF667085),
+                                    fontSize: 11.3,
+                                    fontWeight: FontWeight.w900,
                                   ),
                                 ),
                               ),

@@ -13,6 +13,20 @@ from .research_evaluation_service import (
     evaluate_research_result,
 )
 from .business_matching_service import match_businesses
+from .business_agent_service import (
+    enrich_businesses_with_agents,
+)
+from .google_places_service import (
+    enrich_businesses_with_google_places,
+)
+from .image_identity_service import (
+    enforce_business_images,
+)
+from .temporal_service import (
+    annotate_businesses_now,
+    current_time_context,
+)
+
 from .business_graph_service import (
     cached_businesses_for_mission,
     merge_businesses_from_graph,
@@ -1343,6 +1357,7 @@ def enrich_place_businesses(
     naver_client_id=None,
     naver_client_secret=None,
     openai_api_key=None,
+    google_places_api_key=None,
     gpt_direct=False,
 ):
     """Enrich already verified Kakao candidates without searching again."""
@@ -1411,7 +1426,20 @@ def enrich_place_businesses(
             if item not in fresh
         ]
         if not stale:
-            return safe
+            runtime = enrich_businesses_with_google_places(
+                safe,
+                api_key=google_places_api_key,
+            )
+            runtime = enrich_businesses_with_agents(
+                mission,
+                runtime,
+            )
+            runtime = enforce_business_images(
+                runtime
+            )
+            return annotate_businesses_now(
+                runtime
+            )
 
         enriched_stale = enrich_businesses_with_openai_web(
             stale,
@@ -1443,7 +1471,20 @@ def enrich_place_businesses(
                 )
             )
             combined.append(refreshed.get(key, item))
-        return combined
+        runtime = enrich_businesses_with_google_places(
+            combined,
+            api_key=google_places_api_key,
+        )
+        runtime = enrich_businesses_with_agents(
+            mission,
+            runtime,
+        )
+        runtime = enforce_business_images(
+            runtime
+        )
+        return annotate_businesses_now(
+            runtime
+        )
 
     detail_targets = safe[:FAST_DETAIL_ENRICH_LIMIT]
     deferred_targets = safe[FAST_DETAIL_ENRICH_LIMIT:]
@@ -1489,10 +1530,24 @@ def enrich_place_businesses(
         mission,
         api_key=openai_api_key,
     )
-    return persist_businesses(
+    persisted = persist_businesses(
         enriched,
         mission,
         detail_refreshed=True,
+    )
+    runtime = enrich_businesses_with_google_places(
+        persisted,
+        api_key=google_places_api_key,
+    )
+    runtime = enrich_businesses_with_agents(
+        mission,
+        runtime,
+    )
+    runtime = enforce_business_images(
+        runtime
+    )
+    return annotate_businesses_now(
+        runtime
     )
 
 
@@ -1503,6 +1558,7 @@ def search_real_businesses(
     naver_client_id=None,
     naver_client_secret=None,
     openai_api_key=None,
+    google_places_api_key=None,
     quick_cards=False,
 ):
     requested_count = _requested_result_count(
@@ -1514,6 +1570,20 @@ def search_real_businesses(
     )
     cached_businesses = cached.get("businesses") or []
     if cached.get("complete") is True and cached_businesses:
+        cached_businesses = enrich_businesses_with_google_places(
+            cached_businesses,
+            api_key=google_places_api_key,
+        )
+        cached_businesses = enrich_businesses_with_agents(
+            mission,
+            cached_businesses,
+        )
+        cached_businesses = enforce_business_images(
+            cached_businesses
+        )
+        cached_businesses = annotate_businesses_now(
+            cached_businesses
+        )
         matching = (
             match_businesses(mission, cached_businesses)
             if not quick_cards
@@ -1565,6 +1635,7 @@ def search_real_businesses(
             "needs_location_clarification": False,
             "reference_origin": None,
             "resolved_location_type": "cached",
+            "time_context": current_time_context(),
         }
 
     resolved_api_key = str(api_key or "").strip()
@@ -1605,7 +1676,25 @@ def search_real_businesses(
         or ""
     ).strip()
 
-    if location_type == "reference_point":
+    if location_type == "device_location":
+        try:
+            device_latitude = float(
+                location_context.get("latitude")
+            )
+            device_longitude = float(
+                location_context.get("longitude")
+            )
+        except (TypeError, ValueError):
+            reference_origin = None
+        else:
+            reference_origin = {
+                "label": "현재 위치",
+                "latitude": str(device_latitude),
+                "longitude": str(device_longitude),
+                "source": "device_location",
+                "accuracy": "device_location",
+            }
+    elif location_type == "reference_point":
         reference_origin = (
             _resolve_reference_point_origin(
                 location_value,
@@ -1653,7 +1742,7 @@ def search_real_businesses(
     if (
         reference_origin
         and reference_origin.get("accuracy")
-        == "place_reference"
+        in {"place_reference", "device_location"}
     ):
         resolved_location_type = "reference_point"
 
@@ -1885,10 +1974,24 @@ def search_real_businesses(
     )
 
     if quick_cards:
-        businesses = persist_businesses(
+        persisted = persist_businesses(
             kakao_businesses,
             mission,
             detail_refreshed=False,
+        )
+        businesses = enrich_businesses_with_google_places(
+            persisted,
+            api_key=google_places_api_key,
+        )
+        businesses = enrich_businesses_with_agents(
+            mission,
+            businesses,
+        )
+        businesses = enforce_business_images(
+            businesses
+        )
+        businesses = annotate_businesses_now(
+            businesses
         )
     else:
         businesses = enrich_place_businesses(
@@ -1897,6 +2000,7 @@ def search_real_businesses(
             naver_client_id=naver_client_id,
             naver_client_secret=naver_client_secret,
             openai_api_key=openai_api_key,
+            google_places_api_key=google_places_api_key,
         )
 
     naver_matched_count = sum(
@@ -2079,4 +2183,5 @@ def search_real_businesses(
             "실제 통화 기능이 연결되면 이 업체에 예약을 진행할까요?"
         ),
         "actions": ["예약하기", "다른 후보 보기", "여기까지"],
+        "time_context": current_time_context(),
     }

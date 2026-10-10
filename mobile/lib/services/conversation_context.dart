@@ -143,9 +143,24 @@ class ConversationContext {
     ]) {
       final value = mission[key];
 
-      if (_isUseful(value)) {
-        _known[key] = value;
+      if (!_isUseful(value)) {
+        continue;
       }
+
+      if (key == 'location_context' && value is Map) {
+        final context =
+            Map<String, dynamic>.from(value);
+        if (context['type'] == 'device_location') {
+          _known[key] = {
+            'value': '현재 위치',
+            'type': 'device_location',
+            'source': 'device',
+          };
+          continue;
+        }
+      }
+
+      _known[key] = value;
     }
 
     final attributes = mission['attributes'];

@@ -1,4 +1,5 @@
 import hashlib
+import math
 import re
 from copy import deepcopy
 from datetime import timedelta
@@ -509,6 +510,54 @@ def _location_tokens(location):
     return tokens[-3:]
 
 
+def _device_location(mission):
+    context = mission.get("location_context")
+    if not isinstance(context, dict):
+        return None
+    if context.get("type") != "device_location":
+        return None
+    try:
+        latitude = float(context.get("latitude"))
+        longitude = float(context.get("longitude"))
+        radius_km = float(
+            context.get("radius_hint_km") or 3
+        )
+    except (TypeError, ValueError):
+        return None
+    if not (
+        -90 <= latitude <= 90
+        and -180 <= longitude <= 180
+    ):
+        return None
+    return {
+        "latitude": latitude,
+        "longitude": longitude,
+        "radius_km": max(0.2, min(radius_km, 30)),
+    }
+
+
+def _distance_km(lat1, lon1, lat2, lon2):
+    earth_radius_km = 6371.0088
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    value = (
+        math.sin(delta_phi / 2) ** 2
+        + math.cos(phi1)
+        * math.cos(phi2)
+        * math.sin(delta_lambda / 2) ** 2
+    )
+    return (
+        earth_radius_km
+        * 2
+        * math.atan2(
+            math.sqrt(value),
+            math.sqrt(max(0, 1 - value)),
+        )
+    )
+
+
 def cached_businesses_for_mission(mission, requested_count=5):
     if not isinstance(mission, dict):
         return {"businesses": [], "complete": False}
@@ -516,7 +565,12 @@ def cached_businesses_for_mission(mission, requested_count=5):
     target = _clean(mission.get("target_business"))
     location = _clean(mission.get("location"))
     terms = _mission_terms(mission)
-    location_tokens = _location_tokens(location)
+    device = _device_location(mission)
+    location_tokens = (
+        []
+        if device is not None
+        else _location_tokens(location)
+    )
 
     queryset = Business.objects.filter(active=True)
 
@@ -530,6 +584,22 @@ def cached_businesses_for_mission(mission, requested_count=5):
     ranked = []
 
     for record in candidates:
+        distance_km = None
+        if device is not None:
+            try:
+                record_latitude = float(record.latitude)
+                record_longitude = float(record.longitude)
+            except (TypeError, ValueError):
+                continue
+            distance_km = _distance_km(
+                device["latitude"],
+                device["longitude"],
+                record_latitude,
+                record_longitude,
+            )
+            if distance_km > device["radius_km"]:
+                continue
+
         location_haystack = " ".join(
             [
                 record.address,
@@ -582,6 +652,11 @@ def cached_businesses_for_mission(mission, requested_count=5):
             continue
 
         score = 0
+        if distance_km is not None:
+            score += max(
+                0,
+                40 - int(distance_km * 10),
+            )
         if target and target.lower() in record.name.lower():
             score += 10
         score += sum(
@@ -592,17 +667,43 @@ def cached_businesses_for_mission(mission, requested_count=5):
             3 for token in terms
             if token.lower() in haystack
         )
-        ranked.append((score, record.last_seen_at, record))
+        ranked.append(
+            (
+                score,
+                distance_km,
+                record.last_seen_at,
+                record,
+            )
+        )
 
     ranked.sort(
-        key=lambda item: (item[0], item[1]),
+        key=lambda item: (
+            item[0],
+            -(
+                item[1]
+                if item[1] is not None
+                else 999999
+            ),
+            item[2],
+        ),
         reverse=True,
     )
     limit = max(1, min(int(requested_count or 5), 10))
-    selected = [
-        serialize_business(item[2], cache_hit=True)
-        for item in ranked[:limit]
-    ]
+    selected = []
+    for _, distance_km, _, record in ranked[:limit]:
+        item = serialize_business(
+            record,
+            cache_hit=True,
+        )
+        if distance_km is not None:
+            item["distance_km"] = round(
+                distance_km,
+                3,
+            )
+            item["distance_source"] = (
+                "device_location"
+            )
+        selected.append(item)
 
     complete = bool(selected) if target else len(selected) >= limit
     return {

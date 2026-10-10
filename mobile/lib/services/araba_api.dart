@@ -53,6 +53,7 @@ class ArabaApi {
     String? kakaoRestApiKey,
     String? naverClientId,
     String? naverClientSecret,
+    String? googlePlacesApiKey,
     String? twilioAccountSid,
     String? twilioAuthToken,
     String? twilioFromNumber,
@@ -83,6 +84,11 @@ class ArabaApi {
 
     if (naverSecret != null && naverSecret.isNotEmpty) {
       headers['X-Naver-Client-Secret'] = naverSecret;
+    }
+
+    final googleKey = googlePlacesApiKey?.trim();
+    if (googleKey != null && googleKey.isNotEmpty) {
+      headers['X-Google-Places-API-Key'] = googleKey;
     }
 
     final sid = twilioAccountSid?.trim();
@@ -137,12 +143,16 @@ class ArabaApi {
   Future<Map<String, dynamic>> createMission(
     String request, {
     required String apiKey,
+    Map<String, dynamic>? deviceContext,
   }) async {
     final response = await _request(
       () => http.post(
         _uri('/api/missions/create/'),
         headers: _headers(apiKey: apiKey),
-        body: jsonEncode({'request': request}),
+        body: jsonEncode({
+          'request': request,
+          'device_context': ?deviceContext,
+        }),
       ),
       timeout: const Duration(seconds: 15),
       retries: 0,
@@ -158,6 +168,7 @@ class ArabaApi {
     required String openAiApiKey,
     String? naverClientId,
     String? naverClientSecret,
+    String? googlePlacesApiKey,
     bool quickCards = false,
   }) async {
     final response = await _request(
@@ -168,6 +179,7 @@ class ArabaApi {
           kakaoRestApiKey: kakaoRestApiKey,
           naverClientId: naverClientId,
           naverClientSecret: naverClientSecret,
+          googlePlacesApiKey: googlePlacesApiKey,
         ),
         body: jsonEncode({
           'mission': mission,
@@ -188,6 +200,7 @@ class ArabaApi {
     required String openAiApiKey,
     String? naverClientId,
     String? naverClientSecret,
+    String? googlePlacesApiKey,
   }) async {
     final response = await _request(
       () => http.post(
@@ -196,6 +209,7 @@ class ArabaApi {
           apiKey: openAiApiKey,
           naverClientId: naverClientId,
           naverClientSecret: naverClientSecret,
+          googlePlacesApiKey: googlePlacesApiKey,
         ),
         body: jsonEncode({
           'mission': mission,

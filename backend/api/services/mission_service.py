@@ -6,6 +6,7 @@ from time import monotonic
 from openai import OpenAI
 
 from .intent_brain_service import enhance_mission
+from .execution_planner_service import build_execution_plan
 from .openai_service import get_api_key
 
 
@@ -420,6 +421,9 @@ def _task_state_for(mission):
 def _attach_task_state(mission):
     mission = dict(mission)
     mission["task_state"] = _task_state_for(mission)
+    mission["execution_plan"] = build_execution_plan(
+        mission
+    )
     return mission
 
 
@@ -794,6 +798,173 @@ def _apply_spoken_self_correction(
         if previous not in item
     ]
 
+    return result
+
+
+CURRENT_LOCATION_PATTERN = re.compile(
+    (
+        r"내(?:가)?(?:있는|있는곳|위치|주변|근처)|"
+        r"현재위치|현위치|내위치|"
+        r"여기(?:주변|근처)|"
+        r"지금있는곳|지금여기|"
+        r"가까운곳|가까운업체|가까운가게"
+    )
+)
+
+
+def _valid_device_context(value):
+    if not isinstance(value, dict):
+        return None
+    try:
+        latitude = float(value.get("latitude"))
+        longitude = float(value.get("longitude"))
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= latitude <= 90):
+        return None
+    if not (-180 <= longitude <= 180):
+        return None
+
+    result = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "source": "device",
+    }
+    accuracy = value.get("accuracy_m")
+    if isinstance(accuracy, (int, float)):
+        result["accuracy_m"] = float(accuracy)
+    captured_at = str(
+        value.get("captured_at") or ""
+    ).strip()
+    if captured_at:
+        result["captured_at"] = captured_at[:80]
+    return result
+
+
+def _requests_current_location(
+    request_text,
+):
+    context, current = _split_contextual_request(
+        request_text
+    )
+    compact = re.sub(
+        r"\s+",
+        "",
+        str(current or ""),
+    )
+
+    recent = context.get("recent_place_results")
+    if (
+        isinstance(recent, list)
+        and recent
+        and re.search(
+            r"그중|이중|여기서|아까|방금찾은",
+            compact,
+        )
+    ):
+        return False
+
+    return bool(
+        CURRENT_LOCATION_PATTERN.search(compact)
+    )
+
+
+def _apply_device_location_to_intent(
+    intent,
+    request_text,
+    device_context,
+):
+    if not isinstance(intent, dict):
+        return intent
+    if intent.get("intent") != "place_search":
+        return intent
+    if not _requests_current_location(
+        request_text
+    ):
+        return intent
+
+    device = _valid_device_context(
+        device_context
+    )
+    if device is None:
+        result = dict(intent)
+        location = result.get("location")
+        explicit_location = (
+            isinstance(location, dict)
+            and location.get("explicit") is True
+            and _clean_text(location.get("value"))
+        )
+        if explicit_location:
+            return result
+        result["needs_clarification"] = True
+        result["clarification_question"] = (
+            "현재 위치를 기준으로 찾으려면 위치 권한이 필요해요. "
+            "위치 권한을 허용하거나 지역·기준 장소를 말씀해주세요."
+        )
+        return result
+
+    result = dict(intent)
+    result["location"] = {
+        "value": "현재 위치",
+        "type": "reference_point",
+        "explicit": False,
+    }
+    attributes = result.get("attributes")
+    attributes = (
+        dict(attributes)
+        if isinstance(attributes, dict)
+        else {}
+    )
+    attributes["use_device_location"] = True
+    result["attributes"] = attributes
+    result["needs_clarification"] = False
+    result["clarification_question"] = None
+    return result
+
+
+def _apply_device_context_to_mission(
+    mission,
+    request_text,
+    device_context,
+):
+    if not isinstance(mission, dict):
+        return mission
+    if not _requests_current_location(
+        request_text
+    ):
+        return mission
+
+    device = _valid_device_context(
+        device_context
+    )
+    if device is None:
+        return mission
+
+    result = dict(mission)
+    result["location"] = "현재 위치"
+    result["location_explicit"] = False
+    result["location_context"] = {
+        "value": "현재 위치",
+        "type": "device_location",
+        "latitude": device["latitude"],
+        "longitude": device["longitude"],
+        "accuracy_m": device.get("accuracy_m"),
+        "captured_at": device.get("captured_at"),
+        "radius_hint_km": 3,
+        "source": "device",
+    }
+    result["ready_to_research"] = True
+    result["response_mode"] = "research"
+    result["missing_information"] = []
+    result["clarification_questions"] = []
+    known = result.get("known_facts")
+    known = (
+        dict(known)
+        if isinstance(known, dict)
+        else {}
+    )
+    known["location_source"] = "device"
+    result["known_facts"] = known
     return result
 
 
@@ -1957,6 +2128,7 @@ def create_mission(
     api_key=None,
     *,
     diagnostics=None,
+    device_context=None,
 ):
     diagnostics = (
         diagnostics
@@ -2046,6 +2218,11 @@ def create_mission(
         intent,
         request_text,
     )
+    intent = _apply_device_location_to_intent(
+        intent,
+        request_text,
+        device_context,
+    )
     intent = _apply_proactive_clarification(
         intent,
     )
@@ -2053,6 +2230,12 @@ def create_mission(
     diagnostics["stage"] = "route_intent"
     diagnostics["route"] = intent["intent"]
 
+    mission = _mission_from_intent(intent)
+    mission = _apply_device_context_to_mission(
+        mission,
+        request_text,
+        device_context,
+    )
     return _attach_task_state(
-        _mission_from_intent(intent)
+        mission
     )
