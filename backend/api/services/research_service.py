@@ -1400,19 +1400,21 @@ def enrich_place_businesses(
         def needs_followup_evidence(item):
             if realtime_fields:
                 return True
+            # A fresh timestamp on an incomplete record must never prevent
+            # discovering missing photos, opening hours, product evidence, etc.
+            naver = item.get("naver")
+            naver = naver if isinstance(naver, dict) else {}
+            if (
+                not str(item.get("image_url") or "").strip()
+                or not naver.get("opening_hours")
+                or naver.get("parking_available") is None
+                or not naver.get("prices")
+            ):
+                return True
             if not criteria:
                 return False
-            matching = match_businesses(
-                mission,
-                [item],
-            )
-            return (
-                matching.get(
-                    "unverified_count",
-                    0,
-                )
-                > 0
-            )
+            matching = match_businesses(mission, [item])
+            return matching.get("unverified_count", 0) > 0
 
         fresh = [
             item
@@ -1438,12 +1440,25 @@ def enrich_place_businesses(
             runtime = enforce_business_images(
                 runtime
             )
+            persist_businesses(
+                runtime, mission, detail_refreshed=False
+            )
             return annotate_businesses_now(
                 runtime
             )
 
+        # Refresh from the actual provider identity before considering
+        # model-extracted facts. Preserve the original business identity.
+        refreshed_kakao = enrich_businesses_with_kakao_pages(
+            stale[:FAST_DETAIL_ENRICH_LIMIT]
+        )
+        refreshed_naver = enrich_businesses_with_naver(
+            refreshed_kakao,
+            client_id=naver_client_id,
+            client_secret=naver_client_secret,
+        )
         enriched_stale = enrich_businesses_with_openai_web(
-            stale,
+            [*refreshed_naver, *stale[FAST_DETAIL_ENRICH_LIMIT:]],
             mission,
             api_key=openai_api_key,
         )
@@ -1482,6 +1497,11 @@ def enrich_place_businesses(
         )
         runtime = enforce_business_images(
             runtime
+        )
+        # Google facts (hours/phone/source) were previously runtime-only;
+        # write verified factual improvements back into the ARABA Graph.
+        persist_businesses(
+            runtime, mission, detail_refreshed=False
         )
         return annotate_businesses_now(
             runtime
@@ -1546,6 +1566,9 @@ def enrich_place_businesses(
     )
     runtime = enforce_business_images(
         runtime
+    )
+    persist_businesses(
+        runtime, mission, detail_refreshed=False
     )
     return annotate_businesses_now(
         runtime
@@ -2081,6 +2104,9 @@ def search_real_businesses(
         )
         businesses = enforce_business_images(
             businesses
+        )
+        persist_businesses(
+            businesses, mission, detail_refreshed=False
         )
         businesses = annotate_businesses_now(
             businesses
