@@ -950,6 +950,19 @@ def _mission_keywords(mission):
             ):
                 continue
             keywords.append(token)
+            for suffix in (
+                "전문점",
+                "가게",
+                "매장",
+                "집",
+            ):
+                if token.endswith(suffix):
+                    base = token[: -len(suffix)].strip()
+                    if (
+                        len(base) >= 2
+                        and base not in keywords
+                    ):
+                        keywords.append(base)
 
     # "자동차 타이어"처럼 넓은 category 단어와
     # 구체 서비스 단어가 같이 들어오면 구체 단어를 우선한다.
