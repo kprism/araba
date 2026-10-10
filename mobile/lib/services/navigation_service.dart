@@ -76,7 +76,13 @@ class NavigationRequest {
   }
 
   static NavigationRequest? tryParse(String utterance) {
-    final text = utterance.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final raw = utterance.replaceAll(RegExp(r'\s+'), ' ').trim();
+    // "여기서" has a contracted case particle. Canonicalize it before
+    // parsing to avoid treating "여기서 목적지" as the destination itself.
+    final text = raw.replaceFirst(
+      RegExp(r'^(?:지금\s+)?여기서\s+'),
+      '여기에서 ',
+    );
     if (!hasNavigationIntent(text)) return null;
 
     final mode = RegExp(r'대중교통|버스|지하철|전철').hasMatch(text)
