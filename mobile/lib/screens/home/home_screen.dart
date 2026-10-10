@@ -42,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _appInForeground = true;
   bool _autoReconnectingLive = false;
   List<Map<String, dynamic>> _lastBusinesses = const [];
+  final List<Map<String, dynamic>> _recentBusinessGroups = [];
 
   final List<_Message> _messages = [
     _Message(
@@ -263,8 +264,29 @@ class _HomeScreenState extends State<HomeScreen>
           );
           return true;
         },
-        onMission: (mission, requestContext) {
+        resolveDeviceContext: (text) async {
+          if (!_needsDeviceLocation(text)) return null;
+          try {
+            return await _deviceLocation.currentContext();
+          } catch (_) {
+            return null;
+          }
+        },
+        onMission: (mission, requestContext) async {
           if (!mounted || _liveVoice != liveVoice) return;
+          final currentText = requestContext.contains('[현재 요청]')
+              ? requestContext.split('[현재 요청]').last.trim()
+              : requestContext;
+          if (_isPhotoEvidenceQuestion(currentText) &&
+              _lastBusinesses.isNotEmpty) {
+            final answer = _photoEvidenceAnswer();
+            _addAssistantMessage(
+              text: answer,
+              badge: '사진 출처 검사',
+            );
+            _speakProgress(answer);
+            return;
+          }
 
           // Core에 하나의 발화로 확정된 시점부터 다음 사용자 발화는
           // 새 말풍선으로 시작한다. 확정 전의 짧은 쉼은 같은 말풍선에 남는다.
@@ -295,7 +317,7 @@ class _HomeScreenState extends State<HomeScreen>
 
           if (responseMode == 'research' ||
               mission['ready_to_research'] == true) {
-            unawaited(_runRealResearch(mission));
+            await _runRealResearch(mission, forceComplete: true);
             return;
           }
 
@@ -1021,11 +1043,7 @@ class _HomeScreenState extends State<HomeScreen>
       final remembered = updated.isNotEmpty
           ? updated
           : initialBusinesses;
-      _lastBusinesses = remembered;
-      _conversationContext.rememberBusinessResults(
-        mission,
-        remembered,
-      );
+      _rememberBusinessGroup(mission, remembered);
 
       final detailStatus = anyDetails
           ? '각 카드에 확인된 정보를 반영했어요.'
@@ -1041,7 +1059,9 @@ class _HomeScreenState extends State<HomeScreen>
               )
             : (
                 anyDetails
-                    ? '상세정보 보강 완료'
+                    ? (photos == total
+                        ? '상세정보 보강 완료'
+                        : '상세정보 일부 확인 · 사진 미확인')
                     : '상세정보 추가 확인 필요'
               );
         final decisionText = hasCriteria
@@ -1087,11 +1107,67 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+
+  void _rememberBusinessGroup(
+    Map<String, dynamic> mission,
+    List<Map<String, dynamic>> businesses,
+  ) {
+    _lastBusinesses = businesses;
+    _conversationContext.rememberBusinessResults(mission, businesses);
+    if (businesses.isEmpty) return;
+    final category = mission['category']?.toString().trim() ?? '';
+    final subject = mission['subject']?.toString().trim() ?? '';
+    final location = mission['location']?.toString().trim() ?? '';
+    _recentBusinessGroups.removeWhere((group) =>
+        group['category'] == category &&
+        group['subject'] == subject &&
+        group['location'] == location);
+    _recentBusinessGroups.insert(0, {
+      'category': category,
+      'subject': subject,
+      'location': location,
+      'businesses': businesses
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(),
+    });
+    if (_recentBusinessGroups.length > 3) {
+      _recentBusinessGroups.removeRange(
+        3, _recentBusinessGroups.length);
+    }
+  }
+
+  List<Map<String, dynamic>> _comparisonCandidates(
+      Map<String, dynamic> mission) {
+    final request =
+        (mission['user_goal'] ?? mission['summary'] ?? '')
+            .toString().replaceAll(RegExp(r'\s+'), '');
+    if (RegExp(r'아까|이전에|전에찾은|처음찾은').hasMatch(request)) {
+      for (final group in _recentBusinessGroups) {
+        final subject =
+            group['subject']?.toString().replaceAll(' ', '') ?? '';
+        final category =
+            group['category']?.toString().replaceAll(' ', '') ?? '';
+        final specific = subject.length >= 2 ? subject : category;
+        if (specific.length < 2 || !request.contains(specific)) {
+          continue;
+        }
+        final saved = group['businesses'];
+        if (saved is List) {
+          return saved
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
+        }
+      }
+    }
+    return _lastBusinesses;
+  }
+
   // Reuse the visible result set for contextual comparison follow-ups.
   bool _isRecentPlaceComparison(
     Map<String, dynamic> mission,
   ) {
-    if (_lastBusinesses.isEmpty) return false;
+    if (_comparisonCandidates(mission).isEmpty) return false;
     final mode =
         mission['search_mode']?.toString().trim() ?? '';
     final attributes = mission['attributes'];
@@ -1104,7 +1180,7 @@ class _HomeScreenState extends State<HomeScreen>
     Map<String, dynamic> mission,
     int revision,
   ) async {
-    final candidates = _lastBusinesses
+    final candidates = _comparisonCandidates(mission)
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
 
@@ -1160,11 +1236,7 @@ class _HomeScreenState extends State<HomeScreen>
     final remembered = selected.isNotEmpty
         ? selected
         : candidates;
-    _lastBusinesses = remembered;
-    _conversationContext.rememberBusinessResults(
-      mission,
-      remembered,
-    );
+    _rememberBusinessGroup(mission, remembered);
 
     if (selected.length == 1) {
       _conversationContext.rememberBusiness(
@@ -1202,11 +1274,18 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _runRealResearch(
-    Map<String, dynamic> mission,
-  ) async {
+    Map<String, dynamic> mission, {
+    bool forceComplete = false,
+  }) async {
     final researchRevision = ++_researchRevision;
     _startResearchProgress();
-    final quickCards = !_isDetailFollowUp(mission);
+    // Required conditions must be checked before a confirmed recommendation.
+    final rawCriteria = mission['criteria'];
+    final hasRequiredCriteria = rawCriteria is List &&
+        rawCriteria.any((item) =>
+            item is Map && item['required'] != false);
+    final quickCards = !forceComplete &&
+        !hasRequiredCriteria && !_isDetailFollowUp(mission);
 
     try {
       if (_isRecentPlaceComparison(mission)) {
@@ -1271,11 +1350,7 @@ class _HomeScreenState extends State<HomeScreen>
           businesses.first,
         );
       }
-      _conversationContext.rememberBusinessResults(
-        mission,
-        businesses,
-      );
-      _lastBusinesses = businesses;
+      _rememberBusinessGroup(mission, businesses);
 
       if (businesses.isEmpty) {
         const noResult =
@@ -1291,7 +1366,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (quickCards) {
         final messageIndex = _messages.length;
         _addAssistantMessage(
-          text: '조건에 맞는 업체 ${businesses.length}곳을 찾았어요. '
+          text: '지역·업종이 일치하는 후보 ${businesses.length}곳을 찾았어요. '
               '기본 카드를 먼저 보여드리고, '
               '사진·영업시간·주차·가격을 추가 확인하고 있어요.',
           badge: '상세정보 확인 중',
@@ -1936,6 +2011,18 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
+    if (_isPhotoEvidenceQuestion(text) && _lastBusinesses.isNotEmpty) {
+      setState(() {
+        _messages.add(_Message(isUser: true, text: text));
+        _messages.add(_Message(
+          isUser: false,
+          text: _photoEvidenceAnswer(),
+          badge: '사진 출처 검사',
+        ));
+      });
+      _toBottom();
+      return;
+    }
     await _requestMission(
       displayText: text,
       requestText: text,
@@ -1974,6 +2061,43 @@ class _HomeScreenState extends State<HomeScreen>
       r'지금있는곳|지금여기|'
       r'가까운곳|가까운업체|가까운가게',
     ).hasMatch(compact);
+  }
+
+
+  bool _isPhotoEvidenceQuestion(String text) {
+    final compact = text.replaceAll(RegExp(r'\s+'), '');
+    return RegExp(r'사진|이미지|대표사진').hasMatch(compact) &&
+        RegExp(r'출처|근거|실제|맞는사진|어디서').hasMatch(compact);
+  }
+
+  String _photoEvidenceAnswer() {
+    if (_lastBusinesses.isEmpty) {
+      return '출처를 확인할 업체 결과가 없어요. 먼저 업체를 찾아주세요.';
+    }
+    final lines = <String>[];
+    for (final business in _lastBusinesses) {
+      final name = business['name']?.toString().trim() ?? '업체';
+      final url = business['image_url']?.toString().trim() ?? '';
+      final source = business['image_source']?.toString().trim() ?? '';
+      final verified = business['image_identity_verified'] == true ||
+          source == 'kakao_place' ||
+          source == 'naver_place' ||
+          source == 'business_official';
+      if (url.isEmpty || !verified) {
+        lines.add('• $name: 업체 사진 미확인 (검증된 사진 출처 없음)');
+        continue;
+      }
+      final evidence = business['image_source_url']?.toString().trim() ??
+          business['place_url']?.toString().trim() ?? '';
+      final citation = evidence.isEmpty
+          ? ' (원본 링크 미제공)'
+          : '\n  확인 링크: $evidence';
+      lines.add('• $name: 사진 제공처 $source$citation');
+    }
+    return '현재 카드에 연결된 사진의 검증 상태입니다.\n'
+        '${lines.join('\n')}\n'
+        '사진이 없는 업체는 실제 사진임을 검증할 근거가 없어 숨겼습니다. '
+        '이 결과를 사진 검증 완료로 표시하지 않습니다.';
   }
 
   Future<void> _requestMission({
@@ -2021,46 +2145,69 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (!mounted) return;
 
-      final mission = result['mission'];
-      if (mission is! Map<String, dynamic>) {
+      final rawMissions = result['missions'];
+      final missions = rawMissions is List
+          ? rawMissions
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+          : <Map<String, dynamic>>[
+              if (result['mission'] is Map)
+                Map<String, dynamic>.from(result['mission'] as Map),
+            ];
+      if (missions.isEmpty) {
         throw const ArabaApiException(
-          '서버 응답 형식이 올바르지 않아요.',
+          '서버가 실행할 요청을 반환하지 않았어요.',
         );
       }
 
-      _conversationContext.rememberMission(mission);
-      final clarifications = _clarifications(mission);
-
-      final responseMode =
-          mission['response_mode']?.toString().trim() ?? '';
-
-      if (clarifications.isNotEmpty || responseMode == 'clarify') {
-        setState(() {
-          _messages.add(
-            _Message(
-              isUser: false,
-              text: _reply(mission),
-              mission: mission,
-              requestContext: contextualRequest,
-            ),
+      for (var index = 0; index < missions.length; index++) {
+        if (!mounted) return;
+        final mission = missions[index];
+        _conversationContext.rememberMission(mission);
+        if (missions.length > 1) {
+          _addAssistantMessage(
+            text: '요청 ${index + 1}/${missions.length}: '
+                '${mission['summary'] ?? mission['title'] ?? '개별 요청'}',
+            badge: '복수 요청 처리',
           );
-        });
-      } else if (
-          responseMode == 'research' ||
-          mission['ready_to_research'] == true) {
-        setState(() => _sending = false);
-        await _runRealResearch(mission);
-      } else {
-        setState(() {
-          _messages.add(
-            _Message(
-              isUser: false,
-              text: _reply(mission),
-              mission: mission,
-              requestContext: contextualRequest,
-            ),
+        }
+        final clarifications = _clarifications(mission);
+        final responseMode =
+            mission['response_mode']?.toString().trim() ?? '';
+
+        if (clarifications.isNotEmpty || responseMode == 'clarify') {
+          setState(() {
+            _messages.add(
+              _Message(
+                isUser: false,
+                text: _reply(mission),
+                mission: mission,
+                requestContext: contextualRequest,
+              ),
+            );
+          });
+        } else if (responseMode == 'research' ||
+            mission['ready_to_research'] == true) {
+          if (missions.length == 1) {
+            setState(() => _sending = false);
+          }
+          await _runRealResearch(
+            mission,
+            forceComplete: missions.length > 1,
           );
-        });
+        } else {
+          setState(() {
+            _messages.add(
+              _Message(
+                isUser: false,
+                text: _reply(mission),
+                mission: mission,
+                requestContext: contextualRequest,
+              ),
+            );
+          });
+        }
       }
     } catch (error) {
       if (!mounted) return;

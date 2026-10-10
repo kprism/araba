@@ -521,3 +521,262 @@ class NearbyBusinessGraphTests(TestCase):
             result["businesses"][0]["distance_source"],
             "device_location",
         )
+
+
+class RegressionFamiliesTests(TestCase):
+    """Cross-category and cross-location failures must not return as variants."""
+
+    def test_split_three_independent_place_tasks(self):
+        from api.services.mission_service import split_independent_requests
+
+        request = (
+            "창원시 중동 치과 3곳 찾아주고, "
+            "창원시청 주변 식당 3곳도 찾아줘. "
+            "그리고 도계동 피자집 몇 곳인지 조사해줘"
+        )
+        tasks = split_independent_requests(request)
+        self.assertEqual(len(tasks), 3)
+        self.assertIn("치과", tasks[0])
+        self.assertIn("식당", tasks[1])
+        self.assertIn("피자집", tasks[2])
+
+    def test_conditions_are_not_split_into_new_tasks(self):
+        from api.services.mission_service import split_independent_requests
+
+        request = (
+            "창원시 중동 치과 5곳 찾아줘. "
+            "그리고 주차되고 토요일 진료하는 곳으로"
+        )
+        self.assertEqual(
+            split_independent_requests(request),
+            [request],
+        )
+
+    def test_hard_conditions_survive_incomplete_intent(self):
+        from api.services.mission_service import (
+            _enforce_explicit_evidence_conditions,
+        )
+
+        intent = {
+            "intent": "place_search",
+            "category": "치과",
+            "subject": "치과",
+            "criteria": [],
+        }
+        repaired = _enforce_explicit_evidence_conditions(
+            intent,
+            "창원 중동 주차 가능하고 토요일 진료하는 임플란트 치과 찾아줘",
+        )
+        fields = {
+            item["field"]: item["value"]
+            for item in repaired["criteria"]
+        }
+        self.assertEqual(fields["opening_day"], "토요일")
+        self.assertTrue(fields["parking_available"])
+        self.assertEqual(fields["service"], "임플란트")
+
+    def test_unverified_cake_sale_never_becomes_verified(self):
+        from api.services.business_matching_service import match_businesses
+        from api.services.mission_service import (
+            _enforce_explicit_evidence_conditions,
+        )
+
+        mission = _enforce_explicit_evidence_conditions(
+            {
+                "intent": "place_search",
+                "category": "빵집",
+                "subject": "빵집",
+                "criteria": [],
+            },
+            "아까 찾은 빵집에서 케이크 파는 곳을 알려줘",
+        )
+        matching = match_businesses(
+            mission,
+            [
+                {
+                    "name": "동네빵집",
+                    "category": "베이커리",
+                    "address": "창원시 중동",
+                }
+            ],
+        )
+        self.assertFalse(matching["answer_ready"])
+        self.assertEqual(matching["unverified_count"], 1)
+        self.assertEqual(matching["display_businesses"], [])
+
+    def test_saturday_cannot_be_confirmed_from_weekday_hours_only(self):
+        from api.services.business_matching_service import match_businesses
+
+        matching = match_businesses(
+            {
+                "criteria": [{
+                    "field": "opening_day",
+                    "operator": "eq",
+                    "value": "토요일",
+                    "required": True,
+                    "label": "토요일 진료",
+                }],
+            },
+            [{
+                "name": "토요일 미확인 치과",
+                "naver": {
+                    "opening_hours": ["월요일 09:30~18:30", "화요일 09:30~19:00"],
+                },
+            }],
+        )
+        self.assertFalse(matching["answer_ready"])
+        self.assertEqual(matching["matched_count"], 0)
+        self.assertEqual(matching["unverified_count"], 1)
+
+    def test_identity_matched_google_saturday_hours_count(self):
+        from api.services.business_matching_service import match_businesses
+
+        matching = match_businesses(
+            {
+                "criteria": [{
+                    "field": "opening_day",
+                    "operator": "eq",
+                    "value": "토요일",
+                    "required": True,
+                    "label": "토요일 진료",
+                }],
+            },
+            [{
+                "name": "토요일 영업 치과",
+                "google_places": {
+                    "matched": True,
+                    "regular_opening_hours": ["토요일: 09:00-13:00"],
+                },
+            }],
+        )
+        self.assertEqual(matching["matched_count"], 1)
+
+    def test_device_radius_rejects_other_city_and_missing_coordinates(self):
+        from api.services.research_service import _inside_verified_radius
+
+        origin = {
+            "source": "device_location",
+            "latitude": 35.23,
+            "longitude": 128.68,
+        }
+        self.assertTrue(_inside_verified_radius(
+            {"y": "35.231", "x": "128.681"},
+            origin,
+            3,
+        ))
+        self.assertFalse(_inside_verified_radius(
+            {"y": "35.1796", "x": "129.0756"},
+            origin,
+            3,
+        ))
+        self.assertFalse(_inside_verified_radius(
+            {"place_name": "주소 없는 업체"},
+            origin,
+            3,
+        ))
+
+
+    def test_last_spoken_location_correction_overrides_bad_recognition(self):
+        from api.services.mission_service import (
+            _apply_latest_spoken_location_correction,
+        )
+
+        intent = {
+            "intent": "place_search",
+            "location": {
+                "value": "성원시 의청구 중동",
+                "type": "administrative_area",
+                "explicit": True,
+            },
+            "attributes": {"reuse_recent_results": True},
+            "target_business": "지난 가게",
+        }
+        corrected = _apply_latest_spoken_location_correction(
+            intent,
+            "성원시 의청구 중동에 치과 찾아줘. "
+            "잠깐 성원시가 아니고 창원시 의창구 중동이야",
+        )
+        self.assertEqual(
+            corrected["location"]["value"],
+            "창원시 의창구 중동",
+        )
+        self.assertTrue(corrected["location"]["explicit"])
+        self.assertNotIn("reuse_recent_results", corrected["attributes"])
+
+    @patch("api.services.kakao_place_service.inspect_kakao_place_page")
+    def test_kakao_photo_requires_exact_id(self, inspect):
+        from api.services.kakao_place_service import _enrich_one_business
+
+        inspect.return_value = {
+            "checked": True,
+            "image_url": "https://t1.daumcdn.net/real.jpg",
+            "source_url": "https://place.map.kakao.com/12345",
+        }
+        result = _enrich_one_business({
+            "id": "12345",
+            "name": "정확한 치과",
+            "place_url": "https://place.map.kakao.com/12345",
+        })
+        self.assertTrue(result["image_identity_verified"])
+        self.assertEqual(
+            result["image_source_url"],
+            "https://place.map.kakao.com/12345",
+        )
+
+        inspect.return_value["source_url"] = (
+            "https://place.map.kakao.com/99999"
+        )
+        mismatch = _enrich_one_business({
+            "id": "12345",
+            "name": "다른 치과",
+            "place_url": "https://place.map.kakao.com/12345",
+        })
+        self.assertFalse(bool(mismatch.get("image_url")))
+        self.assertEqual(
+            mismatch["kakao_photo_status"],
+            "identity_not_confirmed",
+        )
+
+
+    def test_mission_api_returns_all_independent_tasks(self):
+        from rest_framework.test import APIRequestFactory
+        from api.views import mission_create
+
+        request = APIRequestFactory().post(
+            "/api/mission",
+            {
+                "request": (
+                    "창원시 중동 치과 3곳 찾아주고, "
+                    "창원시청 주변 식당 3곳 찾아줘"
+                )
+            },
+            format="json",
+        )
+
+        def fake_mission(text, api_key, **kwargs):
+            return {
+                "intent": "place_search",
+                "summary": text,
+                "response_mode": "research",
+                "ready_to_research": True,
+            }
+
+        with patch(
+            "api.services.mission_service.create_mission",
+            side_effect=fake_mission,
+        ), patch(
+            "api.views._request_api_key",
+            return_value="fake-key",
+        ):
+            response = mission_create(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["missions"]), 2)
+        self.assertIn(
+            "치과",
+            response.data["missions"][0]["summary"],
+        )
+        self.assertIn(
+            "식당",
+            response.data["missions"][1]["summary"],
+        )

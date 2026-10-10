@@ -1,3 +1,4 @@
+import math
 import os
 import re
 
@@ -1551,6 +1552,34 @@ def enrich_place_businesses(
     )
 
 
+
+def _inside_verified_radius(document, origin, radius_km=3):
+    """Never let a national text-search result escape a device search radius."""
+    if not origin or origin.get("source") != "device_location":
+        return True
+    try:
+        latitude = float(document["y"])
+        longitude = float(document["x"])
+        center_lat = float(origin["latitude"])
+        center_lon = float(origin["longitude"])
+        limit = max(0.1, min(float(radius_km), 20))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    d_lat = math.radians(latitude - center_lat)
+    d_lon = math.radians(longitude - center_lon)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(center_lat))
+        * math.cos(math.radians(latitude))
+        * math.sin(d_lon / 2) ** 2
+    )
+    distance = 6371.0088 * 2 * math.atan2(
+        math.sqrt(a), math.sqrt(max(0.0, 1 - a))
+    )
+    return distance <= limit
+
+
 def search_real_businesses(
     mission,
     api_key=None,
@@ -1570,6 +1599,33 @@ def search_real_businesses(
     )
     cached_businesses = cached.get("businesses") or []
     if cached.get("complete") is True and cached_businesses:
+        # Cached cards created before source verification may have no image.
+        # Retry only identity-unverified Kakao candidates, not broad web images.
+        missing_photo_candidates = [
+            item for item in cached_businesses[:FAST_DETAIL_ENRICH_LIMIT]
+            if not str(item.get("image_url") or "").strip()
+            and str(item.get("place_url") or "").startswith(
+                "https://place.map.kakao.com/"
+            )
+            and item.get("kakao_photo_status") != "no_image_in_page"
+        ]
+        if missing_photo_candidates:
+            checked = enrich_businesses_with_kakao_pages(
+                missing_photo_candidates
+            )
+            by_id = {
+                str(item.get("id") or ""): item
+                for item in checked
+            }
+            cached_businesses = [
+                by_id.get(str(item.get("id") or ""), item)
+                for item in cached_businesses
+            ]
+            persist_businesses(
+                checked,
+                mission,
+                detail_refreshed=False,
+            )
         cached_businesses = enrich_businesses_with_google_places(
             cached_businesses,
             api_key=google_places_api_key,
@@ -1709,9 +1765,12 @@ def search_real_businesses(
         )
 
     if (
-        location_explicit
-        and location_value
-        and reference_origin is None
+        (location_type == "device_location" and reference_origin is None)
+        or (
+            location_explicit
+            and location_value
+            and reference_origin is None
+        )
     ):
         return {
             "source": "kakao",
@@ -1901,6 +1960,11 @@ def search_real_businesses(
                             ),
                         )
                     )
+                )
+                and _inside_verified_radius(
+                    item,
+                    reference_origin,
+                    location_context.get("radius_hint_km") or 3,
                 )
                 and _matches_target_business(
                     item,

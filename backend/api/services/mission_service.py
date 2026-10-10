@@ -869,6 +869,89 @@ def _requests_current_location(
     )
 
 
+
+
+def _apply_latest_spoken_location_correction(intent, request_text):
+    """The last explicit full address after '아니고' wins over STT errors."""
+    if intent.get("intent") != "place_search":
+        return intent
+    _, current = _split_contextual_request(request_text)
+    correction = list(re.finditer(
+        r"아니고|아니라|잠깐|정정|정확히는|그게아니라",
+        str(current or ""),
+    ))
+    if not correction:
+        return intent
+    tail = str(current)[correction[-1].end():]
+    full_area = re.findall(
+        r"([가-힣]{2,}(?:특별시|광역시|시|군)"
+        r"\s+[가-힣]{2,}(?:구|군)"
+        r"\s+[가-힣]{1,}(?:동|읍|면|리))",
+        tail,
+    )
+    if not full_area:
+        return intent
+    corrected_location = re.sub(r"\s+", " ", full_area[-1]).strip()
+    result = dict(intent)
+    result["location"] = {
+        "value": corrected_location,
+        "type": "administrative_area",
+        "explicit": True,
+    }
+    attrs = dict(result.get("attributes") or {})
+    attrs.pop("reuse_recent_results", None)
+    attrs.pop("reuse_recent_business_only", None)
+    result["attributes"] = attrs
+    result["target_business"] = None
+    return result
+
+
+def _enforce_explicit_evidence_conditions(intent, request_text):
+    """A user-stated hard condition must not vanish from model JSON."""
+    if intent.get("intent") != "place_search":
+        return intent
+    _, current = _split_contextual_request(request_text)
+    compact = re.sub(r"\s+", "", str(current or ""))
+    result = dict(intent)
+    criteria = _clean_criteria(result.get("criteria"))
+    pending = []
+
+    if "토요일" in compact:
+        pending.append(("opening_day", "eq", "토요일", "토요일 영업"))
+    if re.search(r"주차(?:가|는|도)?(?:가능|되는|되고|있는|있고)", compact):
+        pending.append(("parking_available", "eq", True, "주차 가능"))
+
+    category = " ".join([
+        str(result.get("category") or ""),
+        str(result.get("subject") or ""),
+        compact,
+    ])
+    if "케이크" in compact and any(
+        key in category for key in ("빵집", "베이커리", "제과", "케이크")
+    ):
+        pending.append(("service", "contains", "케이크", "케이크 판매 근거"))
+    if "임플란트" in compact and "치과" in category:
+        pending.append(("service", "contains", "임플란트", "임플란트 시술 근거"))
+
+    for field, operator, value, label in pending:
+        if any(
+            item.get("field") == field
+            and item.get("value") == value
+            for item in criteria
+        ):
+            continue
+        criteria.append({
+            "id": f"evidence-{len(criteria) + 1}",
+            "field": field,
+            "operator": operator,
+            "value": value,
+            "required": True,
+            "label": label,
+        })
+    result["criteria"] = criteria[:12]
+    return result
+
+
 def _apply_device_location_to_intent(
     intent,
     request_text,
@@ -2123,6 +2206,51 @@ def _fast_recent_place_comparison(user_request):
     }
 
 
+
+INDEPENDENT_PLACE_PATTERN = re.compile(
+    r"치과|피자집|빵집|베이커리|제과점|식당|음식점|맛집|"
+    r"카페|커피숍|병원|약국|학원|미용실|주차장|"
+    r"타이어|정비소|꽃집|호텔|펜션|주유소|헬스장"
+)
+INDEPENDENT_ACTION_PATTERN = re.compile(
+    r"찾아|알려|조사|추천|몇\s*곳|어디|확인해|검색"
+)
+
+
+def split_independent_requests(request_text):
+    """Split explicit standalone tasks, never split conjunctive criteria."""
+    context, current = _split_contextual_request(request_text)
+    if not current:
+        return [request_text]
+    parts = [
+        text.strip(" \t,.!?")
+        for text in re.split(
+            r"\s*(?:[,，]\s*|[.!?]\s*|"
+            r"그리고\s+|또한\s+|마지막으로\s+)",
+            current,
+        )
+        if text.strip(" \t,.!?")
+    ]
+    if not (2 <= len(parts) <= 5):
+        return [request_text]
+    valid = all(
+        INDEPENDENT_PLACE_PATTERN.search(part)
+        and INDEPENDENT_ACTION_PATTERN.search(part)
+        for part in parts
+    )
+    if not valid:
+        return [request_text]
+    if not context:
+        return parts
+    # Preserve context as optional reference, not as a task to execute.
+    marker = "[현재 요청]"
+    prefix = str(request_text).rsplit(marker, 1)[0]
+    return [
+        f"{prefix}{marker}\n{part}"
+        for part in parts
+    ]
+
+
 def create_mission(
     user_request,
     api_key=None,
@@ -2214,7 +2342,15 @@ def create_mission(
         intent,
         request_text,
     )
+    intent = _apply_latest_spoken_location_correction(
+        intent,
+        request_text,
+    )
     intent = _apply_explicit_specific_food_term(
+        intent,
+        request_text,
+    )
+    intent = _enforce_explicit_evidence_conditions(
         intent,
         request_text,
     )

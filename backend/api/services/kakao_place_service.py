@@ -188,6 +188,7 @@ def inspect_kakao_place_page(place_url):
             final_url,
             response.text,
         ),
+        "source_url": final_url,
         "reason": None,
     }
 
@@ -218,10 +219,26 @@ def _enrich_one_business(business):
         page.get("image_url") or ""
     ).strip()
     if image_url:
-        item["image_url"] = image_url
-        item["image_source"] = (
-            "kakao_place"
-        )
+        source_url = str(page.get("source_url") or "").strip()
+        provider_place_id = str(item.get("id") or "").strip()
+        try:
+            source_place_id = urlparse(source_url).path.rstrip("/").split("/")[-1]
+        except ValueError:
+            source_place_id = ""
+        # A CDN image alone cannot prove which business it depicts.
+        # Mark verified only if the official Kakao page is exactly this
+        # Kakao business ID, including after HTTP redirects.
+        if (
+            provider_place_id
+            and source_place_id == provider_place_id
+            and _is_kakao_place_url(source_url)
+        ):
+            item["image_url"] = image_url
+            item["image_source"] = "kakao_place"
+            item["image_source_url"] = source_url
+            item["image_identity_verified"] = True
+        else:
+            item["kakao_photo_status"] = "identity_not_confirmed"
 
     return item
 
