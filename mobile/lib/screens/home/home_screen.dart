@@ -459,6 +459,7 @@ class _HomeScreenState extends State<HomeScreen>
     String? actionQuestion,
     List<String>? actions,
     Uri? navigationUri,
+    bool navigationModeChoices = false,
   }) {
     if (!mounted) return;
 
@@ -472,6 +473,7 @@ class _HomeScreenState extends State<HomeScreen>
           actionQuestion: actionQuestion,
           actions: actions,
           navigationUri: navigationUri,
+          navigationModeChoices: navigationModeChoices,
         ),
       );
     });
@@ -2125,12 +2127,30 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// Movement requests bypass business search and always use real map apps.
   /// Both typed requests and GPT-Live utterances use the same handler.
+  void _clearOldNavigationChoices() {
+    if (!mounted || !_messages.any((item) => item.navigationModeChoices)) {
+      return;
+    }
+    setState(() {
+      for (final message in _messages) {
+        message.navigationModeChoices = false;
+      }
+    });
+  }
+
   Future<bool> _tryHandleNavigation(
     String text, {
     required bool fromVoice,
   }) async {
+    final wasWaitingForMode = _navigationDialog.waitingForTravelMode;
     final interpretation = _navigationDialog.interpret(text);
-    if (interpretation == null) return false;
+    if (interpretation == null) {
+      if (wasWaitingForMode && !_navigationDialog.waitingForTravelMode) {
+        _clearOldNavigationChoices();
+      }
+      return false;
+    }
+    _clearOldNavigationChoices();
 
     if (!fromVoice && mounted) {
       setState(() {
@@ -2143,7 +2163,10 @@ class _HomeScreenState extends State<HomeScreen>
       _addAssistantMessage(
         text: interpretation.question ??
             '목적지를 정확히 알려주세요.',
-        badge: '길안내 목적지 확인',
+        badge: _navigationDialog.waitingForTravelMode
+            ? '이동수단 선택'
+            : '길안내 목적지 확인',
+        navigationModeChoices: _navigationDialog.waitingForTravelMode,
       );
       _speakProgress(
         interpretation.question ?? '목적지를 알려주세요.',
@@ -2204,12 +2227,16 @@ class _HomeScreenState extends State<HomeScreen>
           : ' (경유: ${route.waypoints.join(' → ')})';
       _addAssistantMessage(
         text: '$originLabel → ${route.destination}$via\n'
-            '${prepared.provider.label}에서 출발지와 목적지를 지정한 길찾기를 엽니다. '
-            '실제 주행 안내는 지도 앱에서 확인하고 시작해 주세요.',
+            '이동수단: ${NavigationRequest.travelModeLabel(route.travelMode)}\n'
+            '${prepared.provider.label}에서 선택한 이동수단으로 길찾기를 엽니다. '
+            '실제 경로와 안내 시작은 지도 앱에서 확인해 주세요.',
         badge: '${prepared.provider.label} 길안내',
         navigationUri: prepared.uri,
       );
-      _speakProgress('${prepared.provider.label}으로 길안내를 엽니다.');
+      _speakProgress(
+        '${NavigationRequest.travelModeLabel(route.travelMode)} 경로를 '
+        '${prepared.provider.label}에서 엽니다.',
+      );
       final opened = await _navigationProvider.open(prepared);
       if (!opened && mounted) {
         _addAssistantMessage(
@@ -2581,6 +2608,11 @@ class _HomeScreenState extends State<HomeScreen>
                               message,
                             );
                           },
+                          onNavigationMode: (mode) {
+                            if (_navigationDialog.waitingForTravelMode) {
+                              _tryHandleNavigation(mode, fromVoice: false);
+                            }
+                          },
                           trainerMode: _trainerMode,
                           trainerSubmitting: _trainerSubmitting,
                           onTrainerFeedback: (correct) {
@@ -2638,6 +2670,7 @@ class _Message {
   final String? actionQuestion;
   final List<String>? actions;
   final Uri? navigationUri;
+  bool navigationModeChoices;
 
   _Message({
     required this.isUser,
@@ -2650,6 +2683,7 @@ class _Message {
     this.actionQuestion,
     this.actions,
     this.navigationUri,
+    this.navigationModeChoices = false,
   });
 }
 
@@ -2701,6 +2735,7 @@ class _AssistantBubble extends StatelessWidget {
     required String requestContext,
   }) onClarification;
   final ValueChanged<String> onAction;
+  final ValueChanged<String> onNavigationMode;
   final bool trainerMode;
   final bool trainerSubmitting;
   final ValueChanged<bool> onTrainerFeedback;
@@ -2709,6 +2744,7 @@ class _AssistantBubble extends StatelessWidget {
     required this.message,
     required this.onClarification,
     required this.onAction,
+    required this.onNavigationMode,
     required this.trainerMode,
     required this.trainerSubmitting,
     required this.onTrainerFeedback,
@@ -2825,6 +2861,22 @@ class _AssistantBubble extends StatelessWidget {
                     const SizedBox(height: 10),
                     _BusinessCards(
                       businesses: message.businesses!,
+                    ),
+                  ],
+                  if (message.navigationModeChoices) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final option in const [
+                          '자동차', '대중교통', '도보',
+                        ])
+                          OutlinedButton(
+                            onPressed: () => onNavigationMode(option),
+                            child: Text(option),
+                          ),
+                      ],
                     ),
                   ],
                   if (message.navigationUri != null) ...[
@@ -3016,6 +3068,36 @@ class _BusinessCards extends StatelessWidget {
   }
 
 
+  Future<String?> _chooseBusinessTravelMode(BuildContext context) {
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('어떤 방법으로 이동하시나요?',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            ),
+            for (final option in const [
+              ('driving', '자동차', Icons.directions_car),
+              ('transit', '대중교통', Icons.directions_transit),
+              ('walking', '도보', Icons.directions_walk),
+            ])
+              ListTile(
+                leading: Icon(option.$3),
+                title: Text(option.$2),
+                onTap: () => Navigator.of(sheetContext).pop(option.$1),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _navigateToBusiness(
     BuildContext context,
     Map<String, dynamic> business,
@@ -3025,6 +3107,9 @@ class _BusinessCards extends StatelessWidget {
     final destination = [name, address]
         .where((item) => item.isNotEmpty).join(' ');
     if (destination.isEmpty) return;
+    // A card tap still has no stated travel method; ask before route lookup.
+    final travelMode = await _chooseBusinessTravelMode(context);
+    if (travelMode == null || !context.mounted) return;
     final navigation = NavigationProviderService();
     try {
       final prepared = await navigation.prepare(
@@ -3032,6 +3117,8 @@ class _BusinessCards extends StatelessWidget {
           origin: '',
           destination: destination,
           currentLocation: true,
+          travelMode: travelMode,
+          travelModeExplicit: true,
         ),
         destinationBusiness: business,
       );

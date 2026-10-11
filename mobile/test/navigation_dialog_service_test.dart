@@ -11,14 +11,19 @@ void main() {
       expect(initial!.route, isNull);
       expect(dialog.waitingForDestination, isTrue);
       final followUp = dialog.interpret('북면고등학교');
-      expect(followUp?.route?.destination, '북면고등학교');
-      expect(followUp?.route?.currentLocation, isTrue);
+      expect(followUp?.route, isNull);
+      expect(dialog.waitingForTravelMode, isTrue);
+      expect(dialog.lastRoute?.destination, '북면고등학교');
+      expect(dialog.lastRoute?.currentLocation, isTrue);
+      final byCar = dialog.interpret('자동차');
+      expect(byCar?.route?.destination, '북면고등학교');
+      expect(byCar?.route?.travelMode, 'driving');
     });
 
     test('cough tags in corrected navigation speech cannot replace endpoint', () {
       final dialog = NavigationDialogState();
       final first = dialog.interpret(
-        '어, 여기서창원시 의창소방서까지 가는 길 알려줘 [cough]',
+        '어, 여기서창원시 의창소방서까지 자동차로 가는 길 알려줘 [cough]',
       );
       expect(first?.route?.destination, '창원시 의창소방서');
       final followUp = dialog.interpret(
@@ -31,7 +36,7 @@ void main() {
     test('destination correction is still navigation, not shop discovery', () {
       final dialog = NavigationDialogState();
       final original = dialog.interpret(
-        '지금 여기서 복면고등학교까지 가는 길 알려줘',
+        '지금 여기서 복면고등학교까지 자동차로 가는 길 알려줘',
       );
       expect(original?.route?.destination, '복면고등학교');
       final corrected = dialog.interpret('아니, 북면고등학교로 가줘');
@@ -41,7 +46,7 @@ void main() {
 
     test('last correction wins when speech includes two place names', () {
       final dialog = NavigationDialogState();
-      dialog.interpret('지금 여기서 북면고등학교까지 길 알려줘');
+      dialog.interpret('지금 여기서 북면고등학교까지 자동차로 길 알려줘');
       final corrected = dialog.interpret(
         '북면고등학교 아니고 북면초등학교야',
       );
@@ -50,7 +55,7 @@ void main() {
 
     test('explicit destination label corrects earlier route', () {
       final dialog = NavigationDialogState();
-      dialog.interpret('창원시청에서 부산역까지 길 알려줘');
+      dialog.interpret('창원시청에서 부산역까지 자동차로 길 알려줘');
       final corrected = dialog.interpret('목적지는 북면고등학교야');
       expect(corrected?.route?.origin, '창원시청');
       expect(corrected?.route?.destination, '북면고등학교');
@@ -59,7 +64,7 @@ void main() {
 
     test('current location follow-up carries corrected destination', () {
       final dialog = NavigationDialogState();
-      dialog.interpret('창원시청에서 부산역까지 길 알려줘');
+      dialog.interpret('창원시청에서 부산역까지 자동차로 길 알려줘');
       dialog.interpret('아니, 북면고등학교로 가줘');
       final origin = dialog.interpret('지금 여기서 출발해');
       expect(origin?.route?.currentLocation, isTrue);
@@ -73,14 +78,18 @@ void main() {
       expect(origin?.route, isNull);
       expect(dialog.waitingForDestination, isTrue);
       final destination = dialog.interpret('도착지는 부산역이야');
-      expect(destination?.route?.origin, '창원시청');
-      expect(destination?.route?.destination, '부산역');
-      expect(destination?.route?.currentLocation, isFalse);
+      expect(destination?.route, isNull);
+      expect(dialog.waitingForTravelMode, isTrue);
+      final transit = dialog.interpret('대중교통');
+      expect(transit?.route?.origin, '창원시청');
+      expect(transit?.route?.destination, '부산역');
+      expect(transit?.route?.currentLocation, isFalse);
+      expect(transit?.route?.travelMode, 'transit');
     });
 
     test('failed provider keeps route corrections in navigation flow', () {
       final dialog = NavigationDialogState();
-      dialog.interpret('지금 여기서 마산역까지 내비 켜줘');
+      dialog.interpret('지금 여기서 마산역까지 자동차로 내비 켜줘');
       dialog.awaitCorrection();
       final correction = dialog.interpret('북면고등학교');
       expect(correction?.route?.destination, '북면고등학교');
@@ -97,7 +106,7 @@ void main() {
 
     test('ordinary request after an old route never hijacked', () {
       final dialog = NavigationDialogState();
-      dialog.interpret('창원시청에서 부산역까지 길 알려줘');
+      dialog.interpret('창원시청에서 부산역까지 자동차로 길 알려줘');
       expect(dialog.interpret('창원시청 식당 추천해줘'), isNull);
       expect(dialog.interpret('이건 얼마야?'), isNull);
     });
