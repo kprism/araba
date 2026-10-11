@@ -7,6 +7,7 @@ import '../../services/araba_api.dart';
 import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/naver_credential_store.dart';
+import '../../services/navigation_preference_store.dart';
 import '../../services/twilio_credential_store.dart';
 import '../../services/voice_preference_store.dart';
 
@@ -25,6 +26,7 @@ class _MyScreenState extends State<MyScreen> {
       GooglePlacesCredentialStore();
   final NaverCredentialStore _naverStore = NaverCredentialStore();
   final TwilioCredentialStore _twilioStore = TwilioCredentialStore();
+  final NavigationPreferenceStore _navigationStore = NavigationPreferenceStore();
   final VoicePreferenceStore _voicePreferenceStore = VoicePreferenceStore();
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _kakaoKeyController = TextEditingController();
@@ -71,6 +73,8 @@ class _MyScreenState extends State<MyScreen> {
   String? _twilioCallerIdNumber;
   String _voiceGender = 'female';
   String _voiceSpeed = 'medium';
+  NavigationMapProvider _navigationProvider = NavigationMapProvider.google;
+  bool _savingNavigation = false;
   Map<String, dynamic> _trainingStatus = const {};
   String? _message;
 
@@ -128,6 +132,7 @@ class _MyScreenState extends State<MyScreen> {
       final naverCredentials = await _naverStore.read();
       final twilioCredentials = await _twilioStore.read();
       final voicePreferences = await _voicePreferenceStore.read();
+      final navigationProvider = await _navigationStore.read();
 
       if (mounted) {
         setState(() {
@@ -151,6 +156,7 @@ class _MyScreenState extends State<MyScreen> {
           _twilioCallerIdNumber = twilioCredentials?.callerIdNumber;
           _voiceGender = voicePreferences.gender;
           _voiceSpeed = voicePreferences.speed;
+          _navigationProvider = navigationProvider;
         });
       }
 
@@ -813,6 +819,20 @@ class _MyScreenState extends State<MyScreen> {
     }
   }
 
+  Future<void> _saveNavigationPreference() async {
+    setState(() => _savingNavigation = true);
+    try {
+      await _navigationStore.write(_navigationProvider);
+      if (!mounted) return;
+      _showMessage('기본 내비게이션이 ${_navigationProvider.label}(으)로 저장됐습니다.');
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('내비게이션 설정을 저장하지 못했어요. 다시 시도해 주세요.');
+    } finally {
+      if (mounted) setState(() => _savingNavigation = false);
+    }
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
@@ -845,6 +865,70 @@ class _MyScreenState extends State<MyScreen> {
                   style: TextStyle(color: Color(0xFF667085)),
                 ),
                 const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFEAECF0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.navigation_rounded, color: Color(0xFF3157D5)),
+                          SizedBox(width: 9),
+                          Text('기본 내비게이션 앱',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '음성·채팅 길찾기와 업체 카드 길안내에 공통 적용됩니다. '
+                        '카카오맵·네이버지도는 장소의 정확한 좌표를 확인한 뒤 실행합니다.',
+                        style: TextStyle(color: Color(0xFF667085), height: 1.45, fontSize: 12),
+                      ),
+                      const SizedBox(height: 14),
+                      DropdownButtonFormField<NavigationMapProvider>(
+                        key: ValueKey(_navigationProvider),
+                        initialValue: _navigationProvider,
+                        decoration: const InputDecoration(
+                          labelText: '기본 지도 선택',
+                          prefixIcon: Icon(Icons.map_outlined),
+                          border: OutlineInputBorder(),
+                        ),
+                        items: NavigationMapProvider.values
+                            .map((provider) => DropdownMenuItem(
+                                  value: provider,
+                                  child: Text(provider.label),
+                                ))
+                            .toList(),
+                        onChanged: (provider) {
+                          if (provider == null) return;
+                          setState(() => _navigationProvider = provider);
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Google 지도는 즉시 경로를 엽니다. '
+                        '카카오맵과 네이버지도는 장소 좌표 확인이 필요하며, '
+                        '앱 미설치·동명이 장소·API 정보 부족 시 이유를 안내합니다.',
+                        style: TextStyle(color: Color(0xFF667085), fontSize: 11.5, height: 1.45),
+                      ),
+                      const SizedBox(height: 13),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _savingNavigation ? null : _saveNavigationPreference,
+                          icon: const Icon(Icons.save_outlined),
+                          label: Text(_savingNavigation ? '저장 중...' : '기본 내비게이션 저장'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
                 _StatusCard(
                   loading: _loading,
                   serverConnected: _serverConnected,
