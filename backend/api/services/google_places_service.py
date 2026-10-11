@@ -158,6 +158,15 @@ def _photo_uri(api_key, photo):
     return uri or None
 
 
+def _photo_result(business, status, *, http_status=None):
+    """Diagnostic metadata only. Never expose keys or provider response bodies."""
+    item = dict(business)
+    item["google_photo_status"] = status
+    if isinstance(http_status, int):
+        item["google_search_http_status"] = http_status
+    return item
+
+
 def enrich_business_with_google_places(
     business,
     *,
@@ -165,7 +174,7 @@ def enrich_business_with_google_places(
 ):
     key = get_google_places_key(api_key)
     if not key:
-        return dict(business)
+        return _photo_result(business, "not_configured")
 
     name = str(
         business.get("name") or ""
@@ -176,7 +185,7 @@ def enrich_business_with_google_places(
         or ""
     ).strip()
     if not name:
-        return dict(business)
+        return _photo_result(business, "missing_business_name")
 
     query = " ".join(
         item
@@ -203,15 +212,20 @@ def enrich_business_with_google_places(
             ),
         )
     except httpx.HTTPError:
-        return dict(business)
+        return _photo_result(business, "provider_unreachable")
 
     if response.status_code != 200:
-        return dict(business)
+        return _photo_result(
+            business, "provider_http_error", http_status=response.status_code,
+        )
 
-    payload = response.json()
-    places = payload.get("places")
+    try:
+        payload = response.json()
+    except (ValueError, TypeError):
+        return _photo_result(business, "provider_invalid_response")
+    places = payload.get("places") if isinstance(payload, dict) else None
     if not isinstance(places, list):
-        return dict(business)
+        return _photo_result(business, "provider_invalid_response")
 
     ranked = sorted(
         (
@@ -229,7 +243,7 @@ def enrich_business_with_google_places(
         reverse=True,
     )
     if not ranked or ranked[0][0] < 9:
-        return dict(business)
+        return _photo_result(business, "business_identity_unmatched")
 
     _, place = ranked[0]
     current_hours = place.get(
@@ -337,6 +351,13 @@ def enrich_business_with_google_places(
 
     result = dict(business)
     result["google_places"] = google
+    result["google_photo_status"] = (
+        "found"
+        if photo_url
+        else "photo_media_unavailable"
+        if isinstance(photos, list) and photos
+        else "no_photo_in_place"
+    )
 
     # Runtime-only, identity-verified photo. It is attached after DB persistence
     # so a Google photo URL is not treated as ARABA's durable source of truth.
