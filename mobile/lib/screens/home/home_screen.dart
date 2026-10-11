@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_key_store.dart';
+import '../../services/business_photo_diagnostics.dart';
 import '../../services/araba_api.dart';
 import '../../services/conversation_context.dart';
 import '../../services/device_location_service.dart';
@@ -1000,6 +1001,9 @@ class _HomeScreenState extends State<HomeScreen>
       final prices = count('prices');
       final photos = count('photos');
       final total = updated.length;
+      final photoDiagnosis = photos == 0
+          ? describeMissingBusinessPhotos(updated)
+          : '';
       final anyDetails = hours + parking + prices + photos > 0;
       final statusCounts = <String, int>{};
       String providerErrorType = '';
@@ -1110,7 +1114,8 @@ class _HomeScreenState extends State<HomeScreen>
             '업체 $total곳의 실제 정보를 확인했어요.\n'
             '영업시간 $hours/$total · 주차 $parking/$total · '
             '가격 $prices/$total · 사진 $photos/$total\n'
-            '$detailStatus';
+            '$detailStatus'
+            '${photoDiagnosis.isNotEmpty ? '\n사진 미확보 진단: $photoDiagnosis' : ''}';
       });
 
       if (hasCriteria) {
@@ -1374,6 +1379,10 @@ class _HomeScreenState extends State<HomeScreen>
       }
 
       final businesses = _businessesFrom(result);
+      final rawResultMatching = result['matching'];
+      final resultMatching = rawResultMatching is Map
+          ? Map<String, dynamic>.from(rawResultMatching)
+          : null;
       final searchQuery =
           result['search_query']?.toString().trim() ?? '';
 
@@ -1448,6 +1457,7 @@ class _HomeScreenState extends State<HomeScreen>
               '사진·영업시간·주차·가격을 추가 확인하고 있어요.',
           badge: '상세정보 확인 중',
           businesses: businesses,
+          matching: resultMatching,
         );
         _speakProgress(
           '요청한 지역에서 ${businesses.length}곳을 찾았어요. '
@@ -1488,6 +1498,9 @@ class _HomeScreenState extends State<HomeScreen>
               ? (result['representative_photo_count'] as num)
                   .round()
               : 0;
+      final photoDiagnosis = representativePhotos == 0
+          ? describeMissingBusinessPhotos(businesses)
+          : '';
       final openingHoursCount =
           result['opening_hours_count'] is num
               ? (result['opening_hours_count'] as num)
@@ -1628,6 +1641,8 @@ class _HomeScreenState extends State<HomeScreen>
             ' · 사진 $representativePhotos/${businesses.length}',
         if (missingFacts.isNotEmpty)
           '\n아직 확인이 필요한 정보: ${missingFacts.join(' · ')}',
+        if (photoDiagnosis.isNotEmpty)
+          '\n사진 미확보 진단: $photoDiagnosis',
       ].join();
 
       final missionLocation =
@@ -1663,6 +1678,7 @@ class _HomeScreenState extends State<HomeScreen>
                       )
               ),
         businesses: businesses,
+        matching: resultMatching,
       );
       _speakProgress(spokenSummary);    } catch (error) {
       if (!mounted || researchRevision != _researchRevision) {
@@ -4023,7 +4039,12 @@ class _BusinessCards extends StatelessWidget {
                           for (final verdict in verdicts) _verdictChip(verdict),
                         ])
                       : Text(
-                          matchingPending ? '요청 조건 확인 중' : '검증된 조건 정보 없음',
+                          matchingPending
+                              ? '요청 조건 확인 중'
+                              : (matching?['criteria'] is List &&
+                                      (matching!['criteria'] as List).isEmpty
+                                  ? '검색 지역·업종 기준 후보 · 추가 조건 없음'
+                                  : '조건 판정 근거 확인 필요'),
                           style: const TextStyle(fontSize: 11, color: Color(0xFF667085)),
                         ),
                 ),
