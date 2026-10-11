@@ -411,6 +411,18 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // A speech model may emit [cough], [laughter], etc. They are not place
+  // names and should never be displayed as words in the user's chat bubble.
+  String _cleanTranscriptForDisplay(String text) => text.replaceAll(
+        RegExp(
+          r'\[(?:cough|coughing|laugh|laughter|breath|breathing|'
+          r'sigh|noise|music|silence|applause|inaudible|sniff|'
+          r'clears throat)[^\]]*\]',
+          caseSensitive: false,
+        ),
+        ' ',
+      );
+
   void _appendLiveTranscript({
     required bool isUser,
     required String delta,
@@ -427,7 +439,7 @@ class _HomeScreenState extends State<HomeScreen>
       _messages.add(
         _Message(
           isUser: isUser,
-          text: delta,
+          text: _cleanTranscriptForDisplay(delta),
         ),
       );
       _liveTranscriptSpeaker = speaker;
@@ -435,7 +447,9 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    _messages[existingIndex].text += delta;
+    _messages[existingIndex].text = _cleanTranscriptForDisplay(
+      _messages[existingIndex].text + delta,
+    );
   }
 
   void _addAssistantMessage({
