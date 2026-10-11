@@ -3846,21 +3846,6 @@ class _BusinessCards extends StatelessWidget {
     );
   }
 
-  String _won(dynamic value) {
-    if (value is! num) return '';
-    final digits = value.round().toString();
-    final buffer = StringBuffer();
-
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && (digits.length - i) % 3 == 0) {
-        buffer.write(',');
-      }
-      buffer.write(digits[i]);
-    }
-
-    return '${buffer.toString()}원';
-  }
-
 
   List<Map<String, dynamic>> _verdicts(Map<String, dynamic> business) {
     final matrix = matching?['matrix'];
@@ -4135,49 +4120,6 @@ class _BusinessDetailRow extends StatelessWidget {
                 height: 1.45,
                 fontWeight: FontWeight.w700,
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetricChip extends StatelessWidget {
-  final IconData icon;
-  final String text;
-
-  const _MetricChip({
-    required this.icon,
-    required this.text,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 7,
-        vertical: 4,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF2F4F7),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 12,
-            color: const Color(0xFF667085),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Color(0xFF475467),
-              fontSize: 10.5,
-              fontWeight: FontWeight.w700,
             ),
           ),
         ],
