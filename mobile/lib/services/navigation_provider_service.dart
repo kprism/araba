@@ -91,9 +91,12 @@ class NavigationProviderLinks {
     }
 
     final params = <String, String>{
-      if (!route.currentLocation) 'slat': origin.latitude.toString(),
-      if (!route.currentLocation) 'slng': origin.longitude.toString(),
-      if (!route.currentLocation) 'sname': origin.name,
+      if (!route.currentLocation || route.travelMode != 'driving')
+        'slat': origin.latitude.toString(),
+      if (!route.currentLocation || route.travelMode != 'driving')
+        'slng': origin.longitude.toString(),
+      if (!route.currentLocation || route.travelMode != 'driving')
+        'sname': origin.name,
       'dlat': destination.latitude.toString(),
       'dlng': destination.longitude.toString(),
       'dname': destination.name,
@@ -223,9 +226,10 @@ class NavigationProviderService {
   }) async {
     final provider = await _preferences.read();
     final originFuture = request.currentLocation
-        ? provider == NavigationMapProvider.naver
-            // Naver's current-origin link omits source coordinates; the
-            // navigation app itself selects live GPS. No ARABA GPS wait.
+        ? provider == NavigationMapProvider.naver &&
+                request.travelMode == 'driving'
+            // Naver's *driving navigation* can use its internal current
+            // location. Public transport / walking require real origin GPS.
             ? Future<NavigationPoint>.value(
                 const NavigationPoint('현재 위치', 0, 0),
               )
