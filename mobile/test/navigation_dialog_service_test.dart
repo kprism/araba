@@ -15,6 +15,19 @@ void main() {
       expect(followUp?.route?.currentLocation, isTrue);
     });
 
+    test('cough tags in corrected navigation speech cannot replace endpoint', () {
+      final dialog = NavigationDialogState();
+      final first = dialog.interpret(
+        '어, 여기서창원시 의창소방서까지 가는 길 알려줘 [cough]',
+      );
+      expect(first?.route?.destination, '창원시 의창소방서');
+      final followUp = dialog.interpret(
+        '아니, 창원시 의창소방서로 안내해줘 [cough] [cough]',
+      );
+      expect(followUp?.route?.destination, '창원시 의창소방서');
+      expect(followUp?.route?.currentLocation, isTrue);
+    });
+
     test('destination correction is still navigation, not shop discovery', () {
       final dialog = NavigationDialogState();
       final original = dialog.interpret(

@@ -3,6 +3,25 @@ import 'package:araba/services/navigation_service.dart';
 
 void main() {
   group('navigation intent (all destinations, not specific facilities)', () {
+    test('speech annotations never become a destination or origin', () {
+      final utterance =
+          '어, 여기서창원시 의창소방서까지 가는 길 좀 알려줘 [cough] [cough]';
+      final result = NavigationRequest.tryParse(utterance);
+      expect(result, isNotNull);
+      expect(result!.currentLocation, isTrue);
+      expect(result.origin, isEmpty);
+      expect(result.destination, '창원시 의창소방서');
+      expect(result.destination.contains('[cough]'), isFalse);
+    });
+
+    test('location-appropriate pronunciation works with spaced here', () {
+      final result = NavigationRequest.tryParse(
+        '여기서 창원시 의창소방서까지 길을 알려줘',
+      );
+      expect(result?.destination, '창원시 의창소방서');
+      expect(result?.currentLocation, isTrue);
+    });
+
     test('named origin -> named destination', () {
       final result = NavigationRequest.tryParse(
         '창원시청에서 부산역까지 가는 길 알려줘',
