@@ -626,6 +626,17 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> testKakaoLocal(String apiKey) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/settings/kakao/test/'),
+        headers: _headers(kakaoRestApiKey: apiKey),
+      ),
+      timeout: const Duration(seconds: 12),
+    );
+    return _decode(response);
+  }
+
   Future<http.Response> _request(
     Future<http.Response> Function() action, {
     required Duration timeout,
