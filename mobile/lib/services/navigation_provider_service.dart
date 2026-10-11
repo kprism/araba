@@ -223,7 +223,13 @@ class NavigationProviderService {
   }) async {
     final provider = await _preferences.read();
     final originFuture = request.currentLocation
-        ? _currentPosition()
+        ? provider == NavigationMapProvider.naver
+            // Naver's current-origin link omits source coordinates; the
+            // navigation app itself selects live GPS. No ARABA GPS wait.
+            ? Future<NavigationPoint>.value(
+                const NavigationPoint('현재 위치', 0, 0),
+              )
+            : _currentPosition()
         : provider == NavigationMapProvider.google
             ? Future<NavigationPoint>.value(
                 const NavigationPoint('', 0, 0),
