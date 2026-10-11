@@ -245,7 +245,9 @@ class NavigationProviderService {
       }
       if (state == 'not_found') {
         throw NavigationProviderException(
-          '$name의 정확한 위치를 확인하지 못했어요. 도로명주소를 알려주세요.',
+          '$name의 위치를 지도 검색에서 확정하지 못했어요. '
+          '도로명주소가 없어도 됩니다. '
+          '학교나 시설의 공식 명칭 또는 시·군·구를 포함해 다시 검색해 주세요.',
         );
       }
       throw const NavigationProviderException(

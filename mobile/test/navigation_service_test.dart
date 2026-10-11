@@ -62,6 +62,15 @@ void main() {
       expect(result?.destination, '북면고등학교');
     });
 
+    test('Changwon Bukmyeon High destination survives spoken route parsing', () {
+      final request = NavigationRequest.tryParse(
+        '창원 북면고등학교 가는길 알려줘',
+      );
+      expect(request?.destination, '창원 북면고등학교');
+      expect(request?.currentLocation, isTrue);
+      expect(request?.travelModeExplicit, isFalse);
+    });
+
     test('destination only with go-to wording', () {
       expect(
         NavigationRequest.tryParse('부산역으로 안내해줘')?.destination,
