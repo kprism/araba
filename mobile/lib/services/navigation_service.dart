@@ -33,8 +33,31 @@ class NavigationRequest {
         currentLocation: currentLocation,
       );
 
+
+  /// Speech recognition may include non-speech markers and short fillers.
+  /// Never send them as place names or allow them into a map deep link.
+  static String normalizeUtterance(String input) {
+    return input
+        .replaceAll(
+          RegExp(
+            r'\[(?:cough|coughing|laugh|laughter|breath|breathing|'
+            r'sigh|noise|music|silence|applause|inaudible|sniff|'
+            r'clears throat)[^\]]*\]',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
+        .replaceAll(RegExp(r'^(?:(?:어|음|아|저기|그러니까)[,\s]+)+'), '')
+        .replaceFirst(
+          RegExp(r'^(?:지금\s+)?(?:여기서|이곳에서)\s*'),
+          '여기에서 ',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
   static bool hasNavigationIntent(String value) {
-    final text = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final text = normalizeUtterance(value);
     if (text.isEmpty) return false;
     return RegExp(
       r'길(?:을|좀|만)?\s*(?:좀\s*)?(?:알려|안내|찾|보여)|가는\s*길|가는\s*법|'
@@ -76,13 +99,7 @@ class NavigationRequest {
   }
 
   static NavigationRequest? tryParse(String utterance) {
-    final raw = utterance.replaceAll(RegExp(r'\s+'), ' ').trim();
-    // "여기서" has a contracted case particle. Canonicalize it before
-    // parsing to avoid treating "여기서 목적지" as the destination itself.
-    final text = raw.replaceFirst(
-      RegExp(r'^(?:지금\s+)?여기서\s+'),
-      '여기에서 ',
-    );
+    final text = normalizeUtterance(utterance);
     if (!hasNavigationIntent(text)) return null;
 
     final mode = RegExp(r'대중교통|버스|지하철|전철').hasMatch(text)
