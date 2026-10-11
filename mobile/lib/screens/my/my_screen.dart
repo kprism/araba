@@ -50,6 +50,9 @@ class _MyScreenState extends State<MyScreen> {
   bool _testing = false;
   bool _voiceTesting = false;
   bool _kakaoSaving = false;
+  bool _kakaoTesting = false;
+  bool _kakaoTested = false;
+  bool _kakaoConnected = false;
   bool _googlePlacesSaving = false;
   bool _naverSaving = false;
   bool _twilioSaving = false;
@@ -333,6 +336,8 @@ class _MyScreenState extends State<MyScreen> {
 
       setState(() {
         _kakaoConfigured = true;
+        _kakaoTested = false;
+        _kakaoConnected = false;
         _maskedKakaoKey = _maskKey(key);
         _message = 'Kakao REST API Key가 이 기기에 안전하게 저장되었습니다.';
       });
@@ -349,6 +354,40 @@ class _MyScreenState extends State<MyScreen> {
         setState(() {
           _kakaoSaving = false;
         });
+      }
+    }
+  }
+
+  Future<void> _testKakaoConnection() async {
+    setState(() {
+      _kakaoTesting = true;
+      _message = null;
+    });
+    try {
+      final key = await _kakaoStore.read();
+      if (key == null || key.trim().isEmpty) {
+        throw const ArabaApiException('카카오 REST API 키를 먼저 저장해주세요.');
+      }
+      final result = await _api.testKakaoLocal(key);
+      if (!mounted) return;
+      setState(() {
+        _kakaoTested = true;
+        _kakaoConnected = result['connected'] == true;
+        _serverConnected = true;
+        _message = result['message']?.toString() ?? '카카오 Local API 테스트 완료';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _kakaoTested = true;
+        _kakaoConnected = false;
+        _message = error is ArabaApiException
+            ? error.message
+            : '카카오 연결 진단에 실패했습니다.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _kakaoTesting = false);
       }
     }
   }
@@ -370,6 +409,8 @@ class _MyScreenState extends State<MyScreen> {
 
       setState(() {
         _kakaoConfigured = false;
+        _kakaoTested = false;
+        _kakaoConnected = false;
         _maskedKakaoKey = null;
         _message = 'Kakao REST API Key 등록을 해제했습니다.';
       });
@@ -871,6 +912,8 @@ class _MyScreenState extends State<MyScreen> {
                   openAiConfigured: _openAiConfigured,
                   openAiConnected: _openAiConnected,
                   kakaoConfigured: _kakaoConfigured,
+                  kakaoTested: _kakaoTested,
+                  kakaoConnected: _kakaoConnected,
                   twilioConfigured: _twilioConfigured,
                   voiceReady: _voiceReady,
                 ),
@@ -1157,6 +1200,18 @@ class _MyScreenState extends State<MyScreen> {
                         ),
                       ),
                       if (_kakaoConfigured) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: (_kakaoSaving || _kakaoTesting)
+                                ? null : _testKakaoConnection,
+                            icon: const Icon(Icons.health_and_safety_outlined),
+                            label: Text(_kakaoTesting
+                                ? '카카오 API 연결 확인 중…'
+                                : '카카오 Local API 연결 테스트'),
+                          ),
+                        ),
                         const SizedBox(height: 10),
                         SizedBox(
                           width: double.infinity,
@@ -1857,6 +1912,8 @@ class _StatusCard extends StatelessWidget {
   final bool openAiConfigured;
   final bool openAiConnected;
   final bool kakaoConfigured;
+  final bool kakaoTested;
+  final bool kakaoConnected;
   final bool twilioConfigured;
   final bool voiceReady;
 
@@ -1866,6 +1923,8 @@ class _StatusCard extends StatelessWidget {
     required this.openAiConfigured,
     required this.openAiConnected,
     required this.kakaoConfigured,
+    required this.kakaoTested,
+    required this.kakaoConnected,
     required this.twilioConfigured,
     required this.voiceReady,
   });
@@ -1904,8 +1963,12 @@ class _StatusCard extends StatelessWidget {
           const SizedBox(height: 10),
           _StatusRow(
             name: 'Kakao Local',
-            value: kakaoConfigured ? 'CONFIGURED' : 'NOT SET',
-            active: kakaoConfigured,
+            value: !kakaoConfigured
+                ? 'NOT SET'
+                : !kakaoTested
+                    ? 'NOT TESTED'
+                    : kakaoConnected ? 'CONNECTED' : 'FAILED',
+            active: kakaoConnected,
           ),
           const SizedBox(height: 10),
           _StatusRow(

@@ -30,6 +30,11 @@ urlpatterns = [
         name="openai-test",
     ),
     path(
+        "settings/kakao/test/",
+        views.kakao_connection_test,
+        name="kakao-connection-test",
+    ),
+    path(
         "navigation/resolve/",
         views.navigation_resolve,
         name="navigation-resolve",
