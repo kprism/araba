@@ -140,6 +140,23 @@ class ArabaApi {
     return _decode(response);
   }
 
+  Future<Map<String, dynamic>> resolveNavigationPlace(
+    String query, {
+    String? kakaoRestApiKey,
+  }) async {
+    final response = await _request(
+      () => http.post(
+        _uri('/api/navigation/resolve/'),
+        headers: _headers(kakaoRestApiKey: kakaoRestApiKey),
+        body: jsonEncode({'query': query}),
+      ),
+      timeout: const Duration(seconds: 12),
+      retries: 0,
+      retryServerErrors: false,
+    );
+    return _decode(response);
+  }
+
   Future<Map<String, dynamic>> createMission(
     String request, {
     required String apiKey,
