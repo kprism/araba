@@ -1452,7 +1452,7 @@ def enrich_place_businesses(
         identity_ready = [
             item for item in stale[:FAST_DETAIL_ENRICH_LIMIT]
             if str(item.get("place_url") or "").startswith(
-                "https://place.map.kakao.com/"
+                ("http://place.map.kakao.com/", "https://place.map.kakao.com/")
             ) and str(item.get("id") or "").strip()
         ]
         inspected = (
@@ -1650,7 +1650,7 @@ def search_real_businesses(
             item for item in cached_businesses[:FAST_DETAIL_ENRICH_LIMIT]
             if not str(item.get("image_url") or "").strip()
             and str(item.get("place_url") or "").startswith(
-                "https://place.map.kakao.com/"
+                ("http://place.map.kakao.com/", "https://place.map.kakao.com/")
             )
             and item.get("kakao_photo_status") != "no_image_in_page"
         ]
