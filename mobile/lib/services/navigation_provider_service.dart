@@ -145,7 +145,7 @@ class NavigationProviderService {
   static final Map<String, DateTime> _verifiedAt = {};
 
   Future<NavigationPoint> _resolve(String name) async {
-    final normalized = name.trim().replaceAll(RegExp(r'\\s+'), ' ');
+    final normalized = name.trim().replaceAll(RegExp(r'\s+'), ' ');
     final cached = _verifiedPlaces[normalized];
     final cachedAt = _verifiedAt[normalized];
     if (cached != null && cachedAt != null &&
