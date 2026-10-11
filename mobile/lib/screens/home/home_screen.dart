@@ -1374,6 +1374,10 @@ class _HomeScreenState extends State<HomeScreen>
       }
 
       final businesses = _businessesFrom(result);
+      final rawResultMatching = result['matching'];
+      final resultMatching = rawResultMatching is Map
+          ? Map<String, dynamic>.from(rawResultMatching)
+          : null;
       final searchQuery =
           result['search_query']?.toString().trim() ?? '';
 
@@ -1448,6 +1452,7 @@ class _HomeScreenState extends State<HomeScreen>
               '사진·영업시간·주차·가격을 추가 확인하고 있어요.',
           badge: '상세정보 확인 중',
           businesses: businesses,
+          matching: resultMatching,
         );
         _speakProgress(
           '요청한 지역에서 ${businesses.length}곳을 찾았어요. '
@@ -1663,6 +1668,7 @@ class _HomeScreenState extends State<HomeScreen>
                       )
               ),
         businesses: businesses,
+        matching: resultMatching,
       );
       _speakProgress(spokenSummary);    } catch (error) {
       if (!mounted || researchRevision != _researchRevision) {
@@ -4023,7 +4029,12 @@ class _BusinessCards extends StatelessWidget {
                           for (final verdict in verdicts) _verdictChip(verdict),
                         ])
                       : Text(
-                          matchingPending ? '요청 조건 확인 중' : '검증된 조건 정보 없음',
+                          matchingPending
+                              ? '요청 조건 확인 중'
+                              : (matching?['criteria'] is List &&
+                                      (matching!['criteria'] as List).isEmpty
+                                  ? '검색 지역·업종 기준 후보 · 추가 조건 없음'
+                                  : '조건 판정 근거 확인 필요'),
                           style: const TextStyle(fontSize: 11, color: Color(0xFF667085)),
                         ),
                 ),
