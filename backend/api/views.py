@@ -135,6 +135,78 @@ def openai_test(request):
 
 
 @api_view(["POST"])
+def kakao_connection_test(request):
+    """Check the supplied device key with one real Kakao Local request.
+
+    Never persist, echo or log API keys or upstream response bodies.
+    A successful Local search does not imply access to place photos.
+    """
+    import httpx
+
+    key = _request_kakao_rest_api_key(request)
+    if not key:
+        return Response(
+            {"ok": False, "connected": False, "message": "카카오 REST API 키가 등록되지 않았습니다."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        upstream = httpx.get(
+            "https://dapi.kakao.com/v2/local/search/keyword.json",
+            headers={"Authorization": f"KakaoAK {key}"},
+            params={"query": "창원시청", "size": 1},
+            timeout=httpx.Timeout(8.0, connect=3.0),
+        )
+    except httpx.HTTPError:
+        return Response(
+            {"ok": False, "connected": False, "message": "카카오 서버 연결에 실패했습니다. 네트워크와 재시도를 확인해주세요."},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if upstream.status_code == 200:
+        try:
+            payload = upstream.json()
+            count = len(payload.get("documents") or [])
+        except (ValueError, AttributeError, TypeError):
+            return Response(
+                {"ok": False, "connected": False, "message": "카카오 응답을 해석하지 못했습니다."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({
+            "ok": True,
+            "connected": True,
+            "provider_status": 200,
+            "result_count": count,
+            "photos_available_in_local_api": False,
+            "message": (
+                "카카오 Local 검색 API 연결에 성공했습니다. "
+                "업체 사진은 Local API 응답에 포함되지 않아 별도 출처 확인이 필요합니다."
+            ),
+        })
+
+    code = None
+    try:
+        data = upstream.json()
+        if isinstance(data, dict):
+            code = data.get("code")
+    except (ValueError, TypeError):
+        pass
+
+    if code in (-10, -11) or upstream.status_code == 429:
+        message = "카카오 API 사용량 또는 한도 초과입니다. Kakao Developers 사용량을 확인해주세요."
+    elif upstream.status_code == 401:
+        message = "카카오 REST API 키 인증 실패입니다. 키 종류와 값을 확인해주세요."
+    elif upstream.status_code == 403 or code in (-3, -5):
+        message = "카카오 API 사용 권한이 거부되었습니다. 앱의 API 활성화·권한 설정을 확인해주세요."
+    else:
+        message = f"카카오 Local 검색 요청이 거부되었습니다. HTTP {upstream.status_code}"
+    return Response(
+        {"ok": False, "connected": False, "provider_status": upstream.status_code,
+         "provider_code": code if isinstance(code, int) else None, "message": message},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@api_view(["POST"])
 def mission_create(request):
     from concurrent.futures import ThreadPoolExecutor
 
