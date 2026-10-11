@@ -141,8 +141,8 @@ class NavigationProviderService {
 
   // Place identity has been verified by ARABA's navigation resolver. Reusing
   // the successful lookup avoids another network round trip for corrections.
-  static final Map<String, NavigationPoint> _verifiedPlaces = {};
-  static final Map<String, DateTime> _verifiedAt = {};
+  final Map<String, NavigationPoint> _verifiedPlaces = {};
+  final Map<String, DateTime> _verifiedAt = {};
 
   Future<NavigationPoint> _resolve(String name) async {
     final normalized = name.trim().replaceAll(RegExp(r'\s+'), ' ');
