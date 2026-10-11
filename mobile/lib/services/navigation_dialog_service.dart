@@ -42,15 +42,21 @@ class NavigationDialogState {
     if (RegExp(
       r'^(?:자동차|차|자가용|승용차|운전|차로|자동차로)'
       r'(?:로|으로|타고|갈게|가자|해줘|안내해줘|갈래|갈거야)?[.!]?$',
-    ).hasMatch(compact)) return 'driving';
+    ).hasMatch(compact)) {
+      return 'driving';
+    }
     if (RegExp(
       r'^(?:대중교통|버스|지하철|전철)'
       r'(?:으로|로|타고|갈게|가자|해줘|안내해줘|갈래|갈거야)?[.!]?$',
-    ).hasMatch(compact)) return 'transit';
+    ).hasMatch(compact)) {
+      return 'transit';
+    }
     if (RegExp(
       r'^(?:도보|걸어서|걷기|걸어)'
       r'(?:로|갈게|가자|해줘|안내해줘|갈래|갈거야)?[.!]?$',
-    ).hasMatch(compact)) return 'walking';
+    ).hasMatch(compact)) {
+      return 'walking';
+    }
     return NavigationRequest.explicitTravelMode(active);
   }
 
