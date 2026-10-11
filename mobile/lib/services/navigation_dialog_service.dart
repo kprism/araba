@@ -60,6 +60,8 @@ class NavigationDialogState {
     if (compact.isEmpty) return null;
 
     var clean = compact
+        // The last explicit correction wins, not the misheard earlier place.
+        .replaceFirst(RegExp(r'^.*(?:아니고|아니라|말고)\s*'), '')
         .replaceFirst(RegExp(r'^(?:아니[,.! ]*|아니야[,.! ]*|잠깐[,.! ]*|정정할게[,.! ]*|그거\s*말고\s*)'), '')
         .replaceFirst(RegExp(r'^(?:목적지|도착지)(?:는|가|를|는요)?\s*[:：]?\s*'), '')
         .replaceFirst(RegExp(r'^(?:그곳\s*말고\s*|거기\s*말고\s*)'), '')
