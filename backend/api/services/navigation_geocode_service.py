@@ -95,7 +95,11 @@ def _result_for(query, places):
     # The same weak suggestion returned from keyword and address endpoints is
     # still one unverified place, not two independent candidates.
     unique = {
-        (round(place["latitude"], 5), round(place["longitude"], 5)): place
+        (
+            round(place["latitude"], 5),
+            round(place["longitude"], 5),
+            _canonical(place["name"]),
+        ): place
         for place in regional
     }
     if len(unique) > 1:
