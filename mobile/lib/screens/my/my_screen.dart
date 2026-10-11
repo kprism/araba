@@ -983,9 +983,10 @@ class _MyScreenState extends State<MyScreen> {
                       ),
                       const SizedBox(height: 10),
                       const Text(
-                        'Google 지도는 즉시 경로를 엽니다. '
-                        '카카오맵과 네이버지도는 장소 좌표 확인이 필요하며, '
-                        '앱 미설치·동명이 장소·API 정보 부족 시 이유를 안내합니다.',
+                        'Google 지도는 국내 자동차·도보 경로 지원이 제한되어 '
+                        '국내 요청이면 네이버지도로 자동 전환합니다. '
+                        'Google 대중교통·해외 경로는 유지합니다. '
+                        '카카오맵·네이버지도는 장소 좌표 확인 후 실행합니다.',
                         style: TextStyle(color: Color(0xFF667085), fontSize: 11.5, height: 1.45),
                       ),
                       const SizedBox(height: 13),
