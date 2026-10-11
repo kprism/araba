@@ -89,3 +89,49 @@ class NavigationGeocodeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["ok"])
         resolver.assert_called_once_with("창원시청", api_key="local-my-key")
+
+
+class NavigationWrongDestinationRegressions(SimpleTestCase):
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_single_wrong_city_fuzzy_match_is_rejected(self, fetch):
+        # Regression: Changwon request accidentally opened a route to Gangwon.
+        fetch.return_value = result(point(
+            "남전리", "강원 인제군 남면 남전리 4",
+            y="38.04", x="128.19",
+        ))
+        data = resolve_navigation_place("창원시 의창소방서", api_key="test")
+        self.assertEqual(data["status"], "not_found")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_same_city_but_unrelated_single_place_is_not_auto_selected(self, fetch):
+        fetch.return_value = result(point(
+            "의창파출소", "경남 창원시 의창구 중동 771",
+        ))
+        data = resolve_navigation_place("창원시 의창소방서", api_key="test")
+        self.assertEqual(data["status"], "not_found")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_qualified_city_and_exact_venue_name_are_accepted(self, fetch):
+        fetch.return_value = result(point(
+            "의창소방서", "경상남도 창원시 의창구 의창대로 1",
+        ))
+        data = resolve_navigation_place("창원시 의창소방서", api_key="test")
+        self.assertEqual(data["status"], "resolved")
+        self.assertEqual(data["place"]["name"], "의창소방서")
+        self.assertEqual(fetch.call_count, 1)
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_unqualified_unique_exact_name_is_accepted(self, fetch):
+        fetch.return_value = result(point(
+            "의창소방서", "경남 창원시 의창구",
+        ))
+        data = resolve_navigation_place("의창소방서", api_key="test")
+        self.assertEqual(data["status"], "resolved")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_provider_timeout_is_bounded_and_not_treated_as_coordinates(self, fetch):
+        fetch.side_effect = __import__("httpx").ReadTimeout("timeout")
+        data = resolve_navigation_place("의창소방서", api_key="test")
+        self.assertEqual(data["status"], "provider_error")
+        self.assertLessEqual(fetch.call_args.kwargs["timeout"].read, 2.8)
+        self.assertLessEqual(fetch.call_args.kwargs["timeout"].connect, 1.0)
