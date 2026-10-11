@@ -73,7 +73,7 @@ class NavigationDialogState {
         .hasMatch(compact);
     if (!awaiting && !explicit) return null;
     if (clean.isEmpty || clean.length > 90) return null;
-    if (RegExp(r'길\s*(?:알려|안내)|내비|네비|어디서|어떻게').hasMatch(clean)) {
+    if (RegExp(r'길\s*(?:알려|안내)|내비|네비|어디|어떻게|왜|무엇|뭐').hasMatch(clean)) {
       return null;
     }
     if (RegExp(r'^(?:여기|현재위치|내위치|지금여기)$').hasMatch(clean)) {
