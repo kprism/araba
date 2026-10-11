@@ -56,6 +56,18 @@ def health(request):
     )
 
 
+@api_view(["POST"])
+def navigation_resolve(request):
+    """Return evidence-backed place coordinates to the selected map app."""
+    from .services.navigation_geocode_service import resolve_navigation_place
+
+    query = request.data.get("query", "")
+    result = resolve_navigation_place(
+        query, api_key=_request_kakao_rest_api_key(request)
+    )
+    return Response({"ok": result["status"] == "resolved", **result})
+
+
 @api_view(["GET"])
 def onboarding_schemas(request):
     from .services.profile_schema_service import (
