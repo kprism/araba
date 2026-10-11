@@ -7,6 +7,70 @@ import 'kakao_credential_store.dart';
 import 'navigation_preference_store.dart';
 import 'navigation_service.dart';
 
+/// Korean Google Maps currently lacks reliable automobile and walking routes.
+/// Select a supported domestic map before making any unnecessary network calls.
+class NavigationCoverageDecision {
+  const NavigationCoverageDecision(this.provider, {this.notice});
+  final NavigationMapProvider provider;
+  final String? notice;
+}
+
+class NavigationCoveragePolicy {
+  static bool _inKorea(num? lat, num? lon) =>
+      lat != null && lon != null &&
+      lat >= 33 && lat <= 39.5 && lon >= 124 && lon <= 132;
+
+  static bool _looksKorean(String text) {
+    if (text.trim().isEmpty) return false;
+    // Do not redirect known overseas journeys merely because Hangul was used.
+    if (RegExp(
+      r'일본|도쿄|오사카|교토|후쿠오카|삿포로|뉴욕|미국|캐나다|'
+      r'런던|영국|파리|프랑스|베를린|독일|로마|이탈리아|'
+      r'대만|타이베이|방콕|태국|싱가포르|하노이|베트남|'
+      r'Tokyo|Osaka|Kyoto|London|New York|Paris|Berlin',
+      caseSensitive: false,
+    ).hasMatch(text)) {
+      return false;
+    }
+    return RegExp(r'[가-힣]').hasMatch(text) ||
+        RegExp(
+          r'Seoul|Busan|Changwon|Incheon|Daegu|Gwangju|Daejeon|Jeju',
+          caseSensitive: false,
+        ).hasMatch(text);
+  }
+
+  static NavigationCoverageDecision choose({
+    required NavigationMapProvider preferred,
+    required NavigationRequest route,
+    Map<String, dynamic>? destinationBusiness,
+  }) {
+    if (preferred != NavigationMapProvider.google ||
+        !{'driving', 'walking'}.contains(route.travelMode)) {
+      return NavigationCoverageDecision(preferred);
+    }
+    final lat = num.tryParse(
+      destinationBusiness?['latitude']?.toString() ??
+          destinationBusiness?['y']?.toString() ?? '',
+    );
+    final lon = num.tryParse(
+      destinationBusiness?['longitude']?.toString() ??
+          destinationBusiness?['x']?.toString() ?? '',
+    );
+    final domestic = _inKorea(lat, lon);
+    final foreign = lat != null && lon != null && !domestic;
+    if (foreign || (!domestic &&
+        !_looksKorean('${route.origin} ${route.destination}'))) {
+      return const NavigationCoverageDecision(NavigationMapProvider.google);
+    }
+    return NavigationCoverageDecision(
+      NavigationMapProvider.naver,
+      notice: 'Google 지도는 국내 ${NavigationRequest.travelModeLabel(route.travelMode)} 경로 안내가 제한되어 '
+          '네이버지도로 자동 전환했습니다. '
+          'MY에서 카카오맵을 기본 지도로 선택할 수도 있습니다.',
+    );
+  }
+}
+
 class NavigationProviderException implements Exception {
   const NavigationProviderException(this.message);
   final String message;
@@ -121,9 +185,10 @@ class NavigationProviderLinks {
 }
 
 class PreparedNavigation {
-  const PreparedNavigation(this.uri, this.provider);
+  const PreparedNavigation(this.uri, this.provider, {this.notice});
   final Uri uri;
   final NavigationMapProvider provider;
+  final String? notice;
 }
 
 class NavigationProviderService {
@@ -224,7 +289,13 @@ class NavigationProviderService {
     NavigationRequest request, {
     Map<String, dynamic>? destinationBusiness,
   }) async {
-    final provider = await _preferences.read();
+    final preferred = await _preferences.read();
+    final capability = NavigationCoveragePolicy.choose(
+      preferred: preferred,
+      route: request,
+      destinationBusiness: destinationBusiness,
+    );
+    final provider = capability.provider;
     final originFuture = request.currentLocation
         ? provider == NavigationMapProvider.naver &&
                 request.travelMode == 'driving'
@@ -249,6 +320,7 @@ class NavigationProviderService {
           longitude: request.currentLocation ? origin.longitude : null,
         ),
         provider,
+        notice: capability.notice,
       );
     }
 
@@ -274,6 +346,7 @@ class NavigationProviderService {
         via: points.length > 2 ? points.sublist(2) : const [],
       ),
       provider,
+      notice: capability.notice,
     );
   }
 

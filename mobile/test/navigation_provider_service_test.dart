@@ -131,6 +131,132 @@ void main() {
     }
   });
 
+
+  group('Google Maps domestic driving coverage fallback', () {
+    test('Korean car route switches to Naver without changing MY setting', () async {
+      final service = NavigationProviderService(
+        preferences: FakeNavigationPrefs(NavigationMapProvider.google),
+        kakaoKeyStore: FakeKakaoKey(),
+        api: FakeGeocoderApi({}),
+      );
+      final prepared = await service.prepare(
+        const NavigationRequest(
+          origin: '',
+          destination: '양덕1동 행정복지센터',
+          currentLocation: true,
+          travelMode: 'driving',
+          travelModeExplicit: true,
+        ),
+        destinationBusiness: {
+          'name': '양덕1동 행정복지센터',
+          'latitude': 35.22,
+          'longitude': 128.59,
+        },
+      );
+      expect(prepared.provider, NavigationMapProvider.naver);
+      expect(prepared.uri.scheme, 'nmap');
+      expect(prepared.uri.host, 'navigation');
+      expect(prepared.uri.queryParameters['dname'], '양덕1동 행정복지센터');
+      expect(prepared.notice, contains('네이버지도로 자동 전환'));
+    });
+
+    test('Korean walking also switches to a supported map', () {
+      final choice = NavigationCoveragePolicy.choose(
+        preferred: NavigationMapProvider.google,
+        route: const NavigationRequest(
+          origin: '창원시청',
+          destination: '의창소방서',
+          travelMode: 'walking',
+          travelModeExplicit: true,
+        ),
+      );
+      expect(choice.provider, NavigationMapProvider.naver);
+      expect(choice.notice, contains('도보'));
+    });
+
+    test('Google Korean transit remains Google', () {
+      final choice = NavigationCoveragePolicy.choose(
+        preferred: NavigationMapProvider.google,
+        route: const NavigationRequest(
+          origin: '창원시청',
+          destination: '마산역',
+          travelMode: 'transit',
+          travelModeExplicit: true,
+        ),
+      );
+      expect(choice.provider, NavigationMapProvider.google);
+      expect(choice.notice, isNull);
+    });
+
+    test('explicitly overseas destinations keep Google driving', () {
+      for (final destination in ['Tokyo Station', '도쿄역', '런던 시청']) {
+        final choice = NavigationCoveragePolicy.choose(
+          preferred: NavigationMapProvider.google,
+          route: NavigationRequest(
+            origin: 'Tokyo Station',
+            destination: destination,
+            travelMode: 'driving',
+          ),
+        );
+        expect(choice.provider, NavigationMapProvider.google,
+            reason: destination);
+        expect(choice.notice, isNull);
+      }
+    });
+
+    test('known overseas coordinates override Korean-script location names', () {
+      final choice = NavigationCoveragePolicy.choose(
+        preferred: NavigationMapProvider.google,
+        route: const NavigationRequest(
+          origin: '여기',
+          destination: '한글 상호명',
+          travelMode: 'driving',
+        ),
+        destinationBusiness: {
+          'latitude': 35.68,
+          'longitude': 139.77,
+        },
+      );
+      expect(choice.provider, NavigationMapProvider.google);
+    });
+
+    test('MY Naver and Kakao remain untouched for Korean driving', () {
+      for (final provider in [
+        NavigationMapProvider.naver,
+        NavigationMapProvider.kakao,
+      ]) {
+        final choice = NavigationCoveragePolicy.choose(
+          preferred: provider,
+          route: const NavigationRequest(
+            origin: '창원시청',
+            destination: '마산역',
+            travelMode: 'driving',
+          ),
+        );
+        expect(choice.provider, provider);
+        expect(choice.notice, isNull);
+      }
+    });
+
+    test('Google Korean non-driving transit still uses transit URL', () async {
+      final service = NavigationProviderService(
+        preferences: FakeNavigationPrefs(NavigationMapProvider.google),
+        kakaoKeyStore: FakeKakaoKey(),
+        api: FakeGeocoderApi({}),
+      );
+      final prepared = await service.prepare(
+        const NavigationRequest(
+          origin: '창원시청',
+          destination: '부산역',
+          travelMode: 'transit',
+          travelModeExplicit: true,
+        ),
+      );
+      expect(prepared.provider, NavigationMapProvider.google);
+      expect(prepared.uri.queryParameters['travelmode'], 'transit');
+    });
+  });
+
   test('MY selection controls real route preparation', () async {
     final fake = FakeGeocoderApi({
       '창원시청': place('창원시청', 35.228, 128.681),
