@@ -50,7 +50,11 @@ class NavigationRequest {
 
   /// No map provider may silently choose a transportation method.
   static String? explicitTravelMode(String text) {
-    final input = normalizeUtterance(text);
+    final input = normalizeUtterance(text)
+        .split(RegExp(r'아니라|말고'))
+        .last
+        .trim();
+    // The latest explicitly selected mode wins a spoken correction.
     // Require transport wording instead of matching place names such as
     // "버스정류장" and "자동차정비소".
     if (RegExp(
@@ -68,7 +72,7 @@ class NavigationRequest {
     if (RegExp(
       r'자동차(?:로|를|타고|이용|운전|\s+길)|'
       r'자가용(?:으로|타고|을)|'
-      r'차(?:로|를\s+타고)|승용차(?:로|타고)|'
+      r'차(?:로|를?\s*타고)|승용차(?:로|타고)|'
       r'차량(?:으로|을\s+이용)|운전해서|드라이브',
     ).hasMatch(input)) {
       return 'driving';
