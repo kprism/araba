@@ -92,7 +92,7 @@ class NavigationDialogState {
   static bool _isUnrelatedNewRequest(String text) {
     // Do not convert a new shop search or everyday conversation into a route.
     return RegExp(
-      r'찾아줘|추천해|예약해|가격|영업시간|판매|몇\s*곳|'
+      r'찾아(?:줘|서|주세요)|검색|추천|예약|식사|가격|영업시간|판매|몇\s*곳|'
       r'사진|전화번호|주차|기사|뉴스|날씨|알아봐',
     ).hasMatch(text) &&
         !NavigationRequest.hasNavigationIntent(text);
