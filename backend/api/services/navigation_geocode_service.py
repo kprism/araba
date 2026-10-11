@@ -28,6 +28,56 @@ def _place_and_area(query):
     return query, ""
 
 
+def _school_stem(value):
+    """Normalize only explicit high-school endings, not arbitrary fuzzy names."""
+    text = _canonical(value)
+    if text.endswith("고등학교"):
+        return text[:-len("고등학교")]
+    if text.endswith("고") and len(text) >= 3:
+        return text[:-1]
+    return None
+
+
+def _same_school(query, place):
+    """A municipal name prefix is valid only if supported by the place address."""
+    requested = _school_stem(query)
+    actual = _school_stem(place["name"])
+    if not requested or not actual:
+        return False
+    if requested == actual:
+        return True
+    longer, shorter = (
+        (requested, actual)
+        if len(requested) > len(actual)
+        else (actual, requested)
+    )
+    if not longer.endswith(shorter):
+        return False
+    prefix = longer[:-len(shorter)]
+    return 2 <= len(prefix) <= 6 and prefix in _canonical(place["address"])
+
+
+def _school_search_queries(query):
+    """Try common school spelling variants only after the user phrase fails."""
+    parts = query.split()
+    ending = parts[-1] if parts else ""
+    if not _school_stem(ending) and not _school_stem(query):
+        return [query]
+    variants = [query]
+    compact = query.replace(" ", "")
+    if compact != query:
+        variants.append(compact)
+    # "북면고" is colloquial; the official name often ends in "고등학교".
+    if ending.endswith("고") and not ending.endswith("고등학교"):
+        official = ending[:-1] + "고등학교"
+        if len(parts) > 1:
+            variants.append(" ".join([*parts[:-1], official]))
+        variants.append(official)
+    elif len(parts) > 1:
+        variants.append(ending)
+    return list(dict.fromkeys(variants))[:4]
+
+
 def _identity_verified(query, place, region):
     label = _canonical(place["name"])
     address = _canonical(place["address"])
@@ -36,6 +86,8 @@ def _identity_verified(query, place, region):
     target = _canonical(target)
     if region and _canonical(region) not in address and _canonical(region) not in label:
         return False
+    if _same_school(query, place):
+        return True
     # An exact place-name match (or a full address fragment) is evidence.
     # "의창소방서" must never be replaced by "인제소방서".
     return (
@@ -115,35 +167,50 @@ def resolve_navigation_place(query, api_key=None):
     if not key:
         return {"status": "missing_key", "candidates": []}
 
-    # Most navigation destinations are named places. The address lookup is
-    # a bounded fallback if keyword search has no verified exact candidate.
+    # Search the phrase first, then bounded school-name variants. Do not
+    # mistake weak same-region results for verified coordinates.
     all_places = []
-    for url in (KEYWORD_URL, ADDRESS_URL):
+    probes = [(KEYWORD_URL, item) for item in _school_search_queries(name)]
+    probes.append((ADDRESS_URL, name))
+    for url, term in probes:
         try:
             response = httpx.get(
                 url,
                 headers={"Authorization": f"KakaoAK {key}"},
-                params={"query": name, "size": 8},
+                params={"query": term, "size": 8},
                 timeout=httpx.Timeout(2.8, connect=1.0),
             )
         except httpx.HTTPError:
-            return {"status": "provider_error", "candidates": []}
+            # A completed earlier search still supplies evidence; do not
+            # silently choose an unrelated place on a transient failure.
+            if not all_places:
+                return {"status": "provider_error", "candidates": []}
+            break
         if response.status_code != 200:
-            return {"status": "provider_error", "candidates": []}
-        data = response.json()
-        items = data.get("documents")
+            if not all_places:
+                return {"status": "provider_error", "candidates": []}
+            break
+        try:
+            data = response.json()
+        except (ValueError, TypeError):
+            continue
+        items = data.get("documents") if isinstance(data, dict) else None
         matches = _to_places(
             [item for item in items if isinstance(item, dict)]
             if isinstance(items, list) else [],
             name,
         )
         all_places.extend(matches)
-        result = _result_for(name, matches)
+        # Verify against the *user's original destination*, not just the
+        # broadened spelling used for an external search.
+        result = _result_for(name, all_places)
         if result["status"] == "resolved":
             return result
-        # Multiple close-looking matches need user clarification; never
-        # spend additional time resolving an ambiguous result automatically.
         if result["status"] == "ambiguous":
-            return result
+            target, region = _place_and_area(name)
+            if any(_identity_verified(name, place, region) for place in all_places):
+                # Multiple independently plausible exact destinations are
+                # never silently reduced to a first provider result.
+                return result
 
     return _result_for(name, all_places)
