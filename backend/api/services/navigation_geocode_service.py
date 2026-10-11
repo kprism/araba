@@ -86,7 +86,7 @@ def _identity_verified(query, place, region):
     target = _canonical(target)
     if region and _canonical(region) not in address and _canonical(region) not in label:
         return False
-    if _same_school(query, place):
+    if _same_school(query, place) or _same_school(target, place):
         return True
     # An exact place-name match (or a full address fragment) is evidence.
     # "의창소방서" must never be replaced by "인제소방서".
@@ -172,6 +172,7 @@ def resolve_navigation_place(query, api_key=None):
     all_places = []
     probes = [(KEYWORD_URL, item) for item in _school_search_queries(name)]
     probes.append((ADDRESS_URL, name))
+    partial_failure = False
     for url, term in probes:
         try:
             response = httpx.get(
@@ -185,6 +186,7 @@ def resolve_navigation_place(query, api_key=None):
             # silently choose an unrelated place on a transient failure.
             if not all_places:
                 return {"status": "provider_error", "candidates": []}
+            partial_failure = True
             break
         if response.status_code != 200:
             if not all_places:
@@ -213,4 +215,7 @@ def resolve_navigation_place(query, api_key=None):
                 # never silently reduced to a first provider result.
                 return result
 
-    return _result_for(name, all_places)
+    result = _result_for(name, all_places)
+    if partial_failure and result["status"] == "not_found":
+        return {"status": "provider_error", "candidates": []}
+    return result
