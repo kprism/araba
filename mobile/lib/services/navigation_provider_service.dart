@@ -139,7 +139,19 @@ class NavigationProviderService {
   final KakaoCredentialStore _kakaoStore;
   final DeviceLocationService _location;
 
+  // Place identity has been verified by ARABA's navigation resolver. Reusing
+  // the successful lookup avoids another network round trip for corrections.
+  static final Map<String, NavigationPoint> _verifiedPlaces = {};
+  static final Map<String, DateTime> _verifiedAt = {};
+
   Future<NavigationPoint> _resolve(String name) async {
+    final normalized = name.trim().replaceAll(RegExp(r'\\s+'), ' ');
+    final cached = _verifiedPlaces[normalized];
+    final cachedAt = _verifiedAt[normalized];
+    if (cached != null && cachedAt != null &&
+        DateTime.now().difference(cachedAt) < const Duration(minutes: 15)) {
+      return cached;
+    }
     final coordinates = NavigationPoint.fromCoordinate(name);
     if (coordinates != null) return coordinates;
 
@@ -181,7 +193,28 @@ class NavigationProviderService {
     if (lat == null || lon == null || lat < 33 || lat > 39 || lon < 124 || lon > 132) {
       throw const NavigationProviderException('장소 좌표가 올바르지 않습니다.');
     }
-    return NavigationPoint(value['name']?.toString() ?? name, lat, lon);
+    final resolved = NavigationPoint(value['name']?.toString() ?? name, lat, lon);
+    if (_verifiedPlaces.length >= 40) {
+      _verifiedPlaces.clear();
+      _verifiedAt.clear();
+    }
+    _verifiedPlaces[normalized] = resolved;
+    _verifiedAt[normalized] = DateTime.now();
+    return resolved;
+  }
+
+  Future<NavigationPoint> _currentPosition() async {
+    final location = await _location.currentContext();
+    if (location == null) {
+      throw const NavigationProviderException(
+        '현재 위치를 확인할 수 없습니다. 휴대전화 위치 설정과 ARABA 권한을 확인해 주세요.',
+      );
+    }
+    return NavigationPoint(
+      '현재 위치',
+      (location['latitude'] as num).toDouble(),
+      (location['longitude'] as num).toDouble(),
+    );
   }
 
   Future<PreparedNavigation> prepare(
@@ -189,44 +222,48 @@ class NavigationProviderService {
     Map<String, dynamic>? destinationBusiness,
   }) async {
     final provider = await _preferences.read();
-    final location = request.currentLocation ? await _location.currentContext() : null;
-    if (request.currentLocation && location == null) {
-      throw const NavigationProviderException(
-        '현재 위치를 확인할 수 없습니다. 휴대전화 위치 설정과 ARABA 권한을 확인해 주세요.',
-      );
-    }
-    final origin = request.currentLocation
-        ? NavigationPoint(
-            '현재 위치',
-            (location!['latitude'] as num).toDouble(),
-            (location['longitude'] as num).toDouble(),
-          )
-        : (provider == NavigationMapProvider.google
-            ? const NavigationPoint('', 0, 0)
-            : await _resolve(request.origin));
+    final originFuture = request.currentLocation
+        ? _currentPosition()
+        : provider == NavigationMapProvider.google
+            ? Future<NavigationPoint>.value(
+                const NavigationPoint('', 0, 0),
+              )
+            : _resolve(request.origin);
 
     if (provider == NavigationMapProvider.google) {
+      final origin = await originFuture;
       return PreparedNavigation(
         NavigationLauncher.directionsUri(
           request,
           latitude: request.currentLocation ? origin.latitude : null,
           longitude: request.currentLocation ? origin.longitude : null,
-        ), provider,
+        ),
+        provider,
       );
     }
 
-    final destination = destinationBusiness == null
-        ? null : NavigationPoint.fromBusiness(destinationBusiness);
-    final destinationPoint = destination ?? await _resolve(request.destination);
-    final via = <NavigationPoint>[];
-    for (final name in request.waypoints) {
-      via.add(await _resolve(name));
-    }
+    final knownDestination = destinationBusiness == null
+        ? null
+        : NavigationPoint.fromBusiness(destinationBusiness);
+    // GPS and named endpoints are independent: perform lookups together
+    // instead of waiting 7 s for GPS before starting destination research.
+    final endpoints = <Future<NavigationPoint>>[
+      originFuture,
+      knownDestination == null
+          ? _resolve(request.destination)
+          : Future<NavigationPoint>.value(knownDestination),
+      for (final waypoint in request.waypoints) _resolve(waypoint),
+    ];
+    final points = await Future.wait(endpoints);
     return PreparedNavigation(
       NavigationProviderLinks.create(
-        provider, request,
-        origin: origin, destination: destinationPoint, via: via,
-      ), provider,
+        provider,
+        request,
+        origin: points[0],
+        destination: points[1],
+        via: points.length > 2 ? points.sublist(2) : const [],
+      ),
+      provider,
     );
   }
 
