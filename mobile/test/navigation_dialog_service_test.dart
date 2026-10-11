@@ -26,6 +26,15 @@ void main() {
       expect(corrected?.route?.currentLocation, isTrue);
     });
 
+    test('last correction wins when speech includes two place names', () {
+      final dialog = NavigationDialogState();
+      dialog.interpret('지금 여기서 북면고등학교까지 길 알려줘');
+      final corrected = dialog.interpret(
+        '북면고등학교 아니고 북면초등학교야',
+      );
+      expect(corrected?.route?.destination, '북면초등학교');
+    });
+
     test('explicit destination label corrects earlier route', () {
       final dialog = NavigationDialogState();
       dialog.interpret('창원시청에서 부산역까지 길 알려줘');
