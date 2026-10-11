@@ -12,6 +12,7 @@ import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
 import '../../services/navigation_service.dart';
+import '../../services/navigation_provider_service.dart';
 import '../../services/naver_credential_store.dart';
 import '../../services/voice_preference_store.dart';
 
@@ -45,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen>
   List<Map<String, dynamic>> _lastBusinesses = const [];
   final List<Map<String, dynamic>> _recentBusinessGroups = [];
   NavigationRequest? _lastNavigationRequest;
+  final NavigationProviderService _navigationProvider = NavigationProviderService();
 
   final List<_Message> _messages = [
     _Message(
@@ -2147,6 +2149,7 @@ class _HomeScreenState extends State<HomeScreen>
       return true;
     }
 
+    Map<String, dynamic>? matchingBusiness;
     // Resolve previous search references only when there is one candidate.
     if (RegExp(r'아까|방금|그\s*곳|그\s*가게').hasMatch(route.destination)) {
       final compact = route.destination.replaceAll(RegExp(r'\s+'), '');
@@ -2171,6 +2174,7 @@ class _HomeScreenState extends State<HomeScreen>
       }
       if (candidates.length == 1) {
         final business = candidates.single;
+        matchingBusiness = business;
         route = route.toDestination([
           business['name']?.toString().trim() ?? '',
           business['address']?.toString().trim() ?? '',
@@ -2189,31 +2193,9 @@ class _HomeScreenState extends State<HomeScreen>
 
     _lastNavigationRequest = route;
     final originLabel = route.currentLocation ? '현재 위치' : route.origin;
-    Map<String, dynamic>? device;
-    if (route.currentLocation) {
-      try {
-        device = await _deviceLocation.currentContext();
-      } catch (_) {
-        device = null;
-      }
-      if (device == null) {
-        _addAssistantMessage(
-          text: '현재 위치를 확인하지 못했습니다. '
-              '휴대전화 위치 서비스를 켜고 ARABA의 위치 권한을 허용해 주세요. '
-              '또는 출발지를 주소로 지정해 주세요.',
-          badge: '출발지 위치 확인 필요',
-        );
-        return true;
-      }
-    }
-
     try {
-      final lat = device?['latitude'];
-      final lon = device?['longitude'];
-      final uri = NavigationLauncher.directionsUri(
-        route,
-        latitude: lat is num ? lat.toDouble() : null,
-        longitude: lon is num ? lon.toDouble() : null,
+      final prepared = await _navigationProvider.prepare(
+        route, destinationBusiness: matchingBusiness,
       );
       if (!mounted) return true;
       final via = route.waypoints.isEmpty
@@ -2221,26 +2203,28 @@ class _HomeScreenState extends State<HomeScreen>
           : ' (경유: ${route.waypoints.join(' → ')})';
       _addAssistantMessage(
         text: '$originLabel → ${route.destination}$via\n'
-            '내비게이션에 출발지와 목적지를 입력해 경로를 엽니다. '
-            '실제 경로와 운행 시작은 지도 앱에서 확인해 주세요.',
-        badge: '내비게이션 실행',
-        navigationUri: uri,
+            '${prepared.provider.label}에서 출발지와 목적지를 지정한 길찾기를 엽니다. '
+            '실제 주행 안내는 지도 앱에서 확인하고 시작해 주세요.',
+        badge: '${prepared.provider.label} 길안내',
+        navigationUri: prepared.uri,
       );
-      _speakProgress('내비게이션에서 경로를 열겠습니다.');
-      final opened = await NavigationLauncher.open(uri);
+      _speakProgress('${prepared.provider.label}으로 길안내를 엽니다.');
+      final opened = await _navigationProvider.open(prepared);
       if (!opened && mounted) {
         _addAssistantMessage(
-          text: '지도 앱을 자동으로 열지 못했어요. '
-              '위의 내비게이션 다시 열기 버튼으로 시도해 주세요.',
-          badge: '외부 지도 실행 실패',
+          text: '${prepared.provider.label}을(를) 열지 못했습니다. '
+              '선택한 지도 앱 설치 여부를 확인하거나 MY에서 다른 기본 지도를 선택해 주세요.',
+          badge: '지도 앱 실행 실패',
         );
       }
+    } on NavigationProviderException catch (error) {
+      if (mounted) _addAssistantMessage(text: error.message, badge: '길안내 확인 필요');
     } catch (_) {
       if (mounted) {
         _addAssistantMessage(
-          text: '내비게이션을 실행하지 못했습니다. '
-              '출발지와 목적지를 다시 확인해 주세요.',
-          badge: '길안내 오류',
+          text: '길안내를 준비하지 못했어요. '
+              '지도 서비스 연결 상태와 MY의 API 설정을 확인해 주세요.',
+          badge: '길안내 연결 오류',
         );
       }
     }
@@ -3028,48 +3012,40 @@ class _BusinessCards extends StatelessWidget {
   ) async {
     final name = business['name']?.toString().trim() ?? '';
     final address = business['address']?.toString().trim() ?? '';
-    final lat = double.tryParse(business['latitude']?.toString() ?? '');
-    final lon = double.tryParse(business['longitude']?.toString() ?? '');
-    final coordinatesValid = lat != null && lon != null &&
-        lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
-    final destination = coordinatesValid
-        ? '$lat,$lon'
-        : [name, address].where((item) => item.isNotEmpty).join(' ');
+    final destination = [name, address]
+        .where((item) => item.isNotEmpty).join(' ');
     if (destination.isEmpty) return;
+    final navigation = NavigationProviderService();
     try {
-      final device = await const DeviceLocationService().currentContext();
-      if (!context.mounted) return;
-      if (device == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('현재 위치가 필요합니다. 휴대전화 위치 서비스와 ARABA 권한을 확인해 주세요.'),
-          ),
-        );
-        return;
-      }
-      final request = NavigationRequest(
-        origin: '',
-        destination: destination,
-        currentLocation: true,
+      final prepared = await navigation.prepare(
+        NavigationRequest(
+          origin: '',
+          destination: destination,
+          currentLocation: true,
+        ),
+        destinationBusiness: business,
       );
-      final latValue = device['latitude'];
-      final lonValue = device['longitude'];
-      final uri = NavigationLauncher.directionsUri(
-        request,
-        latitude: latValue is num ? latValue.toDouble() : null,
-        longitude: lonValue is num ? lonValue.toDouble() : null,
-      );
-      final opened = await NavigationLauncher.open(uri);
+      final opened = await navigation.open(prepared);
       if (!context.mounted) return;
       if (!opened) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('지도 앱을 열지 못했습니다. 내비게이션 앱 설치를 확인해 주세요.')),
+          SnackBar(
+            content: Text('${prepared.provider.label} 실행에 실패했어요. '
+                '설치 여부를 확인하거나 MY에서 다른 지도로 변경해 주세요.'),
+          ),
         );
       }
+    } on NavigationProviderException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('길안내를 실행하지 못했습니다. 출발지 또는 목적지를 확인해 주세요.')),
+        const SnackBar(content: Text(
+          '길안내를 실행하지 못했습니다. 지도 서비스 또는 API 설정을 확인해 주세요.',
+        )),
       );
     }
   }

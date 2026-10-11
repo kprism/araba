@@ -30,6 +30,11 @@ urlpatterns = [
         name="openai-test",
     ),
     path(
+        "navigation/resolve/",
+        views.navigation_resolve,
+        name="navigation-resolve",
+    ),
+    path(
         "missions/create/",
         views.mission_create,
         name="mission-create",
