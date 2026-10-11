@@ -61,8 +61,8 @@ void main() {
     );
     expect(url.host, 'map.kakao.com');
     expect(url.path, contains('/link/by/car/'));
-    expect(url.path, contains('창원시청,35.228,128.681'));
-    expect(url.path, contains('부산역,35.115,129.041'));
+    expect(url.pathSegments.join('/'), contains('창원시청,35.228,128.681'));
+    expect(url.pathSegments.join('/'), contains('부산역,35.115,129.041'));
   });
 
   test('Kakao routes preserve waypoints and transport mode', () {
@@ -75,7 +75,7 @@ void main() {
       origin: start, destination: end, via: [via],
     );
     expect(url.path, contains('/by/walk/'));
-    expect(url.path, contains('마산역,35.237,128.579'));
+    expect(url.pathSegments.join('/'), contains('마산역,35.237,128.579'));
     expect(
       () => NavigationProviderLinks.create(
         NavigationMapProvider.kakao,
