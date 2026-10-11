@@ -459,6 +459,7 @@ class _HomeScreenState extends State<HomeScreen>
     String? actionQuestion,
     List<String>? actions,
     Uri? navigationUri,
+    bool navigationModeChoices = false,
   }) {
     if (!mounted) return;
 
@@ -472,6 +473,7 @@ class _HomeScreenState extends State<HomeScreen>
           actionQuestion: actionQuestion,
           actions: actions,
           navigationUri: navigationUri,
+          navigationModeChoices: navigationModeChoices,
         ),
       );
     });
@@ -2143,7 +2145,10 @@ class _HomeScreenState extends State<HomeScreen>
       _addAssistantMessage(
         text: interpretation.question ??
             '목적지를 정확히 알려주세요.',
-        badge: '길안내 목적지 확인',
+        badge: _navigationDialog.waitingForTravelMode
+            ? '이동수단 선택'
+            : '길안내 목적지 확인',
+        navigationModeChoices: _navigationDialog.waitingForTravelMode,
       );
       _speakProgress(
         interpretation.question ?? '목적지를 알려주세요.',
@@ -2204,12 +2209,16 @@ class _HomeScreenState extends State<HomeScreen>
           : ' (경유: ${route.waypoints.join(' → ')})';
       _addAssistantMessage(
         text: '$originLabel → ${route.destination}$via\n'
-            '${prepared.provider.label}에서 출발지와 목적지를 지정한 길찾기를 엽니다. '
-            '실제 주행 안내는 지도 앱에서 확인하고 시작해 주세요.',
+            '이동수단: ${NavigationRequest.travelModeLabel(route.travelMode)}\n'
+            '${prepared.provider.label}에서 선택한 이동수단으로 길찾기를 엽니다. '
+            '실제 경로와 안내 시작은 지도 앱에서 확인해 주세요.',
         badge: '${prepared.provider.label} 길안내',
         navigationUri: prepared.uri,
       );
-      _speakProgress('${prepared.provider.label}으로 길안내를 엽니다.');
+      _speakProgress(
+        '${NavigationRequest.travelModeLabel(route.travelMode)} 경로를 '
+        '${prepared.provider.label}에서 엽니다.',
+      );
       final opened = await _navigationProvider.open(prepared);
       if (!opened && mounted) {
         _addAssistantMessage(
@@ -2581,6 +2590,9 @@ class _HomeScreenState extends State<HomeScreen>
                               message,
                             );
                           },
+                          onNavigationMode: (mode) {
+                            _tryHandleNavigation(mode, fromVoice: false);
+                          },
                           trainerMode: _trainerMode,
                           trainerSubmitting: _trainerSubmitting,
                           onTrainerFeedback: (correct) {
@@ -2638,6 +2650,7 @@ class _Message {
   final String? actionQuestion;
   final List<String>? actions;
   final Uri? navigationUri;
+  final bool navigationModeChoices;
 
   _Message({
     required this.isUser,
@@ -2650,6 +2663,7 @@ class _Message {
     this.actionQuestion,
     this.actions,
     this.navigationUri,
+    this.navigationModeChoices = false,
   });
 }
 
@@ -2701,6 +2715,7 @@ class _AssistantBubble extends StatelessWidget {
     required String requestContext,
   }) onClarification;
   final ValueChanged<String> onAction;
+  final ValueChanged<String> onNavigationMode;
   final bool trainerMode;
   final bool trainerSubmitting;
   final ValueChanged<bool> onTrainerFeedback;
@@ -2709,6 +2724,7 @@ class _AssistantBubble extends StatelessWidget {
     required this.message,
     required this.onClarification,
     required this.onAction,
+    required this.onNavigationMode,
     required this.trainerMode,
     required this.trainerSubmitting,
     required this.onTrainerFeedback,
@@ -2825,6 +2841,22 @@ class _AssistantBubble extends StatelessWidget {
                     const SizedBox(height: 10),
                     _BusinessCards(
                       businesses: message.businesses!,
+                    ),
+                  ],
+                  if (message.navigationModeChoices) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final option in const [
+                          '자동차', '대중교통', '도보',
+                        ])
+                          OutlinedButton(
+                            onPressed: () => onNavigationMode(option),
+                            child: Text(option),
+                          ),
+                      ],
                     ),
                   ],
                   if (message.navigationUri != null) ...[
