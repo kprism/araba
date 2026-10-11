@@ -2208,8 +2208,8 @@ class _HomeScreenState extends State<HomeScreen>
       _navigationDialog.awaitCorrection();
       if (mounted) {
         _addAssistantMessage(
-          text: error.message +
-              '\n목적지나 출발지를 정정하면 길안내 요청을 이어서 진행할게요.',
+          text: '${error.message}\n'
+              '목적지나 출발지를 정정하면 길안내 요청을 이어서 진행할게요.',
           badge: '길안내 확인 필요',
         );
       }
