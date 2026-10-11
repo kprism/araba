@@ -40,7 +40,6 @@ class NavigationPoint {
     return NavigationPoint(label, lat, lon);
   }
 
-  String get kakaoSegment => '${name.replaceAll(',', ' ')},$latitude,$longitude';
 }
 
 class NavigationProviderLinks {
@@ -67,15 +66,28 @@ class NavigationProviderLinks {
       );
     }
     if (provider == NavigationMapProvider.kakao) {
+      // Official KakaoMap native-app URL Scheme (not the web map URL).
+      // The KakaoMap application resolves these exact WGS84 coordinates.
       final mode = switch (route.travelMode) {
-        'walking' => 'walk',
-        'transit' => 'traffic',
+        'walking' => 'foot',
+        'transit' => 'publictransit',
         'bicycling' => 'bicycle',
         _ => 'car',
       };
-      final segments = [origin, ...via, destination]
-          .map((point) => point.kakaoSegment).join('/');
-      return Uri.https('map.kakao.com', '/link/by/$mode/$segments');
+      final params = <String, String>{
+        'sp': '${origin.latitude},${origin.longitude}',
+        'ep': '${destination.latitude},${destination.longitude}',
+        'by': mode,
+      };
+      for (var i = 0; i < via.length; i++) {
+        params[i == 0 ? 'vp' : 'vp${i + 1}'] =
+            '${via[i].latitude},${via[i].longitude}';
+      }
+      return Uri(
+        scheme: 'kakaomap',
+        host: 'route',
+        queryParameters: params,
+      );
     }
 
     final params = <String, String>{

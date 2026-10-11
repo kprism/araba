@@ -59,10 +59,11 @@ void main() {
       NavigationMapProvider.kakao, route,
       origin: start, destination: end,
     );
-    expect(url.host, 'map.kakao.com');
-    expect(url.path, contains('/link/by/car/'));
-    expect(url.pathSegments.join('/'), contains('창원시청,35.228,128.681'));
-    expect(url.pathSegments.join('/'), contains('부산역,35.115,129.041'));
+    expect(url.scheme, 'kakaomap');
+    expect(url.host, 'route');
+    expect(url.queryParameters['sp'], '35.228,128.681');
+    expect(url.queryParameters['ep'], '35.115,129.041');
+    expect(url.queryParameters['by'], 'car');
   });
 
   test('Kakao routes preserve waypoints and transport mode', () {
@@ -74,8 +75,8 @@ void main() {
       ),
       origin: start, destination: end, via: [via],
     );
-    expect(url.path, contains('/by/walk/'));
-    expect(url.pathSegments.join('/'), contains('마산역,35.237,128.579'));
+    expect(url.queryParameters['by'], 'foot');
+    expect(url.queryParameters['vp'], '35.237,128.579');
     expect(
       () => NavigationProviderLinks.create(
         NavigationMapProvider.kakao,
@@ -146,7 +147,9 @@ void main() {
       final prepared = await service.prepare(route);
       expect(prepared.provider, provider);
       expect(prepared.uri.host, provider == NavigationMapProvider.naver
-          ? 'navigation' : 'map.kakao.com');
+          ? 'navigation' : 'route');
+      expect(prepared.uri.scheme, provider == NavigationMapProvider.naver
+          ? 'nmap' : 'kakaomap');
     }
   });
 
