@@ -4326,11 +4326,11 @@ class _LivePanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: const Color(0xFF101828),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
@@ -4338,26 +4338,20 @@ class _LivePanel extends StatelessWidget {
             active
                 ? Icons.graphic_eq_rounded
                 : Icons.sync_rounded,
-            size: 18,
+            size: 15,
             color: Colors.white,
           ),
-          const SizedBox(width: 7),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
-              'GPT-Live · $status',
+              'Live · $status',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 13,
+                fontSize: 11,
                 fontWeight: FontWeight.w800,
               ),
-            ),
-          ),
-          const Text(
-            '대화는 채팅에 기록',
-            style: TextStyle(
-              color: Color(0xFF98A2B3),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ],
