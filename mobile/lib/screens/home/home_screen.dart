@@ -2127,12 +2127,30 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// Movement requests bypass business search and always use real map apps.
   /// Both typed requests and GPT-Live utterances use the same handler.
+  void _clearOldNavigationChoices() {
+    if (!mounted || !_messages.any((item) => item.navigationModeChoices)) {
+      return;
+    }
+    setState(() {
+      for (final message in _messages) {
+        message.navigationModeChoices = false;
+      }
+    });
+  }
+
   Future<bool> _tryHandleNavigation(
     String text, {
     required bool fromVoice,
   }) async {
+    final wasWaitingForMode = _navigationDialog.waitingForTravelMode;
     final interpretation = _navigationDialog.interpret(text);
-    if (interpretation == null) return false;
+    if (interpretation == null) {
+      if (wasWaitingForMode && !_navigationDialog.waitingForTravelMode) {
+        _clearOldNavigationChoices();
+      }
+      return false;
+    }
+    _clearOldNavigationChoices();
 
     if (!fromVoice && mounted) {
       setState(() {
@@ -2591,7 +2609,9 @@ class _HomeScreenState extends State<HomeScreen>
                             );
                           },
                           onNavigationMode: (mode) {
-                            _tryHandleNavigation(mode, fromVoice: false);
+                            if (_navigationDialog.waitingForTravelMode) {
+                              _tryHandleNavigation(mode, fromVoice: false);
+                            }
                           },
                           trainerMode: _trainerMode,
                           trainerSubmitting: _trainerSubmitting,
@@ -2650,7 +2670,7 @@ class _Message {
   final String? actionQuestion;
   final List<String>? actions;
   final Uri? navigationUri;
-  final bool navigationModeChoices;
+  bool navigationModeChoices;
 
   _Message({
     required this.isUser,
