@@ -47,7 +47,7 @@ class NavigationRequest {
           ),
           ' ',
         )
-        .replaceAll(RegExp(r'^(?:(?:어|음|아|저기|그러니까)[,\s]+)+'), '')
+        .replaceAll(RegExp(r'^(?:(?:어|음|아|저기|그러니까|아니|아니야|잠깐)[,\s]+)+'), '')
         .replaceFirst(
           RegExp(r'^(?:지금\s+)?(?:여기서|이곳에서)\s*'),
           '여기에서 ',
