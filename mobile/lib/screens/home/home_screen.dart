@@ -456,6 +456,7 @@ class _HomeScreenState extends State<HomeScreen>
     required String text,
     String? badge,
     List<Map<String, dynamic>>? businesses,
+    Map<String, dynamic>? matching,
     String? actionQuestion,
     List<String>? actions,
     Uri? navigationUri,
@@ -470,6 +471,7 @@ class _HomeScreenState extends State<HomeScreen>
           text: text,
           badge: badge,
           businesses: businesses,
+          matching: matching,
           actionQuestion: actionQuestion,
           actions: actions,
           navigationUri: navigationUri,
@@ -1078,6 +1080,7 @@ class _HomeScreenState extends State<HomeScreen>
       setState(() {
         final message = _messages[messageIndex];
         message.businesses = updated;
+        message.matching = matching;
         message.badge = hasCriteria
             ? (
                 answerReady
@@ -1296,6 +1299,7 @@ class _HomeScreenState extends State<HomeScreen>
           ? '조건 비교 완료'
           : '조건 근거 추가 확인 필요',
       businesses: selected,
+      matching: matching,
     );
     _speakProgress(answer);
   }
@@ -1416,6 +1420,7 @@ class _HomeScreenState extends State<HomeScreen>
             text: text,
             badge: '조건 근거 확인 필요',
             businesses: unverified,
+            matching: matching,
           );
           _speakProgress(
             '후보 업체는 찾았지만 필수 조건은 아직 검증되지 않았어요.',
@@ -2668,6 +2673,7 @@ class _Message {
   final bool isError;
   String? badge;
   List<Map<String, dynamic>>? businesses;
+  Map<String, dynamic>? matching;
   final String? actionQuestion;
   final List<String>? actions;
   final Uri? navigationUri;
@@ -2681,6 +2687,7 @@ class _Message {
     this.isError = false,
     this.badge,
     this.businesses,
+    this.matching,
     this.actionQuestion,
     this.actions,
     this.navigationUri,
@@ -2862,6 +2869,7 @@ class _AssistantBubble extends StatelessWidget {
                     const SizedBox(height: 10),
                     _BusinessCards(
                       businesses: message.businesses!,
+                      matching: message.matching,
                     ),
                   ],
                   if (message.navigationModeChoices) ...[
@@ -3052,10 +3060,12 @@ class _BusinessImageFallback extends StatelessWidget {
 
 class _BusinessCards extends StatelessWidget {
   final List<Map<String, dynamic>> businesses;
+  final Map<String, dynamic>? matching;
   final ArabaApi _api = ArabaApi();
 
   _BusinessCards({
     required this.businesses,
+    this.matching,
   });
 
   Future<void> _openPlace(String placeUrl) async {
@@ -3851,790 +3861,224 @@ class _BusinessCards extends StatelessWidget {
     return '${buffer.toString()}원';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final hasMock = businesses.any(
-      (item) => item['mock_total_price'] is num,
-    );
 
-    return SizedBox(
-      height: hasMock ? 620 : 600,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: businesses.length,
-        separatorBuilder: (context, index) =>
-            const SizedBox(width: 10),
-        itemBuilder: (context, index) {
-          final business = businesses[index];
-          final name = business['name']?.toString() ?? '업체';
-          final description =
-              business['description']?.toString() ?? '';
-          final address =
-              business['address']?.toString().trim() ?? '';
-          final phone =
-              business['phone']?.toString().trim() ?? '';
-          final placeUrl =
-              business['place_url']?.toString().trim() ?? '';
-          final imageUrl =
-              business['image_url']?.toString().trim() ?? '';
-          final imageSource =
-              business['image_source']?.toString().trim() ?? '';
-          final photoStatus =
-              business['kakao_photo_status']?.toString().trim() ?? '';
-          final photoMissingReason = switch (photoStatus) {
-            'no_image_in_page' => '카카오 페이지에 확인된 사진 없음',
-            'identity_not_confirmed' => '업체와 사진 출처 일치 확인 불가',
-            'page_fetch_failed' => '카카오 사진 페이지 연결 실패',
-            'page_unavailable' => '카카오 사진 페이지 이용 불가',
-            'not_kakao_place_url' => '업체 등록 사진 링크 미확인',
-            _ => imageSource == 'identity_unverified_hidden'
-                ? '사진과 업체 일치 근거 부족'
-                : '검증 가능한 업체 사진 미확보',
-          };
-          final rawImageAttributions =
-              business['image_attributions'];
-          final imageAttributions =
-              rawImageAttributions is List
-                  ? rawImageAttributions
-                      .whereType<Map>()
-                      .map(
-                        (item) => Map<String, dynamic>.from(
-                          item,
-                        ),
-                      )
-                      .toList()
-                  : <Map<String, dynamic>>[];
-          final imageAuthor =
-              imageAttributions.isNotEmpty
-                  ? imageAttributions.first['display_name']
-                          ?.toString()
-                          .trim() ??
-                      ''
-                  : '';
-          final imageCredit =
-              imageSource == 'google_places_verified'
-                  ? (
-                      imageAuthor.isNotEmpty
-                          ? 'Google Maps · $imageAuthor'
-                          : 'Google Maps'
-                    )
-                  : (
-                      imageSource == 'kakao_place'
-                          ? '카카오 등록사진'
-                          : (
-                              imageSource == 'naver_place'
-                                  ? '네이버 확인사진'
-                                  : '업체 확인사진'
-                            )
-                    );
-          final callResult =
-              business['mock_call_result']?.toString().trim() ?? '';
-          final cacheHit =
-              business['araba_cache_hit'] == true;
-          final experienceCount =
-              business['experience_count'] is num
-                  ? (business['experience_count'] as num).round()
-                  : 0;
-          final rank = business['economic_rank'];
-          final totalPrice = business['mock_total_price'];
-          final distance = business['distance_km'];
-          final driveMinutes = business['drive_minutes'];
-          final waitMinutes = business['mock_wait_minutes'];
-          final workMinutes = business['mock_work_minutes'];
-          final effectiveCost = business['effective_cost'];
-          final stock = business['mock_stock'];
-          final naverValue = business['naver'];
-          final naver = naverValue is Map
-              ? Map<String, dynamic>.from(naverValue)
-              : <String, dynamic>{};
-          final naverMatched = naver['matched'] == true;
-          final naverPageChecked =
-              naver['page_checked'] == true;
-          final naverPageUrl =
-              (
-                naver['page_url'] ??
-                naver['link'] ??
-                naver['search_url']
-              )?.toString().trim() ??
-                  '';
-          final rawOpeningHours = naver['opening_hours'];
-          final openingHours = rawOpeningHours is List
-              ? rawOpeningHours
-                    .map((item) => item.toString().trim())
-                    .where((item) => item.isNotEmpty)
-                    .toList()
-              : <String>[];
-          final rawPrices = naver['prices'];
-          final naverPrices = rawPrices is List
-              ? rawPrices
-                    .whereType<Map>()
-                    .map((item) => Map<String, dynamic>.from(item))
-                    .toList()
-              : <Map<String, dynamic>>[];
-          final parkingAvailable =
-              naver['parking_available'];
-          final priceLink =
-              naver['price_link']?.toString().trim() ?? '';
-          final webValue = business['web'];
-          final web = webValue is Map
-              ? Map<String, dynamic>.from(webValue)
-              : <String, dynamic>{};
-          final webSourcesValue = web['sources'];
-          final webSources = webSourcesValue is List
-              ? webSourcesValue
-                  .whereType<Map>()
-                  .map(
-                    (item) =>
-                        Map<String, dynamic>.from(item),
-                  )
-                  .toList()
-              : <Map<String, dynamic>>[];
-          final webSourceUrl = webSources.isNotEmpty
-              ? webSources.first['url']
-                      ?.toString()
-                      .trim() ??
-                  ''
-              : '';
-          final openAiWebValue =
-              business['openai_web'];
-          final openAiWeb = openAiWebValue is Map
-              ? Map<String, dynamic>.from(
-                  openAiWebValue,
-                )
-              : <String, dynamic>{};
-          final rawOpenAiSources =
-              openAiWeb['sources'];
-          final openAiSources =
-              rawOpenAiSources is List
-                  ? rawOpenAiSources
-                      .map(
-                        (item) =>
-                            item.toString().trim(),
-                      )
-                      .where(
-                        (item) => item.isNotEmpty,
-                      )
-                      .toList()
-                  : <String>[];
-          final openAiSourceUrl =
-              openAiSources.isNotEmpty
-                  ? openAiSources.first
-                  : '';
-          final webVerified =
-              openAiWeb['matched'] == true ||
-              web['status'] == 'matched';
-          final isOpenNow = business['is_open_now'];
-          final orderableNow = business['orderable_now'];
+  List<Map<String, dynamic>> _verdicts(Map<String, dynamic> business) {
+    final matrix = matching?['matrix'];
+    if (matrix is! List) return const [];
+    final id = business['id']?.toString().trim() ?? '';
+    final name = business['name']?.toString().trim() ?? '';
+    for (final raw in matrix.whereType<Map>()) {
+      final row = Map<String, dynamic>.from(raw);
+      final rowId = row['business_id']?.toString().trim() ?? '';
+      final rowName = row['business_name']?.toString().trim() ?? '';
+      if ((id.isNotEmpty && id == rowId) ||
+          (name.isNotEmpty && name == rowName)) {
+        final criteria = row['criteria'];
+        if (criteria is List) {
+          return criteria.whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item)).toList();
+        }
+      }
+    }
+    return const [];
+  }
 
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _showBusinessDetail(
-              context,
-              business,
-            ),
-            child: Container(
-            width: hasMock ? 300 : 282,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: rank == 1
-                    ? const Color(0xFF7F9CF5)
-                    : const Color(0xFFE4E7EC),
-                width: rank == 1 ? 1.5 : 1,
-              ),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x0D101828),
-                  blurRadius: 8,
-                  offset: Offset(0, 3),
-                ),
-              ],
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  height: 146,
-                  width: double.infinity,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imageUrl.isNotEmpty)
-                        Image.network(
-                          imageUrl,
-                          fit: BoxFit.cover,
-                          cacheWidth: 700,
-                          errorBuilder: (
-                            context,
-                            error,
-                            stackTrace,
-                          ) {
-                            return const _BusinessImageFallback(
-                              message: '이미지 로딩 실패',
-                              iconSize: 38,
-                            );
-                          },
-                        )
-                      else
-                        _BusinessImageFallback(
-                          message: photoMissingReason,
-                          iconSize: 38,
-                        ),
-                      Positioned(
-                        right: 8,
-                        bottom: 8,
-                        child: Material(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          elevation: 1,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(20),
-                            onTap: () =>
-                                _navigateToBusiness(context, business),
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.navigation_rounded,
-                                      size: 15, color: Color(0xFF3157D5)),
-                                  SizedBox(width: 4),
-                                  Text('길안내',
-                                      style: TextStyle(
-                                        color: Color(0xFF3157D5),
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                      )),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (imageUrl.isNotEmpty)
-                        Positioned(
-                          left: 8,
-                          bottom: 8,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: const Color(0xCC101828),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              child: Text(
-                                imageCredit,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: DecoratedBox(
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.all(
-                              Radius.circular(20),
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            child: Text(
-                              rank is num
-                                  ? (
-                                      totalPrice is num
-                                          ? '경제성 ${rank.round()}위'
-                                          : '추천 ${rank.round()}위'
-                                    )
-                                  : (
-                                      webVerified
-                                          ? '카카오+웹'
-                                          : (
-                                              naverMatched
-                                                  ? '카카오+네이버'
-                                                  : '카카오 확인'
-                                            )
-                                    ),
-                              style: TextStyle(
-                                color: rank == 1
-                                    ? const Color(0xFF1939A6)
-                                    : const Color(0xFF3157D5),
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      12,
-                      11,
-                      12,
-                      10,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFF101828),
-                          ),
-                        ),
-                        if (description.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            description,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF667085),
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                        if (totalPrice is num) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            '가상 최종금액 ${_won(totalPrice)}',
-                            style: const TextStyle(
-                              color: Color(0xFF101828),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Wrap(
-                            spacing: 7,
-                            runSpacing: 5,
-                            children: [
-                              if (stock is bool)
-                                _MetricChip(
-                                  icon: stock
-                                      ? Icons.check_circle_outline_rounded
-                                      : Icons.cancel_outlined,
-                                  text: stock ? '재고 있음' : '재고 없음',
-                                ),
-                              if (distance is num)
-                                _MetricChip(
-                                  icon: Icons.route_outlined,
-                                  text:
-                                      '${distance.toStringAsFixed(1)}km',
-                                ),
-                              if (driveMinutes is num)
-                                _MetricChip(
-                                  icon: Icons.directions_car_outlined,
-                                  text:
-                                      '이동 ${driveMinutes.round()}분',
-                                ),
-                              if (waitMinutes is num)
-                                _MetricChip(
-                                  icon: Icons.schedule_outlined,
-                                  text:
-                                      '대기 ${waitMinutes.round()}분',
-                                ),
-                              if (workMinutes is num)
-                                _MetricChip(
-                                  icon: Icons.build_outlined,
-                                  text:
-                                      '작업 ${workMinutes.round()}분',
-                                ),
-                            ],
-                          ),
-                          if (effectiveCost is num) ...[
-                            const SizedBox(height: 7),
-                            Text(
-                              '시간·이동비 포함 경제성 비용 '
-                              '${_won(effectiveCost)}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFF3157D5),
-                                fontSize: 11.5,
-                                height: 1.3,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ],
-                        if (naverMatched) ...[
-                          const SizedBox(height: 7),
-                          Row(
-                            children: [
-                              Icon(
-                                naverPageChecked
-                                    ? Icons.verified_outlined
-                                    : Icons.sync_alt_rounded,
-                                size: 15,
-                                color: const Color(0xFF3157D5),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  naverPageChecked
-                                      ? '네이버 플레이스 상세페이지 확인'
-                                      : '네이버 지역검색 동일 업체 확인',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Color(0xFF3157D5),
-                                    fontSize: 11.2,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        if (isOpenNow is bool) ...[
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              Icon(
-                                isOpenNow
-                                    ? Icons.storefront_rounded
-                                    : Icons.storefront_outlined,
-                                size: 15,
-                                color: isOpenNow
-                                    ? const Color(0xFF027A48)
-                                    : const Color(0xFF667085),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  isOpenNow
-                                      ? (
-                                          orderableNow == true
-                                              ? '지금 영업 중 · 영업시간 기준 주문 가능'
-                                              : '지금 영업 중'
-                                        )
-                                      : '현재 영업시간 외',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: isOpenNow
-                                        ? const Color(0xFF027A48)
-                                        : const Color(0xFF667085),
-                                    fontSize: 11.3,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: 6),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(
-                              Icons.schedule_outlined,
-                              size: 15,
-                              color: Color(0xFF667085),
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                openingHours.isNotEmpty
-                                    ? '영업시간: ${openingHours.take(2).join(' · ')}'
-                                    : '영업시간: 확인되지 않음',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: openingHours.isNotEmpty
-                                      ? const Color(0xFF344054)
-                                      : const Color(0xFF98A2B3),
-                                  fontSize: 11.3,
-                                  height: 1.35,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (naverPrices.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(
-                                Icons.sell_outlined,
-                                size: 15,
-                                color: Color(0xFF667085),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  '가격: ${naverPrices.take(2).map((item) {
-                                    final name = item['name']?.toString().trim() ?? '';
-                                    final price = item['price']?.toString().trim() ?? '';
-                                    return name.isEmpty ? price : '$name $price';
-                                  }).where((item) => item.isNotEmpty).join(' · ')}',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Color(0xFF344054),
-                                    fontSize: 11.3,
-                                    height: 1.35,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        if (naverPrices.isEmpty)
-                          const Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.sell_outlined,
-                                size: 15,
-                                color: Color(0xFF98A2B3),
-                              ),
-                              SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  '가격: 확인되지 않음',
-                                  style: TextStyle(
-                                    color: Color(0xFF98A2B3),
-                                    fontSize: 11.3,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.local_parking_outlined,
-                              size: 15,
-                              color: Color(0xFF667085),
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                parkingAvailable == true
-                                    ? '주차 가능'
-                                    : (
-                                        parkingAvailable == false
-                                            ? '주차 불가'
-                                            : '주차 정보 확인 필요'
-                                      ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: parkingAvailable == null
-                                      ? const Color(0xFF98A2B3)
-                                      : const Color(0xFF344054),
-                                  fontSize: 11.3,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (address.isNotEmpty) ...[
-                          const SizedBox(height: 7),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(
-                                Icons.location_on_outlined,
-                                size: 15,
-                                color: Color(0xFF667085),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  address,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Color(0xFF475467),
-                                    fontSize: 11.5,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: 5),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.phone_outlined,
-                              size: 15,
-                              color: Color(0xFF667085),
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                phone.isEmpty
-                                    ? '공개 전화번호 없음'
-                                    : phone,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: phone.isEmpty
-                                      ? const Color(0xFF98A2B3)
-                                      : const Color(0xFF344054),
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (callResult.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            callResult,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF667085),
-                              fontSize: 10.5,
-                              height: 1.3,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                        const Spacer(),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                cacheHit
-                                    ? 'ARABA DB 재사용'
-                                        '${experienceCount > 0 ? ' · 경험 $experienceCount건' : ''}'
-                                    : (
-                                        webVerified
-                                            ? '카카오 후보 · 웹검색 보강'
-                                            : (
-                                                naverMatched
-                                                    ? '카카오 후보 · 네이버 교차확인'
-                                                    : '카카오맵 장소검색'
-                                              )
-                                      ),
-                                style: const TextStyle(
-                                  color: Color(0xFF667085),
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            if (naverPageUrl.isNotEmpty)
-                              TextButton(
-                                onPressed: () =>
-                                    _openPlace(naverPageUrl),
-                                style: TextButton.styleFrom(
-                                  visualDensity: VisualDensity.compact,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                  ),
-                                ),
-                                child: const Text(
-                                  '네이버',
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            if (
-                              priceLink.isNotEmpty ||
-                              webSourceUrl.isNotEmpty ||
-                              openAiSourceUrl.isNotEmpty
-                            )
-                              TextButton(
-                                onPressed: () => _openPlace(
-                                  priceLink.isNotEmpty
-                                      ? priceLink
-                                      : (
-                                          webSourceUrl.isNotEmpty
-                                              ? webSourceUrl
-                                              : openAiSourceUrl
-                                        ),
-                                ),
-                                style: TextButton.styleFrom(
-                                  visualDensity: VisualDensity.compact,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                  ),
-                                ),
-                                child: Text(
-                                  priceLink.isNotEmpty
-                                      ? '가격표'
-                                      : '웹',
-                                  style: const TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            TextButton(
-                              onPressed: placeUrl.isEmpty
-                                  ? null
-                                  : () => _openPlace(placeUrl),
-                              style: TextButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                ),
-                              ),
-                              child: const Text(
-                                '카카오',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          );
-        },
+  Widget _verdictChip(Map<String, dynamic> criterion) {
+    final state = criterion['state']?.toString() ?? 'unknown';
+    final label = criterion['label']?.toString().trim() ?? '조건';
+    final verified = state == 'match';
+    final failed = state == 'fail';
+    final color = verified
+        ? const Color(0xFF027A48)
+        : (failed ? const Color(0xFFB42318) : const Color(0xFF946200));
+    final background = verified
+        ? const Color(0xFFECFDF3)
+        : (failed ? const Color(0xFFFEF3F2) : const Color(0xFFFFFAEB));
+    final suffix = verified ? '충족' : (failed ? '불일치' : '확인 필요');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '$label · $suffix',
+        style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w700),
       ),
     );
   }
+
+  Widget _expandedDetails(
+    BuildContext context,
+    Map<String, dynamic> business,
+    List<Map<String, dynamic>> verdicts,
+  ) {
+    final imageUrl = business['image_url']?.toString().trim() ?? '';
+    final imageSource = business['image_source']?.toString().trim() ?? '';
+    final address = business['address']?.toString().trim() ?? '';
+    final phone = business['phone']?.toString().trim() ?? '';
+    final placeUrl = business['place_url']?.toString().trim() ?? '';
+    final naverValue = business['naver'];
+    final naver = naverValue is Map
+        ? Map<String, dynamic>.from(naverValue)
+        : <String, dynamic>{};
+    final hoursRaw = naver['opening_hours'];
+    final hours = hoursRaw is List
+        ? hoursRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).take(3).join(' · ')
+        : '';
+    final priceRaw = naver['prices'];
+    final prices = priceRaw is List
+        ? priceRaw.whereType<Map>().take(3).map((item) =>
+            [item['name'], item['price']].where((value) => value != null && value.toString().trim().isNotEmpty).join(' ')).join(' · ')
+        : '';
+    final parking = naver['parking_available'];
+    final sourceLabel = switch (imageSource) {
+      'google_places_verified' => 'Google Maps 사진',
+      'kakao_place' => '카카오맵 확인사진',
+      'naver_place' => '네이버 확인사진',
+      _ => '출처 확인 사진',
+    };
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (imageUrl.isNotEmpty) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.network(
+                imageUrl,
+                height: 155,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    const _BusinessImageFallback(message: '사진을 불러오지 못했습니다.', iconSize: 24),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(sourceLabel, style: const TextStyle(fontSize: 10, color: Color(0xFF667085))),
+            const SizedBox(height: 12),
+          ] else ...[
+            const Text(
+              '대표사진 미확인 · 업체와 일치하는 사진만 표시합니다.',
+              style: TextStyle(fontSize: 11, color: Color(0xFF667085)),
+            ),
+            const SizedBox(height: 12),
+          ],
+          _BusinessDetailRow(
+            icon: Icons.location_on_outlined, title: '주소',
+            value: address.isNotEmpty ? address : '확인 필요',
+            muted: address.isEmpty,
+          ),
+          _BusinessDetailRow(
+            icon: Icons.phone_outlined, title: '전화',
+            value: phone.isNotEmpty ? phone : '확인 필요',
+            muted: phone.isEmpty,
+          ),
+          _BusinessDetailRow(
+            icon: Icons.access_time_outlined, title: '영업시간',
+            value: hours.isNotEmpty ? hours : '확인 필요',
+            muted: hours.isEmpty,
+          ),
+          _BusinessDetailRow(
+            icon: Icons.local_parking_outlined, title: '주차',
+            value: parking == true ? '가능' : parking == false ? '불가' : '확인 필요',
+            muted: parking == null,
+          ),
+          _BusinessDetailRow(
+            icon: Icons.sell_outlined, title: '가격',
+            value: prices.isNotEmpty ? prices : '확인 필요',
+            muted: prices.isEmpty,
+          ),
+          if (verdicts.isNotEmpty) ...[
+            const Text('요청 조건별 판단', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 7),
+            Wrap(spacing: 5, runSpacing: 6, children: [
+              for (final criterion in verdicts) _verdictChip(criterion),
+            ]),
+            const SizedBox(height: 10),
+          ],
+          Wrap(spacing: 6, runSpacing: 2, children: [
+            TextButton.icon(
+              onPressed: () => _navigateToBusiness(context, business),
+              icon: const Icon(Icons.navigation_outlined, size: 17),
+              label: const Text('길찾기'),
+            ),
+            if (phone.isNotEmpty)
+              TextButton.icon(
+                onPressed: () => _callPhone(phone),
+                icon: const Icon(Icons.phone_outlined, size: 17),
+                label: const Text('전화'),
+              ),
+            if (placeUrl.isNotEmpty)
+              TextButton(
+                onPressed: () => _openPlace(placeUrl),
+                child: const Text('카카오맵'),
+              ),
+            TextButton(
+              onPressed: () => _showBusinessDetail(context, business),
+              child: const Text('전체 상세'),
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (businesses.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final business in businesses) ...[
+          Card(
+            margin: const EdgeInsets.only(bottom: 7),
+            color: Colors.white,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: Color(0xFFE4E7EC)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Builder(builder: (context) {
+              final verdicts = _verdicts(business);
+              final name = business['name']?.toString().trim() ?? '업체';
+              final matchingPending = matching == null || matching?['matrix'] == null;
+              return ExpansionTile(
+                key: ValueKey('${business['id'] ?? name}-$name'),
+                initiallyExpanded: false,
+                tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                childrenPadding: EdgeInsets.zero,
+                title: Text(
+                  name,
+                  style: const TextStyle(fontSize: 14, color: Color(0xFF101828), fontWeight: FontWeight.w800),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 5),
+                  child: verdicts.isNotEmpty
+                      ? Wrap(spacing: 5, runSpacing: 5, children: [
+                          for (final verdict in verdicts) _verdictChip(verdict),
+                        ])
+                      : Text(
+                          matchingPending ? '요청 조건 확인 중' : '검증된 조건 정보 없음',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF667085)),
+                        ),
+                ),
+                children: [
+                  const Divider(height: 1, color: Color(0xFFE4E7EC)),
+                  const SizedBox(height: 12),
+                  _expandedDetails(context, business, verdicts),
+                ],
+              );
+            }),
+          ),
+        ],
+      ],
+    );
+  }
+
 }
 
 class _BusinessDetailRow extends StatelessWidget {
