@@ -129,6 +129,82 @@ class NavigationWrongDestinationRegressions(SimpleTestCase):
         self.assertEqual(data["status"], "resolved")
 
     @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_changwon_bukmyeon_school_variant_search_recovers_exact_identity(self, fetch):
+        def search(url, **kwargs):
+            term = kwargs["params"]["query"]
+            if term == "창원북면고등학교":
+                return result(point(
+                    "창원북면고등학교", "경남 창원시 의창구 북면 동전로 36",
+                ))
+            return result()
+
+        fetch.side_effect = search
+        data = resolve_navigation_place("창원 북면고등학교", api_key="test")
+        self.assertEqual(data["status"], "resolved")
+        self.assertEqual(data["place"]["name"], "창원북면고등학교")
+        self.assertEqual(fetch.call_count, 2)
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_colloquial_bukmyeongo_expands_to_formal_high_school(self, fetch):
+        def search(url, **kwargs):
+            if kwargs["params"]["query"] == "북면고등학교":
+                return result(point(
+                    "창원북면고등학교", "경남 창원시 의창구 북면 동전로 36",
+                ))
+            return result()
+
+        fetch.side_effect = search
+        data = resolve_navigation_place("북면고", api_key="test")
+        self.assertEqual(data["status"], "resolved")
+        self.assertEqual(data["place"]["name"], "창원북면고등학교")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_weak_school_matches_do_not_stop_official_retry(self, fetch):
+        def search(url, **kwargs):
+            term = kwargs["params"]["query"]
+            if term == "창원 북면고등학교":
+                return result(
+                    point("북면중학교", "경남 창원시 북면 동전로 100"),
+                    point("북면초등학교", "경남 창원시 북면 동전로 101"),
+                )
+            if term == "창원북면고등학교":
+                return result(point(
+                    "창원북면고등학교", "경남 창원시 의창구 북면 동전로 36",
+                ))
+            return result()
+
+        fetch.side_effect = search
+        data = resolve_navigation_place("창원 북면고등학교", api_key="test")
+        self.assertEqual(data["status"], "resolved")
+        self.assertEqual(data["place"]["name"], "창원북면고등학교")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_same_named_schools_in_multiple_cities_require_choice(self, fetch):
+        fetch.return_value = result(
+            point("창원북면고등학교", "경남 창원시 북면 동전로 36"),
+            point("춘천북면고등학교", "강원 춘천시 북면 가상로 11", x="127.50", y="37.90"),
+        )
+        data = resolve_navigation_place("북면고", api_key="test")
+        self.assertEqual(data["status"], "ambiguous")
+        self.assertEqual(len(data["candidates"]), 2)
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_other_school_in_changwon_not_substituted(self, fetch):
+        fetch.return_value = result(point(
+            "북면중학교", "경남 창원시 의창구 북면 동전로 110",
+        ))
+        data = resolve_navigation_place("창원 북면고등학교", api_key="test")
+        self.assertEqual(data["status"], "not_found")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_non_school_fuzzy_city_mismatch_remains_rejected(self, fetch):
+        fetch.return_value = result(point(
+            "의창파출소", "경남 창원시 의창구 중동",
+        ))
+        data = resolve_navigation_place("창원시 의창소방서", api_key="test")
+        self.assertEqual(data["status"], "not_found")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
     def test_provider_timeout_is_bounded_and_not_treated_as_coordinates(self, fetch):
         fetch.side_effect = __import__("httpx").ReadTimeout("timeout")
         data = resolve_navigation_place("의창소방서", api_key="test")
