@@ -3048,6 +3048,36 @@ class _BusinessCards extends StatelessWidget {
   }
 
 
+  Future<String?> _chooseBusinessTravelMode(BuildContext context) {
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('어떤 방법으로 이동하시나요?',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            ),
+            for (final option in const [
+              ('driving', '자동차', Icons.directions_car),
+              ('transit', '대중교통', Icons.directions_transit),
+              ('walking', '도보', Icons.directions_walk),
+            ])
+              ListTile(
+                leading: Icon(option.$3),
+                title: Text(option.$2),
+                onTap: () => Navigator.of(sheetContext).pop(option.$1),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _navigateToBusiness(
     BuildContext context,
     Map<String, dynamic> business,
@@ -3057,6 +3087,9 @@ class _BusinessCards extends StatelessWidget {
     final destination = [name, address]
         .where((item) => item.isNotEmpty).join(' ');
     if (destination.isEmpty) return;
+    // A card tap still has no stated travel method; ask before route lookup.
+    final travelMode = await _chooseBusinessTravelMode(context);
+    if (travelMode == null || !context.mounted) return;
     final navigation = NavigationProviderService();
     try {
       final prepared = await navigation.prepare(
@@ -3064,6 +3097,8 @@ class _BusinessCards extends StatelessWidget {
           origin: '',
           destination: destination,
           currentLocation: true,
+          travelMode: travelMode,
+          travelModeExplicit: true,
         ),
         destinationBusiness: business,
       );
