@@ -2229,7 +2229,8 @@ class _HomeScreenState extends State<HomeScreen>
         text: '$originLabel → ${route.destination}$via\n'
             '이동수단: ${NavigationRequest.travelModeLabel(route.travelMode)}\n'
             '${prepared.provider.label}에서 선택한 이동수단으로 길찾기를 엽니다. '
-            '실제 경로와 안내 시작은 지도 앱에서 확인해 주세요.',
+            '실제 경로와 안내 시작은 지도 앱에서 확인해 주세요.'
+            '\n${prepared.notice ?? ''}',
         badge: '${prepared.provider.label} 길안내',
         navigationUri: prepared.uri,
       );
@@ -3124,6 +3125,11 @@ class _BusinessCards extends StatelessWidget {
       );
       final opened = await navigation.open(prepared);
       if (!context.mounted) return;
+      if (prepared.notice != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(prepared.notice!)),
+        );
+      }
       if (!opened) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
