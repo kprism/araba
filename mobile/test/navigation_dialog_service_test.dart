@@ -104,6 +104,22 @@ void main() {
       expect(dialog.interpret('카페에서 케이크를 팔아?'), isNull);
     });
 
+    test('restaurant booking after a failed navigation is not a destination', () {
+      final dialog = NavigationDialogState();
+      dialog.interpret('지금 여기서 창원시청까지 자동차로 길 알려줘');
+      dialog.awaitCorrection();
+      expect(
+        dialog.interpret(
+          '이번 주 토요일 저녁 6시에 성인 4명이 식사할 수 있는 창원 상남동 '
+          '소고기 식당을 찾아서 예약 가능한지 확인해줘',
+        ),
+        isNull,
+      );
+      expect(dialog.waitingForDestination, isFalse);
+      expect(dialog.interpret('창원시청에서 부산역까지 자동차로 길 안내해줘')
+          ?.route?.destination, '부산역');
+    });
+
     test('ordinary request after an old route never hijacked', () {
       final dialog = NavigationDialogState();
       dialog.interpret('창원시청에서 부산역까지 자동차로 길 알려줘');
