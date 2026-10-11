@@ -7,6 +7,7 @@ class NavigationRequest {
   final String destination;
   final List<String> waypoints;
   final String travelMode;
+  final bool travelModeExplicit;
   final bool currentLocation;
 
   const NavigationRequest({
@@ -14,6 +15,7 @@ class NavigationRequest {
     required this.destination,
     this.waypoints = const [],
     this.travelMode = 'driving',
+    this.travelModeExplicit = false,
     this.currentLocation = false,
   });
 
@@ -22,6 +24,7 @@ class NavigationRequest {
         destination: destination,
         waypoints: waypoints,
         travelMode: travelMode,
+        travelModeExplicit: travelModeExplicit,
         currentLocation: true,
       );
 
@@ -30,9 +33,55 @@ class NavigationRequest {
         destination: value,
         waypoints: waypoints,
         travelMode: travelMode,
+        travelModeExplicit: travelModeExplicit,
         currentLocation: currentLocation,
       );
 
+
+
+  NavigationRequest withTravelMode(String mode) => NavigationRequest(
+        origin: origin,
+        destination: destination,
+        waypoints: waypoints,
+        travelMode: mode,
+        travelModeExplicit: true,
+        currentLocation: currentLocation,
+      );
+
+  /// No map provider may silently choose a transportation method.
+  static String? explicitTravelMode(String text) {
+    final input = normalizeUtterance(text);
+    // Require transport wording instead of matching place names such as
+    // "버스정류장" and "자동차정비소".
+    if (RegExp(
+      r'대중교통|(?:버스|지하철|전철|기차|열차)(?:로|를|타고|이용|편으로|편)|'
+      r'(?:버스|지하철|전철)\s+(?:타고|이용)',
+    ).hasMatch(input)) {
+      return 'transit';
+    }
+    if (RegExp(r'도보|걸어서|걸어가|걷기|걸어갈|걸어\s+가').hasMatch(input)) {
+      return 'walking';
+    }
+    if (RegExp(r'자전거(?:로|타고|를)?').hasMatch(input)) {
+      return 'bicycling';
+    }
+    if (RegExp(
+      r'자동차(?:로|를|타고|이용|운전|\s+길)|'
+      r'자가용(?:으로|타고|을)|'
+      r'차(?:로|를\s+타고)|승용차(?:로|타고)|'
+      r'차량(?:으로|을\s+이용)|운전해서|드라이브',
+    ).hasMatch(input)) {
+      return 'driving';
+    }
+    return null;
+  }
+
+  static String travelModeLabel(String mode) => switch (mode) {
+    'transit' => '대중교통',
+    'walking' => '도보',
+    'bicycling' => '자전거',
+    _ => '자동차',
+  };
 
   /// Speech recognition may include non-speech markers and short fillers.
   /// Never send them as place names or allow them into a map deep link.
@@ -102,13 +151,8 @@ class NavigationRequest {
     final text = normalizeUtterance(utterance);
     if (!hasNavigationIntent(text)) return null;
 
-    final mode = RegExp(r'대중교통|버스|지하철|전철').hasMatch(text)
-        ? 'transit'
-        : RegExp(r'도보|걸어서|걸어가는').hasMatch(text)
-            ? 'walking'
-            : RegExp(r'자전거|자전거로').hasMatch(text)
-                ? 'bicycling'
-                : 'driving';
+    final requestedMode = explicitTravelMode(text);
+    final mode = requestedMode ?? 'driving';
 
     String origin = '';
     String destination = '';
@@ -160,6 +204,7 @@ class NavigationRequest {
           ? segments.sublist(0, segments.length - 1)
           : const [],
       travelMode: mode,
+      travelModeExplicit: requestedMode != null,
       currentLocation: current,
     );
   }
