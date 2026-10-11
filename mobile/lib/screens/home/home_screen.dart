@@ -16,6 +16,7 @@ import '../../services/navigation_dialog_service.dart';
 import '../../services/navigation_provider_service.dart';
 import '../../services/naver_credential_store.dart';
 import '../../services/voice_preference_store.dart';
+import 'business_experience_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -3200,40 +3201,15 @@ class _BusinessCards extends StatelessWidget {
   ) async {
     final name =
         business['name']?.toString().trim() ?? '업체';
-    final controller = TextEditingController();
-
+    // Keep the input state owned by the route until its closing animation ends.
     final text = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('$name 이용 경험'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          minLines: 3,
-          maxLines: 6,
-          decoration: const InputDecoration(
-            hintText:
-                '예: 주차장은 좁았고 15분 정도 기다렸지만 설명은 자세했어요.',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(
-              controller.text.trim(),
-            ),
-            child: const Text('경험 저장'),
-          ),
-        ],
+      builder: (dialogContext) => BusinessExperienceDialog(
+        businessName: name,
       ),
     );
+    if (!context.mounted) return;
 
-    controller.dispose();
     if (text == null || text.trim().isEmpty) return;
 
     try {
