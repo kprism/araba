@@ -131,6 +131,11 @@ class NavigationDialogState {
   }
 
   NavigationDialogDecision? interpret(String utterance) {
+    // Keep the speaker's correction signal before speech cleanup removes
+    // filler words such as '아니, ...'.
+    final correctionSpoken = RegExp(
+      r'^(?:아니|잠깐|정정|목적지|도착지|그곳|거기)',
+    ).hasMatch(utterance.trim());
     final text = NavigationRequest.normalizeUtterance(utterance);
     if (text.isEmpty) return null;
 
@@ -138,8 +143,9 @@ class NavigationDialogState {
     // complete navigation command to the generic parser. It must instead
     // replace only the destination, retaining the previously selected mode.
     final correctingDestination = _last != null &&
-        RegExp(r'^(?:아니|잠깐|정정|목적지|도착지|그곳|거기)')
-            .hasMatch(text) &&
+        (correctionSpoken ||
+            RegExp(r'^(?:아니|잠깐|정정|목적지|도착지|그곳|거기)')
+                .hasMatch(text)) &&
         !RegExp(r'(?:에서|부터)\s+.+(?:까지)').hasMatch(text) &&
         NavigationRequest.explicitTravelMode(text) == null;
     if (correctingDestination) {
