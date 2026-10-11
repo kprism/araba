@@ -104,6 +104,24 @@ void main() {
       expect(dialog.interpret('카페에서 케이크를 팔아?'), isNull);
     });
 
+    test('restaurant reservation after failed route is not a destination', () {
+      final dialog = NavigationDialogState();
+      dialog.interpret('현재 위치에서 창원시청까지 길 알려줘');
+      dialog.awaitCorrection();
+      const request = '이번 주 토요일 저녁 6시에 성인 4명이 식사할 수 있는 '
+          '창원 상남동 소고기 식당을 찾아서 예약 가능한지 확인해줘.';
+      expect(dialog.interpret(request), isNull);
+      expect(dialog.waitingForDestination, isFalse);
+    });
+
+    test('reservation request does not replace a pending travel mode', () {
+      final dialog = NavigationDialogState();
+      dialog.interpret('현재 위치에서 창원시청까지 길 알려줘');
+      expect(dialog.waitingForTravelMode, isTrue);
+      expect(dialog.interpret('상남동 소고기 식당 예약 가능한지 알아봐'), isNull);
+      expect(dialog.waitingForTravelMode, isFalse);
+    });
+
     test('ordinary request after an old route never hijacked', () {
       final dialog = NavigationDialogState();
       dialog.interpret('창원시청에서 부산역까지 자동차로 길 알려줘');
