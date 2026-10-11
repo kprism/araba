@@ -92,8 +92,14 @@ def _result_for(query, places):
         place for place in places
         if not region or _canonical(region) in _canonical(place["address"])
     ]
-    if len(regional) > 1:
-        return {"status": "ambiguous", "candidates": regional[:5]}
+    # The same weak suggestion returned from keyword and address endpoints is
+    # still one unverified place, not two independent candidates.
+    unique = {
+        (round(place["latitude"], 5), round(place["longitude"], 5)): place
+        for place in regional
+    }
+    if len(unique) > 1:
+        return {"status": "ambiguous", "candidates": list(unique.values())[:5]}
     return {"status": "not_found", "candidates": []}
 
 
