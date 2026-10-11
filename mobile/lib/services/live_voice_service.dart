@@ -7,6 +7,7 @@ import 'araba_api.dart';
 import 'conversation_context.dart';
 import 'live_keep_alive_service.dart';
 import 'live_utterance_buffer.dart';
+import 'navigation_service.dart';
 
 typedef LiveStatusCallback = void Function(String status);
 typedef LiveTranscriptCallback = void Function({
@@ -402,10 +403,16 @@ class LiveVoiceService {
     final missionStopwatch = Stopwatch()..start();
 
     try {
+      final cleanedUserText =
+          NavigationRequest.normalizeUtterance(latestUserText);
+      if (cleanedUserText.isEmpty) {
+        _consumeProcessedTranscript(latestUserText);
+        return;
+      }
       final interceptor = onUserUtterance;
       if (interceptor != null) {
         final consumed = await interceptor(
-          latestUserText,
+          cleanedUserText,
         );
         if (consumed) {
           _consumeProcessedTranscript(latestUserText);
@@ -415,12 +422,12 @@ class LiveVoiceService {
       }
 
       final rawRequestText = _pendingRequestContext == null
-          ? latestUserText
+          ? cleanedUserText
           : [
               _pendingRequestContext!,
               '',
               '사용자 추가 답변:',
-              latestUserText,
+              cleanedUserText,
             ].join('\n');
       final requestText = conversationContext.enrichRequest(
         rawRequestText,
