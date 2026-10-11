@@ -37,7 +37,7 @@ class NavigationRequest {
     final text = value.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (text.isEmpty) return false;
     return RegExp(
-      r'길\s*(?:알려|안내|찾|보여)|가는\s*길|가는\s*법|'
+      r'길(?:을|좀|만)?\s*(?:좀\s*)?(?:알려|안내|찾|보여)|가는\s*길|가는\s*법|'
       r'길찾기|경로|내비(?:게이션)?|네비(?:게이션)?|'
       r'길\s*안내|안내해|가려면|어떻게\s*가|'
       r'몇\s*분\s*걸려|얼마나\s*걸려|거쳐\s*\S+까지',

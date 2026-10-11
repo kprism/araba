@@ -12,6 +12,7 @@ import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
 import '../../services/navigation_service.dart';
+import '../../services/navigation_dialog_service.dart';
 import '../../services/navigation_provider_service.dart';
 import '../../services/naver_credential_store.dart';
 import '../../services/voice_preference_store.dart';
@@ -45,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _autoReconnectingLive = false;
   List<Map<String, dynamic>> _lastBusinesses = const [];
   final List<Map<String, dynamic>> _recentBusinessGroups = [];
-  NavigationRequest? _lastNavigationRequest;
+  final NavigationDialogState _navigationDialog = NavigationDialogState();
   final NavigationProviderService _navigationProvider = NavigationProviderService();
 
   final List<_Message> _messages = [
@@ -2114,37 +2115,24 @@ class _HomeScreenState extends State<HomeScreen>
     String text, {
     required bool fromVoice,
   }) async {
-    var route = NavigationRequest.tryParse(text);
-    final isOriginFollowUp =
-        NavigationRequest.isCurrentOriginFollowUp(text);
-    if (route == null && isOriginFollowUp) {
-      var last = _lastNavigationRequest;
-      if (last == null) {
-        for (final message in _messages.reversed) {
-          if (!message.isUser) continue;
-          last = NavigationRequest.tryParse(message.text);
-          if (last != null) break;
-        }
-      }
-      if (last != null) route = last.fromCurrentLocation();
-    }
-    if (route == null &&
-        !isOriginFollowUp &&
-        !NavigationRequest.hasNavigationIntent(text)) {
-      return false;
-    }
+    final interpretation = _navigationDialog.interpret(text);
+    if (interpretation == null) return false;
+
     if (!fromVoice && mounted) {
       setState(() {
         _messages.add(_Message(isUser: true, text: text));
       });
     }
 
+    var route = interpretation.route;
     if (route == null) {
       _addAssistantMessage(
-        text: '출발지와 목적지를 알려주세요. '
-            '예: 창원시청에서 부산역까지 안내해 줘. '
-            '출발지가 현재 위치라면 목적지만 말해도 됩니다.',
-        badge: '길안내 확인',
+        text: interpretation.question ??
+            '목적지를 정확히 알려주세요.',
+        badge: '길안내 목적지 확인',
+      );
+      _speakProgress(
+        interpretation.question ?? '목적지를 알려주세요.',
       );
       return true;
     }
@@ -2191,7 +2179,6 @@ class _HomeScreenState extends State<HomeScreen>
       }
     }
 
-    _lastNavigationRequest = route;
     final originLabel = route.currentLocation ? '현재 위치' : route.origin;
     try {
       final prepared = await _navigationProvider.prepare(
@@ -2218,12 +2205,21 @@ class _HomeScreenState extends State<HomeScreen>
         );
       }
     } on NavigationProviderException catch (error) {
-      if (mounted) _addAssistantMessage(text: error.message, badge: '길안내 확인 필요');
+      _navigationDialog.awaitCorrection();
+      if (mounted) {
+        _addAssistantMessage(
+          text: '${error.message}\n'
+              '목적지나 출발지를 정정하면 길안내 요청을 이어서 진행할게요.',
+          badge: '길안내 확인 필요',
+        );
+      }
     } catch (_) {
+      _navigationDialog.awaitCorrection();
       if (mounted) {
         _addAssistantMessage(
           text: '길안내를 준비하지 못했어요. '
-              '지도 서비스 연결 상태와 MY의 API 설정을 확인해 주세요.',
+              '지도 서비스 연결 상태와 MY의 API 설정을 확인해 주세요. '
+              '목적지를 정정하면 이어서 길안내할게요.',
           badge: '길안내 연결 오류',
         );
       }
