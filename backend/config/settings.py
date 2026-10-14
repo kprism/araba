@@ -47,6 +47,7 @@ ALLOWED_HOSTS = [
 INSTALLED_APPS = [
     "corsheaders",
     'rest_framework',
+    "rest_framework.authtoken",
     'api',
     "django.contrib.admin",
     "django.contrib.auth",
@@ -137,3 +138,11 @@ STATIC_URL = "static/"
 # ARABA POC development only.
 # Restrict this to explicit production origins before release.
 CORS_ALLOW_ALL_ORIGINS = DEBUG
+
+# Merchant onboarding endpoints use explicit token authentication and permission
+# decorators; existing prototype research endpoints keep their current behavior.
+REST_FRAMEWORK = {
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/hour",
+    },
+}
