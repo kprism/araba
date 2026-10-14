@@ -230,6 +230,10 @@ def _publish_official(claim):
     for field in BUSINESS_BASIC:
         if info.get(field):
             setattr(business, field, info[field])
+    # Keep name lookup consistent with the verified owner's new business name.
+    business.normalized_name = re.sub(
+        r"[^0-9a-zA-Z가-힣]", "", business.name.lower(),
+    )[:240]
     snapshot = dict(business.snapshot or {})
     # Snapshot is returned by public search APIs. Keep private AI operating
     # instructions, discounts and internal claim IDs out of public records.
@@ -238,7 +242,7 @@ def _publish_official(claim):
         "extra_information": claim.extra_information,
     }
     business.snapshot = snapshot
-    business.save(update_fields=[*BUSINESS_BASIC, "snapshot"])
+    business.save(update_fields=[*BUSINESS_BASIC, "normalized_name", "snapshot"])
     official_facts = {
         "extra_information": claim.extra_information,
         **info,
