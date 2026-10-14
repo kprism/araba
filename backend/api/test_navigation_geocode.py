@@ -71,9 +71,9 @@ class NavigationGeocodeTests(SimpleTestCase):
             point("북면고등학교", "경남 창원시 의창구 북면 동전로 36",
                   y="35.270", x="128.650"),
         )
-        data = resolve_navigation_place("북면고교", api_key="test")
+        data = resolve_navigation_place("북면문화", api_key="test")
         self.assertEqual(data["status"], "ambiguous")
-        self.assertEqual(data["candidates"][0]["name"], "북면고등학교")
+        self.assertEqual(data["candidates"][0]["name"], "북면문화회관")
         self.assertEqual(len(data["candidates"]), 3)
 
     @patch("api.services.navigation_geocode_service.httpx.get")
