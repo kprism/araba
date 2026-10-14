@@ -46,6 +46,37 @@ class NavigationGeocodeTests(SimpleTestCase):
         self.assertEqual(len(data["candidates"]), 2)
 
     @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_ambiguous_candidates_are_ranked_and_not_auto_navigated(self, fetch):
+        fetch.return_value = result(
+            point("북면체육관", "경남 창원시 의창구 북면 가상로 2",
+                  y="35.250", x="128.630"),
+            point("북면고등학교", "경남 창원시 의창구 북면 동전로 36",
+                  y="35.270", x="128.650"),
+            point("북면병원", "경남 창원시 의창구 북면 가상로 3",
+                  y="35.260", x="128.640"),
+        )
+        data = resolve_navigation_place("북면고", api_key="test")
+        # The official high-school entry is the best choice, never silently
+        # substitute the unrelated venue or open navigation without evidence.
+        self.assertEqual(data["status"], "resolved")
+        self.assertEqual(data["place"]["name"], "북면고등학교")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_similar_name_suggestions_have_closest_first_for_user_choice(self, fetch):
+        fetch.return_value = result(
+            point("북면문화회관", "경남 창원시 의창구 북면 가상로 2",
+                  y="35.250", x="128.630"),
+            point("북면병원", "경남 창원시 의창구 북면 가상로 3",
+                  y="35.260", x="128.640"),
+            point("북면고등학교", "경남 창원시 의창구 북면 동전로 36",
+                  y="35.270", x="128.650"),
+        )
+        data = resolve_navigation_place("북면고교", api_key="test")
+        self.assertEqual(data["status"], "ambiguous")
+        self.assertEqual(data["candidates"][0]["name"], "북면고등학교")
+        self.assertEqual(len(data["candidates"]), 3)
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
     def test_no_place_is_not_fabricated(self, fetch):
         fetch.return_value = result()
         data = resolve_navigation_place("존재하지않는도로999", api_key="test")
