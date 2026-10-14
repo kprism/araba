@@ -34,7 +34,7 @@ class DevicePermissions {
   static Future<void> placeCall(String phone) async {
     final normalized = phone.replaceAll(RegExp(r'[^0-9+]'), '');
     if (!RegExp(r'^\+?[0-9]{7,15}$').hasMatch(normalized)) {
-      throw const PlatformException(
+      throw PlatformException(
         code: 'INVALID_PHONE', message: '연결할 업체 전화번호를 확인해주세요.',
       );
     }
