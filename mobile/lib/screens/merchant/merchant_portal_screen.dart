@@ -4,13 +4,14 @@ import '../../services/merchant_account_api.dart';
 
 /// Merchant view in the debug-only role preview. Server permissions still apply.
 class MerchantPortalScreen extends StatefulWidget {
-  const MerchantPortalScreen({super.key});
+  const MerchantPortalScreen({super.key, this.merchantApi});
+  final MerchantAccountApi? merchantApi;
   @override
   State<MerchantPortalScreen> createState() => _MerchantPortalScreenState();
 }
 
 class _MerchantPortalScreenState extends State<MerchantPortalScreen> {
-  final _api = MerchantAccountApi();
+  late final MerchantAccountApi _api = widget.merchantApi ?? MerchantAccountApi();
   final Map<String, TextEditingController> inputs = {
     for (final name in [
       'username', 'password', 'confirm', 'search', 'owner', 'number',
