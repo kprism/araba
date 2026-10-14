@@ -465,6 +465,21 @@ class _BusinessDbScreenState extends State<BusinessDbScreen> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
+                    if (_selectionMode) ...[
+                      Checkbox(
+                        value: _selectedBusinessIds.contains(id),
+                        onChanged: (selected) {
+                          setState(() {
+                            if (selected == true) {
+                              _selectedBusinessIds.add(id);
+                            } else {
+                              _selectedBusinessIds.remove(id);
+                            }
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                    ],
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1016,24 +1031,94 @@ class _BusinessDbScreenState extends State<BusinessDbScreen> {
                 const SizedBox(height: 18),
                 Row(
                   children: [
-                    Text(
-                      '검색 결과 $_filteredCount개',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (_loading)
-                      const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
+                    Expanded(
+                      child: Text(
+                        '저장 사업장 $_filteredCount개',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
+                    ),
+                    if (_loading || _changingVisibility)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 6),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: _changingVisibility ? null : _toggleSelectionMode,
+                      icon: Icon(_selectionMode
+                          ? Icons.close_rounded
+                          : Icons.checklist_rtl_rounded, size: 18),
+                      label: Text(_selectionMode ? '선택 종료' : '선택 관리'),
+                    ),
                   ],
                 ),
+                if (_selectionMode) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF2F5FF),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          '선택 ${_selectedBusinessIds.length}곳 · '
+                          '체크한 업체만 변경 (나머지는 유지)',
+                          style: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 5),
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            TextButton(
+                              onPressed: () => setState(() {
+                                _selectedBusinessIds.addAll(
+                                  _businesses
+                                      .map((b) => b['id'])
+                                      .whereType<int>(),
+                                );
+                              }),
+                              child: const Text('현재 페이지 전체 선택'),
+                            ),
+                            TextButton(
+                              onPressed: () => setState(
+                                () => _selectedBusinessIds.clear(),
+                              ),
+                              child: const Text('선택 해제'),
+                            ),
+                          ],
+                        ),
+                        FilledButton.icon(
+                          onPressed: _selectedBusinessIds.isEmpty ||
+                                  _active == 'all' || _changingVisibility
+                              ? null : _changeSelectedBusinessVisibility,
+                          icon: Icon(_active == 'inactive'
+                              ? Icons.restore
+                              : Icons.visibility_off_outlined),
+                          label: Text(_active == 'inactive'
+                              ? '선택한 업체만 복원'
+                              : '선택한 업체만 숨기기'),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          _active == 'all'
+                              ? '전체 보기에서는 변경할 수 없습니다. 활성 또는 비활성으로 필터를 변경해주세요.'
+                              : '삭제가 아니라 비활성 보관입니다. 상태 필터에서 언제든 복원할 수 있습니다.',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF667085)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 if (_error != null)
                   Container(
