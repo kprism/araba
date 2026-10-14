@@ -2232,13 +2232,13 @@ class _HomeScreenState extends State<HomeScreen>
         final response = await _merchantSearch.searchExistingBusinesses(requestedName);
         if (mounted) {
           final candidates = response['businesses'];
-          options = PhoneIntent.matchingBusinesses(
-            text,
-            candidates is List
-                ? candidates.whereType<Map>().map((e) =>
-                    Map<String, dynamic>.from(e)).toList()
-                : [],
-          );
+          options = candidates is List
+              ? candidates.whereType<Map>()
+                  .map((e) => Map<String, dynamic>.from(e))
+                  .where((e) => (e['phone']?.toString().replaceAll(
+                      RegExp(r'[^0-9+]'), '') ?? '').length >= 7)
+                  .take(8).toList()
+              : [];
           lookedUp = true;
         }
       } catch (_) {
@@ -2252,8 +2252,8 @@ class _HomeScreenState extends State<HomeScreen>
         badge: '전화할 업체 확인',
       );
     } else if (options.length == 1 && (!lookedUp ||
-        options.single['name']?.toString().replaceAll(RegExp(r'\\s+'), '').toLowerCase() ==
-            requestedName.replaceAll(RegExp(r'\\s+'), '').toLowerCase())) {
+        options.single['name']?.toString().replaceAll(RegExp(r'\s+'), '').toLowerCase() ==
+            requestedName.replaceAll(RegExp(r'\s+'), '').toLowerCase())) {
       await _dialBusiness(options.single);
     } else {
       _addAssistantMessage(
