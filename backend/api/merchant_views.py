@@ -229,17 +229,16 @@ def _publish_official(claim):
         if info.get(field):
             setattr(business, field, info[field])
     snapshot = dict(business.snapshot or {})
+    # Snapshot is returned by public search APIs. Keep private AI operating
+    # instructions, discounts and internal claim IDs out of public records.
     snapshot["business_official"] = {
         "profile": info,
         "extra_information": claim.extra_information,
-        "agent_instructions": claim.agent_instructions,
-        "owner_claim_id": claim.id,
     }
     business.snapshot = snapshot
     business.save(update_fields=[*BUSINESS_BASIC, "snapshot"])
     official_facts = {
         "extra_information": claim.extra_information,
-        "agent_instructions": claim.agent_instructions,
         **info,
     }
     for key, value in official_facts.items():
