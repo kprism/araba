@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, merchant_views
+from . import views, merchant_views, admin_business_views
 
 
 urlpatterns = [
@@ -72,6 +72,11 @@ urlpatterns = [
         "admin/businesses/",
         views.business_admin_dashboard,
         name="business-admin-dashboard",
+    ),
+    path(
+        "admin/businesses/visibility/",
+        admin_business_views.update_business_visibility,
+        name="admin-business-visibility",
     ),
     path(
         "research/experiences/",

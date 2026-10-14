@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/araba_api.dart';
+import '../../services/admin_business_manage_api.dart';
 
 class BusinessDbScreen extends StatefulWidget {
   const BusinessDbScreen({super.key});
@@ -11,6 +12,10 @@ class BusinessDbScreen extends StatefulWidget {
 
 class _BusinessDbScreenState extends State<BusinessDbScreen> {
   final ArabaApi _api = ArabaApi();
+  final AdminBusinessManageApi _managementApi = AdminBusinessManageApi();
+  final Set<int> _selectedBusinessIds = <int>{};
+  bool _selectionMode = false;
+  bool _changingVisibility = false;
   final TextEditingController _searchController = TextEditingController();
 
   bool _loading = true;
@@ -111,6 +116,8 @@ class _BusinessDbScreenState extends State<BusinessDbScreen> {
       if (!mounted) return;
 
       setState(() {
+        // A new result page or filter must not retain off-screen selection.
+        _selectedBusinessIds.clear();
         _summary = rawSummary is Map
             ? Map<String, dynamic>.from(rawSummary)
             : const {};
@@ -144,8 +151,151 @@ class _BusinessDbScreenState extends State<BusinessDbScreen> {
     }
   }
 
+  Future<void> _toggleSelectionMode() async {
+    if (_selectionMode) {
+      setState(() {
+        _selectionMode = false;
+        _selectedBusinessIds.clear();
+      });
+      return;
+    }
+    try {
+      var authorized = await _managementApi.isStaffAuthenticated();
+      if (!authorized) {
+        var username = '';
+        var password = '';
+        if (!mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('관리자 계정 확인'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '선택한 업체만 숨기거나 복원하려면 관리자 로그인이 필요합니다. '
+                  '화면의 관리자 테스트 모드는 실제 관리권한이 아닙니다.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  autofocus: true,
+                  onChanged: (value) => username = value,
+                  decoration: const InputDecoration(
+                    labelText: '관리자 아이디',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  obscureText: true,
+                  onChanged: (value) => password = value,
+                  decoration: const InputDecoration(
+                    labelText: '비밀번호',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('인증'),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true || !mounted) return;
+        await _managementApi.adminLogin(username.trim(), password);
+        authorized = true;
+      }
+      if (!mounted) return;
+      if (authorized) {
+        setState(() {
+          _selectionMode = true;
+          _selectedBusinessIds.clear();
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(
+          error is ArabaApiException
+              ? error.message
+              : '관리자 인증에 실패했습니다. 네트워크와 계정을 확인해주세요.',
+        )),
+      );
+    }
+  }
+
+  Future<void> _changeSelectedBusinessVisibility() async {
+    if (_changingVisibility || _selectedBusinessIds.isEmpty ||
+        _active == 'all') {
+      return;
+    }
+    final restore = _active == 'inactive';
+    final ids = _selectedBusinessIds.toList()..sort();
+    final names = _businesses
+        .where((item) => ids.contains(item['id']))
+        .map((item) => item['name']?.toString() ?? '업체')
+        .toList();
+    final action = restore ? '복원' : '숨기기';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('선택한 ${ids.length}곳 $action'),
+        content: Text(
+          '선택하지 않은 업체는 유지됩니다.\n\n'
+          '${names.take(8).join(' · ')}'
+          '${names.length > 8 ? ' 외 ${names.length - 8}곳' : ''}'
+          '\n\n'
+          '${restore ? '다시 검색과 가입 대상에 표시합니다.' : '영구 삭제하지 않고 비활성 목록에 보관합니다.'}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(restore ? '선택한 업체 복원' : '선택한 업체만 숨기기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _changingVisibility = true);
+    try {
+      final result = await _managementApi.updateSelected(
+        businessIds: ids, active: restore,
+      );
+      if (!mounted) return;
+      await _load(resetPage: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message']?.toString() ?? '처리했습니다.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(
+          error is ArabaApiException
+              ? error.message
+              : '변경에 실패했습니다. 서버 API 배포 및 권한을 확인해주세요.',
+        )),
+      );
+    } finally {
+      if (mounted) setState(() => _changingVisibility = false);
+    }
+  }
+
   void _resetFilters() {
     setState(() {
+      _selectedBusinessIds.clear();
       _category = '';
       _provider = '';
       _active = 'active';
@@ -317,6 +467,21 @@ class _BusinessDbScreenState extends State<BusinessDbScreen> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
+                    if (_selectionMode) ...[
+                      Checkbox(
+                        value: _selectedBusinessIds.contains(id),
+                        onChanged: (selected) {
+                          setState(() {
+                            if (selected == true) {
+                              _selectedBusinessIds.add(id);
+                            } else {
+                              _selectedBusinessIds.remove(id);
+                            }
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                    ],
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -868,24 +1033,94 @@ class _BusinessDbScreenState extends State<BusinessDbScreen> {
                 const SizedBox(height: 18),
                 Row(
                   children: [
-                    Text(
-                      '검색 결과 $_filteredCount개',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (_loading)
-                      const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
+                    Expanded(
+                      child: Text(
+                        '저장 사업장 $_filteredCount개',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
+                    ),
+                    if (_loading || _changingVisibility)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 6),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: _changingVisibility ? null : _toggleSelectionMode,
+                      icon: Icon(_selectionMode
+                          ? Icons.close_rounded
+                          : Icons.checklist_rtl_rounded, size: 18),
+                      label: Text(_selectionMode ? '선택 종료' : '선택 관리'),
+                    ),
                   ],
                 ),
+                if (_selectionMode) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF2F5FF),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          '선택 ${_selectedBusinessIds.length}곳 · '
+                          '체크한 업체만 변경 (나머지는 유지)',
+                          style: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 5),
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            TextButton(
+                              onPressed: () => setState(() {
+                                _selectedBusinessIds.addAll(
+                                  _businesses
+                                      .map((b) => b['id'])
+                                      .whereType<int>(),
+                                );
+                              }),
+                              child: const Text('현재 페이지 전체 선택'),
+                            ),
+                            TextButton(
+                              onPressed: () => setState(
+                                () => _selectedBusinessIds.clear(),
+                              ),
+                              child: const Text('선택 해제'),
+                            ),
+                          ],
+                        ),
+                        FilledButton.icon(
+                          onPressed: _selectedBusinessIds.isEmpty ||
+                                  _active == 'all' || _changingVisibility
+                              ? null : _changeSelectedBusinessVisibility,
+                          icon: Icon(_active == 'inactive'
+                              ? Icons.restore
+                              : Icons.visibility_off_outlined),
+                          label: Text(_active == 'inactive'
+                              ? '선택한 업체만 복원'
+                              : '선택한 업체만 숨기기'),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          _active == 'all'
+                              ? '전체 보기에서는 변경할 수 없습니다. 활성 또는 비활성으로 필터를 변경해주세요.'
+                              : '삭제가 아니라 비활성 보관입니다. 상태 필터에서 언제든 복원할 수 있습니다.',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF667085)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 if (_error != null)
                   Container(
