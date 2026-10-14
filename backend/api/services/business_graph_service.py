@@ -363,6 +363,17 @@ def _upsert_business(business, mission=None, *, detail_refreshed=False):
     record.place_url = _clean(
         business.get("place_url") or record.place_url
     )[:500]
+    # Once a business owner is verified, public fields supplied by the owner
+    # take precedence over subsequent external discovery refreshes.
+    official = snapshot.get("business_official")
+    profile = official.get("profile") if isinstance(official, dict) else None
+    if isinstance(profile, dict):
+        for field, maximum in (("name", 240), ("category", 320),
+                               ("address", 320), ("phone", 80)):
+            value = _clean(profile.get(field))
+            if value:
+                setattr(record, field, value[:maximum])
+        record.normalized_name = _normalized(record.name)[:240]
     record.snapshot = snapshot
     record.source_meta = source_meta
     record.last_external_refresh_at = now
