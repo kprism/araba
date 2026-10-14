@@ -41,6 +41,20 @@ void main() {
     }
   });
 
+  test('extracts target shop without call suffix or particles', () {
+    expect(PhoneIntent.destinationQuery('순자네집밥 전화해줘'), '순자네집밥');
+    expect(PhoneIntent.destinationQuery('순자네집밥에 전화 연결해'), '순자네집밥');
+    expect(PhoneIntent.destinationQuery('그 업체 전화해줘'), isEmpty);
+    expect(PhoneIntent.destinationQuery('전화해줘'), isEmpty);
+  });
+
+  test('explicitly named unknown business never calls an unrelated cached shop', () {
+    final choices = PhoneIntent.matchingBusinesses('없는가게 전화해줘', [
+      {'name': '순자네집밥', 'phone': '055-123-4567'},
+    ]);
+    expect(choices, isEmpty);
+  });
+
   test('unverified phone is not a candidate and named business ranks alone', () {
     final result = PhoneIntent.matchingBusinesses('순자네집밥 전화해줘', [
       {'name': '다른집밥', 'phone': '055-222-1000'},
