@@ -43,6 +43,8 @@ def _claim_json(record):
         "business_id": business.id,
         "business_name": business.name,
         "business_address": business.address,
+        "business_category": business.category,
+        "business_phone": business.phone,
         "status": record.status,
         "owner_name": record.owner_name,
         "registration_last4": record.registration_last4,
