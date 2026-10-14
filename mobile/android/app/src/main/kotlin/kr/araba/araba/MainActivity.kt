@@ -4,6 +4,9 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.Manifest
+import android.content.pm.PackageManager
+import android.provider.Settings
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -13,8 +16,11 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var permissionReply: MethodChannel.Result? = null
     companion object {
         private const val METHOD_CHANNEL = "araba/notifications"
+        private const val PHONE_PERMISSION_CHANNEL = "araba/device_permissions"
+        private const val REQUEST_ALL_PERMISSIONS = 5021
         private const val LIVE_KEEP_ALIVE_CHANNEL = "araba/live_keep_alive"
         private const val NOTIFICATION_CHANNEL_ID = "araba_updates"
         private const val NOTIFICATION_CHANNEL_NAME = "ARABA 업데이트"
@@ -24,6 +30,49 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         createNotificationChannel()
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            PHONE_PERMISSION_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "firstRunNeeded" -> result.success(
+                    !getSharedPreferences("araba_permissions", MODE_PRIVATE)
+                        .getBoolean("onboarding_completed", false)
+                )
+                "markFirstRunComplete" -> {
+                    getSharedPreferences("araba_permissions", MODE_PRIVATE)
+                        .edit().putBoolean("onboarding_completed", true).apply()
+                    result.success(true)
+                }
+                "status" -> result.success(permissionStatus())
+                "requestAll" -> requestAllPermissions(result)
+                "openSettings" -> {
+                    val intent = Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:$packageName"),
+                    )
+                    startActivity(intent)
+                    result.success(true)
+                }
+                "placeCall" -> {
+                    val raw = call.argument<String>("phone") ?: ""
+                    val number = raw.replace(Regex("[^0-9+]"), "")
+                    if (!Regex("^\\+?[0-9]{7,15}$").matches(number)) {
+                        result.error("INVALID_PHONE", "전화번호가 유효하지 않습니다.", null)
+                    } else if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+                        result.error("PHONE_PERMISSION", "전화 권한이 필요합니다. 권한 설정에서 허용해주세요.", null)
+                    } else {
+                        try {
+                            startActivity(Intent(Intent.ACTION_CALL, Uri.fromParts("tel", number, null)))
+                            result.success(true)
+                        } catch (ex: Exception) {
+                            result.error("CALL_FAILED", "휴대전화 발신을 시작하지 못했습니다.", null)
+                        }
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -75,6 +124,66 @@ class MainActivity : FlutterActivity() {
 
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun supportedPermissions(): List<String> {
+        val permissions = mutableListOf(
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.CAMERA,
+            Manifest.permission.CALL_PHONE,
+        )
+        if (Build.VERSION.SDK_INT >= 33) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        return permissions
+    }
+
+    private fun permissionStatus(): Map<String, Boolean> {
+        fun granted(name: String) =
+            checkSelfPermission(name) == PackageManager.PERMISSION_GRANTED
+        return mapOf(
+            "microphone" to granted(Manifest.permission.RECORD_AUDIO),
+            "location" to (
+                granted(Manifest.permission.ACCESS_FINE_LOCATION) ||
+                granted(Manifest.permission.ACCESS_COARSE_LOCATION)
+            ),
+            "camera" to granted(Manifest.permission.CAMERA),
+            "phone" to granted(Manifest.permission.CALL_PHONE),
+            "notifications" to (
+                Build.VERSION.SDK_INT < 33 ||
+                granted(Manifest.permission.POST_NOTIFICATIONS)
+            ),
+        )
+    }
+
+    private fun requestAllPermissions(result: MethodChannel.Result) {
+        if (permissionReply != null) {
+            result.error("BUSY", "다른 권한 요청이 진행 중입니다.", null)
+            return
+        }
+        val missing = supportedPermissions().filter {
+            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) {
+            result.success(permissionStatus())
+            return
+        }
+        permissionReply = result
+        requestPermissions(missing.toTypedArray(), REQUEST_ALL_PERMISSIONS)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_ALL_PERMISSIONS) {
+            permissionReply?.success(permissionStatus())
+            permissionReply = null
         }
     }
 
