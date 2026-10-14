@@ -126,6 +126,55 @@ def _to_places(rows, query):
     return matches
 
 
+def _candidate_rank(query, place):
+    """Display priority only. A high score never makes an unverified place safe
+    to auto-navigate to; only explicit user selection can confirm a suggestion.
+    """
+    requested, city = _place_and_area(query)
+    requested_name = _canonical(requested)
+    actual_name = _canonical(place["name"])
+    address = _canonical(place["address"])
+    score = 0
+    if actual_name == requested_name:
+        score += 120
+    elif _same_school(requested, place):
+        score += 110
+    elif requested_name and requested_name in actual_name:
+        score += 65
+    elif actual_name and actual_name in requested_name:
+        score += 38
+    else:
+        tokens = re.findall(r"[가-힣a-zA-Z0-9]{2,}", requested)
+        score += sum(8 for token in tokens if _canonical(token) in actual_name)
+    if city and _canonical(city) in address:
+        score += 28
+    if requested_name and requested_name in address:
+        score += 12
+    return score
+
+
+def _rank_candidates(query, places):
+    ranked = sorted(
+        places,
+        key=lambda place: (
+            -_candidate_rank(query, place),
+            place["name"],
+            place["address"],
+        ),
+    )
+    result = []
+    seen = set()
+    for place in ranked:
+        identity = (round(place["latitude"], 5), round(place["longitude"], 5))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        result.append(place)
+        if len(result) >= 5:
+            break
+    return result
+
+
 def _result_for(query, places):
     _, region = _place_and_area(query)
     verified = [
@@ -139,7 +188,7 @@ def _result_for(query, places):
         }
         if len(distinct) == 1:
             return {"status": "resolved", "place": verified[0], "candidates": []}
-        return {"status": "ambiguous", "candidates": verified[:5]}
+        return {"status": "ambiguous", "candidates": _rank_candidates(query, verified)}
     regional = [
         place for place in places
         if not region or _canonical(region) in _canonical(place["address"])
@@ -155,7 +204,7 @@ def _result_for(query, places):
         for place in regional
     }
     if len(unique) > 1:
-        return {"status": "ambiguous", "candidates": list(unique.values())[:5]}
+        return {"status": "ambiguous", "candidates": _rank_candidates(query, list(unique.values()))}
     return {"status": "not_found", "candidates": []}
 
 
