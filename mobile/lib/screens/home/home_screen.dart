@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -9,6 +10,8 @@ import '../../services/business_photo_diagnostics.dart';
 import '../../services/araba_api.dart';
 import '../../services/conversation_context.dart';
 import '../../services/device_location_service.dart';
+import '../../services/device_permissions.dart';
+import '../../services/phone_intent.dart';
 import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
@@ -50,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen>
   final List<Map<String, dynamic>> _recentBusinessGroups = [];
   final NavigationDialogState _navigationDialog = NavigationDialogState();
   final NavigationProviderService _navigationProvider = NavigationProviderService();
+  NavigationRequest? _pendingNavigationSelection;
 
   final List<_Message> _messages = [
     _Message(
@@ -245,6 +249,9 @@ class _HomeScreenState extends State<HomeScreen>
         },
         onUserUtterance: (text) async {
           if (!mounted || _liveVoice != liveVoice) return false;
+          if (!_trainerMode && await _tryHandlePhone(text, fromVoice: true)) {
+            return true;
+          }
           if (!_trainerMode &&
               await _tryHandleNavigation(text, fromVoice: true)) {
             return true;
@@ -467,6 +474,8 @@ class _HomeScreenState extends State<HomeScreen>
     List<String>? actions,
     Uri? navigationUri,
     bool navigationModeChoices = false,
+    List<Map<String, dynamic>>? navigationCandidates,
+    List<Map<String, dynamic>>? phoneCandidates,
   }) {
     if (!mounted) return;
 
@@ -482,6 +491,8 @@ class _HomeScreenState extends State<HomeScreen>
           actions: actions,
           navigationUri: navigationUri,
           navigationModeChoices: navigationModeChoices,
+          navigationCandidates: navigationCandidates,
+          phoneCandidates: phoneCandidates,
         ),
       );
     });
@@ -2087,6 +2098,9 @@ class _HomeScreenState extends State<HomeScreen>
       }
     }
 
+    if (await _tryHandlePhone(text, fromVoice: false)) {
+      return;
+    }
     if (await _tryHandleNavigation(text, fromVoice: false)) {
       return;
     }
@@ -2168,6 +2182,7 @@ class _HomeScreenState extends State<HomeScreen>
     String text, {
     required bool fromVoice,
   }) async {
+    _pendingNavigationSelection = null;
     final wasWaitingForMode = _navigationDialog.waitingForTravelMode;
     final interpretation = _navigationDialog.interpret(text);
     if (interpretation == null) {
@@ -2270,6 +2285,16 @@ class _HomeScreenState extends State<HomeScreen>
           text: '${prepared.provider.label}을(를) 열지 못했습니다. '
               '선택한 지도 앱 설치 여부를 확인하거나 MY에서 다른 기본 지도를 선택해 주세요.',
           badge: '지도 앱 실행 실패',
+        );
+      }
+    } on NavigationCandidatesException catch (error) {
+      _pendingNavigationSelection = route;
+      if (mounted) {
+        _addAssistantMessage(
+          text: '이름과 지역이 비슷한 장소 순서입니다. '
+              '주소를 확인한 뒤 목적지를 터치해 선택해주세요.',
+          badge: '목적지 선택',
+          navigationCandidates: error.candidates,
         );
       }
     } on NavigationProviderException catch (error) {
@@ -2635,6 +2660,10 @@ class _HomeScreenState extends State<HomeScreen>
                               message,
                             );
                           },
+                          onNavigationCandidate: _selectNavigationCandidate,
+                          onPhoneCandidate: (business) {
+                            unawaited(_dialBusiness(business));
+                          },
                           onNavigationMode: (mode) {
                             if (_navigationDialog.waitingForTravelMode) {
                               _tryHandleNavigation(mode, fromVoice: false);
@@ -2699,6 +2728,8 @@ class _Message {
   final List<String>? actions;
   final Uri? navigationUri;
   bool navigationModeChoices;
+  final List<Map<String, dynamic>>? navigationCandidates;
+  final List<Map<String, dynamic>>? phoneCandidates;
 
   _Message({
     required this.isUser,
@@ -2713,6 +2744,8 @@ class _Message {
     this.actions,
     this.navigationUri,
     this.navigationModeChoices = false,
+    this.navigationCandidates,
+    this.phoneCandidates,
   });
 }
 
@@ -2765,6 +2798,8 @@ class _AssistantBubble extends StatelessWidget {
   }) onClarification;
   final ValueChanged<String> onAction;
   final ValueChanged<String> onNavigationMode;
+  final ValueChanged<Map<String, dynamic>> onNavigationCandidate;
+  final ValueChanged<Map<String, dynamic>> onPhoneCandidate;
   final bool trainerMode;
   final bool trainerSubmitting;
   final ValueChanged<bool> onTrainerFeedback;
@@ -2774,6 +2809,8 @@ class _AssistantBubble extends StatelessWidget {
     required this.onClarification,
     required this.onAction,
     required this.onNavigationMode,
+    required this.onNavigationCandidate,
+    required this.onPhoneCandidate,
     required this.trainerMode,
     required this.trainerSubmitting,
     required this.onTrainerFeedback,
@@ -2892,6 +2929,43 @@ class _AssistantBubble extends StatelessWidget {
                       businesses: message.businesses!,
                       matching: message.matching,
                     ),
+                  ],
+                  if (message.navigationCandidates != null &&
+                      message.navigationCandidates!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    for (var i = 0; i < message.navigationCandidates!.length; i++)
+                      Card(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            radius: 14,
+                            child: Text('${i + 1}',
+                              style: const TextStyle(fontSize: 12)),
+                          ),
+                          title: Text(message.navigationCandidates![i]['name']?.toString() ?? ''),
+                          subtitle: Text(message.navigationCandidates![i]['address']?.toString() ?? ''),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => onNavigationCandidate(message.navigationCandidates![i]),
+                        ),
+                      ),
+                  ],
+                  if (message.phoneCandidates != null &&
+                      message.phoneCandidates!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    for (final business in message.phoneCandidates!)
+                      Card(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        child: ListTile(
+                          leading: const Icon(Icons.call_outlined),
+                          title: Text(business['name']?.toString() ?? '업체'),
+                          subtitle: Text([
+                            business['address']?.toString() ?? '',
+                            business['phone']?.toString() ?? '',
+                          ].where((value) => value.isNotEmpty).join(' · ')),
+                          onTap: () => onPhoneCandidate(business),
+                          trailing: const Icon(Icons.chevron_right),
+                        ),
+                      ),
                   ],
                   if (message.navigationModeChoices) ...[
                     const SizedBox(height: 10),
