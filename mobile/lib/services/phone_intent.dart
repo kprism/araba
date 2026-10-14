@@ -3,7 +3,7 @@ class PhoneIntent {
 
   static bool hasCallIntent(String utterance) {
     final text = utterance.replaceAll(RegExp(r'\s+'), '');
-    // Asking for a phone number is informational, not permission to dial.
+    // Phone-number questions are not instructions to place a call.
     if (RegExp(r'전화번호|연락처|번호알려|통화가능|전화할수').hasMatch(text) &&
         !RegExp(r'전화(?:걸|해|줘|주세요|연결)|연결해|통화(?:시켜|해줘|걸어)').hasMatch(text)) {
       return false;
@@ -22,60 +22,12 @@ class PhoneIntent {
           r'(?:전화)?연결(?:해주세요|해줘|해|시켜줘)|'
           r'통화(?:시켜줘|연결해|해줘|걸어)',
         ), '')
-        .replaceAll(RegExp(r'(?:에게|한테|에|로|으로)\\s*
-    String utterance,
-    List<Map<String, dynamic>> businesses,
-  ) {
-    final needle = utterance.replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase();
-    final withPhone = businesses.where((item) =>
-        (item['phone']?.toString().replaceAll(RegExp(r'[^0-9+]'), '') ?? '').length >= 7
-    ).toList();
-    final named = withPhone.where((item) {
-      final businessName = item['name']?.toString()
-          .replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase() ?? '';
-      return businessName.length >= 2 && needle.contains(businessName);
-    }).toList();
-    return destinationQuery(utterance).isNotEmpty ? named : withPhone;
-  }
-}
-), '')
-        .replaceAll(RegExp(r'^[^0-9a-zA-Z가-힣]+|[^0-9a-zA-Z가-힣]+
-    String utterance,
-    List<Map<String, dynamic>> businesses,
-  ) {
-    final needle = utterance.replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase();
-    final withPhone = businesses.where((item) =>
-        (item['phone']?.toString().replaceAll(RegExp(r'[^0-9+]'), '') ?? '').length >= 7
-    ).toList();
-    final named = withPhone.where((item) {
-      final businessName = item['name']?.toString()
-          .replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase() ?? '';
-      return businessName.length >= 2 && needle.contains(businessName);
-    }).toList();
-    return named.isNotEmpty ? named : withPhone;
-  }
-}
-), '')
+        .replaceAll(RegExp(r'(?:에게|한테|에|로|으로)\s*$'), '')
+        .replaceAll(RegExp(r'^[^0-9a-zA-Z가-힣]+|[^0-9a-zA-Z가-힣]+$'), '')
         .trim();
-    if (query.isEmpty || RegExp(r'^(그곳|그가게|그업체|거기|그집|그식당|여기|방금찾은곳)
-    String utterance,
-    List<Map<String, dynamic>> businesses,
-  ) {
-    final needle = utterance.replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase();
-    final withPhone = businesses.where((item) =>
-        (item['phone']?.toString().replaceAll(RegExp(r'[^0-9+]'), '') ?? '').length >= 7
-    ).toList();
-    final named = withPhone.where((item) {
-      final businessName = item['name']?.toString()
-          .replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase() ?? '';
-      return businessName.length >= 2 && needle.contains(businessName);
-    }).toList();
-    return named.isNotEmpty ? named : withPhone;
-  }
-}
-).hasMatch(
-      query.replaceAll(RegExp(r'\\s+'), ''),
-    )) {
+    if (query.isEmpty || RegExp(
+      r'^(그곳|그가게|그업체|거기|그집|그식당|여기|방금찾은곳)$',
+    ).hasMatch(query.replaceAll(RegExp(r'\s+'), ''))) {
       return '';
     }
     return query;
@@ -94,6 +46,6 @@ class PhoneIntent {
           .replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase() ?? '';
       return businessName.length >= 2 && needle.contains(businessName);
     }).toList();
-    return named.isNotEmpty ? named : withPhone;
+    return destinationQuery(utterance).isNotEmpty ? named : withPhone;
   }
 }
