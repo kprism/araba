@@ -78,6 +78,12 @@ class NavigationProviderException implements Exception {
   String toString() => message;
 }
 
+class NavigationCandidatesException extends NavigationProviderException {
+  NavigationCandidatesException(this.candidates)
+      : super('이름이 비슷한 장소가 있습니다. 아래 목록에서 목적지를 직접 선택해주세요.');
+  final List<Map<String, dynamic>> candidates;
+}
+
 class NavigationPoint {
   const NavigationPoint(this.name, this.latitude, this.longitude);
   final String name;
@@ -234,13 +240,20 @@ class NavigationProviderService {
       }
       if (state == 'ambiguous') {
         final candidates = response['candidates'];
-        final candidatesText = candidates is List
-            ? candidates.whereType<Map>().take(3)
-                .map((item) => "${item['name']} (${item['address']})").join(' / ')
-            : '';
-        throw NavigationProviderException(
-          '$name과(와) 비슷한 장소가 여러 곳입니다. 정확한 주소를 알려주세요.'
-          "${candidatesText.isEmpty ? '' : '\n후보: $candidatesText'}",
+        final suggestions = candidates is List
+            ? candidates.whereType<Map>()
+                .map((candidate) => Map<String, dynamic>.from(candidate))
+                .where((candidate) =>
+                    (candidate['name']?.toString().trim() ?? '').isNotEmpty &&
+                    double.tryParse(candidate['latitude']?.toString() ?? '') != null &&
+                    double.tryParse(candidate['longitude']?.toString() ?? '') != null)
+                .take(5).toList()
+            : <Map<String, dynamic>>[];
+        if (suggestions.isNotEmpty) {
+          throw NavigationCandidatesException(suggestions);
+        }
+        throw const NavigationProviderException(
+          '지도에서 장소 후보를 확정하지 못했습니다. 지역 또는 상호명을 보완해주세요.',
         );
       }
       if (state == 'not_found') {
