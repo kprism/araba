@@ -2165,6 +2165,122 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
 
+  Future<void> _dialBusiness(Map<String, dynamic> business) async {
+    final phone = business['phone']?.toString().trim() ?? '';
+    final name = business['name']?.toString().trim() ?? '업체';
+    if (phone.isEmpty) {
+      _addAssistantMessage(
+        text: '$name의 확인된 전화번호가 없어 전화를 걸지 않았습니다.',
+        badge: '전화번호 확인 필요',
+      );
+      return;
+    }
+    try {
+      var status = await DevicePermissions.status();
+      if (status['phone'] != true) {
+        _addAssistantMessage(
+          text: '휴대전화에서 직접 발신할 수 있도록 전화 권한을 요청합니다.',
+          badge: '전화 권한 요청',
+        );
+        status = await DevicePermissions.requestAll();
+      }
+      if (status['phone'] != true) {
+        _addAssistantMessage(
+          text: '전화 권한이 거부됐습니다. ARABA 상단의 권한 관리에서 '
+              'Android 앱 설정을 열어 전화 권한을 허용해주세요.',
+          badge: '전화 권한 미허용',
+        );
+        return;
+      }
+      await DevicePermissions.placeCall(phone);
+      _addAssistantMessage(
+        text: '$name ($phone)으로 전화 발신을 시작했습니다.',
+        badge: '전화 발신',
+      );
+    } on PlatformException catch (e) {
+      _addAssistantMessage(
+        text: e.message ?? '전화 발신에 실패했습니다. 권한 관리에서 상태를 확인해주세요.',
+        badge: '전화 연결 실패',
+      );
+    } catch (_) {
+      _addAssistantMessage(
+        text: '전화 발신을 시작하지 못했습니다. 기기 통화 기능과 권한을 확인해주세요.',
+        badge: '전화 연결 실패',
+      );
+    }
+  }
+
+  Future<bool> _tryHandlePhone(String text, {required bool fromVoice}) async {
+    if (!PhoneIntent.hasCallIntent(text)) return false;
+    if (!fromVoice && mounted) {
+      setState(() => _messages.add(_Message(isUser: true, text: text)));
+    }
+    // A phone number may be used when the user explicitly provided it.
+    final direct = RegExp(r'(?<![0-9])(?:0[0-9]{8,10}|\+82[0-9]{8,10})(?![0-9])')
+        .firstMatch(text.replaceAll(RegExp(r'[\s-]'), ''));
+    if (direct != null) {
+      await _dialBusiness({'name': '요청한 전화번호', 'phone': direct.group(0)});
+      return true;
+    }
+    final options = PhoneIntent.matchingBusinesses(text, _lastBusinesses);
+    if (options.isEmpty) {
+      _addAssistantMessage(
+        text: '전화할 업체의 확인된 번호가 없습니다. 상호명을 말씀하거나 '
+            '전화번호를 알려주시면 연결하겠습니다.',
+        badge: '전화할 업체 확인',
+      );
+    } else if (options.length == 1) {
+      await _dialBusiness(options.single);
+    } else {
+      _addAssistantMessage(
+        text: '전화할 업체를 선택해주세요. 전화번호가 확인된 업체만 표시합니다.',
+        badge: '전화할 업체 선택',
+        phoneCandidates: options.take(8).toList(),
+      );
+    }
+    return true;
+  }
+
+  Future<void> _selectNavigationCandidate(Map<String, dynamic> candidate) async {
+    final route = _pendingNavigationSelection;
+    if (route == null) {
+      _addAssistantMessage(
+        text: '이전 장소 선택이 만료되었습니다. 길찾기를 다시 요청해주세요.',
+      );
+      return;
+    }
+    _pendingNavigationSelection = null;
+    try {
+      final name = candidate['name']?.toString() ?? route.destination;
+      final prepared = await _navigationProvider.prepare(
+        route.toDestination(name),
+        destinationBusiness: candidate,
+      );
+      if (!mounted) return;
+      _addAssistantMessage(
+        text: '선택한 목적지: $name\n'
+            '${candidate['address'] ?? ''}\n'
+            '${prepared.provider.label}에서 길찾기를 엽니다.',
+        badge: '선택한 목적지',
+        navigationUri: prepared.uri,
+      );
+      final opened = await _navigationProvider.open(prepared);
+      if (!opened && mounted) {
+        _addAssistantMessage(
+          text: '지도 앱을 열지 못했습니다. MY에서 기본 지도 설정을 확인해주세요.',
+          badge: '길찾기 실행 실패',
+        );
+      }
+    } on NavigationProviderException catch (e) {
+      _addAssistantMessage(text: e.message, badge: '목적지 확인 필요');
+    } catch (_) {
+      _addAssistantMessage(
+        text: '선택한 목적지 길찾기에 실패했습니다. 지도 설정을 확인해주세요.',
+        badge: '지도 연결 실패',
+      );
+    }
+  }
+
   /// Movement requests bypass business search and always use real map apps.
   /// Both typed requests and GPT-Live utterances use the same handler.
   void _clearOldNavigationChoices() {
