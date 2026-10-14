@@ -234,7 +234,9 @@ class _BusinessDbScreenState extends State<BusinessDbScreen> {
 
   Future<void> _changeSelectedBusinessVisibility() async {
     if (_changingVisibility || _selectedBusinessIds.isEmpty ||
-        _active == 'all') return;
+        _active == 'all') {
+      return;
+    }
     final restore = _active == 'inactive';
     final ids = _selectedBusinessIds.toList()..sort();
     final names = _businesses
