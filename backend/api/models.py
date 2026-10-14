@@ -235,3 +235,64 @@ class LabCase(models.Model):
 
     def __str__(self):
         return f"Lab #{self.pk} {self.status}: {self.report_text[:60]}"
+
+
+class BusinessClaim(models.Model):
+    """A request to manage an existing ARABA Business, not proof of ownership."""
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_CHOICES = (
+        (STATUS_PENDING, "심사중"),
+        (STATUS_APPROVED, "인증완료"),
+        (STATUS_REJECTED, "거절"),
+    )
+
+    user = models.ForeignKey(
+        "auth.User",
+        on_delete=models.CASCADE,
+        related_name="araba_business_claims",
+    )
+    business = models.ForeignKey(
+        Business,
+        on_delete=models.CASCADE,
+        related_name="ownership_claims",
+    )
+    status = models.CharField(
+        max_length=12, choices=STATUS_CHOICES, default=STATUS_PENDING,
+        db_index=True,
+    )
+    owner_name = models.CharField(max_length=100)
+    registration_hash = models.CharField(max_length=64)
+    registration_last4 = models.CharField(max_length=4)
+    contact_phone = models.CharField(max_length=30, blank=True, default="")
+    proposed_info = models.JSONField(default=dict)
+    extra_information = models.TextField(blank=True, default="")
+    agent_instructions = models.TextField(blank=True, default="")
+    review_note = models.TextField(blank=True, default="")
+    reviewed_by = models.ForeignKey(
+        "auth.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_araba_business_claims",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user", "business"),
+                name="uniq_business_claim_per_user",
+            ),
+            models.UniqueConstraint(
+                fields=("business",),
+                condition=models.Q(status="approved"),
+                name="uniq_approved_business_owner",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.business.name} / {self.user.username} / {self.status}"

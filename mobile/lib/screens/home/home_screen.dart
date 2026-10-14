@@ -180,27 +180,32 @@ class _HomeScreenState extends State<HomeScreen>
   }) async {
     if (_liveConnecting) return;
 
+    // Respond to the very first tap immediately, even on a cold secure
+    // storage read. The UI must not look frozen while retrieving settings.
+    if (mounted) {
+      setState(() {
+        _liveConnecting = true;
+        _liveActive = false;
+        _liveStatus = automatic
+            ? '음성 자동 재연결 중'
+            : '마이크 연결 준비 중';
+      });
+    }
     try {
-      final apiKey = await _keyStore.read();
+      // Secure storage operations are independent and can run in parallel.
+      final settings = await Future.wait<Object?>([
+        _keyStore.read(),
+        _voicePreferenceStore.read(),
+      ]);
+      final apiKey = settings[0] as String?;
+      final voicePreferences = settings[1] as VoicePreferences;
 
       if (apiKey == null) {
         throw const ArabaApiException(
           'MY에서 OpenAI API Key를 먼저 저장해주세요.',
         );
       }
-
-      final voicePreferences =
-          await _voicePreferenceStore.read();
-
       if (!mounted) return;
-
-      setState(() {
-        _liveConnecting = true;
-        _liveActive = false;
-        _liveStatus = automatic
-            ? '음성 자동 재연결 중'
-            : 'GPT-Live 연결 중';
-      });
 
       late final LiveVoiceService liveVoice;
       liveVoice = LiveVoiceService(
@@ -356,6 +361,10 @@ class _HomeScreenState extends State<HomeScreen>
         onError: (message) {
           if (!mounted || _liveVoice != liveVoice) return;
 
+          // Errors during initial setup are handled by _startLiveVoice's
+          // catch. Automatically reconnecting here used to spawn duplicate
+          // GPT-Live session requests when the key/credits were invalid.
+          if (_liveConnecting) return;
           _liveNeedsReconnect = _keepLiveVoice;
 
           setState(() {
@@ -384,10 +393,11 @@ class _HomeScreenState extends State<HomeScreen>
       }
     } catch (caught) {
       _liveVoice = null;
-
-      if (!automatic) {
-        _micEnabled = false;
-      }
+      // Only reconnect an established session; setup failure should wait for
+      // a deliberate new tap rather than spend API credits retrying.
+      _keepLiveVoice = false;
+      _liveNeedsReconnect = false;
+      _micEnabled = false;
 
       if (!mounted) return;
 
@@ -395,21 +405,15 @@ class _HomeScreenState extends State<HomeScreen>
           ? caught.message
           : 'GPT-Live 음성 대화를 시작하지 못했어요.';
 
-      _liveNeedsReconnect = _keepLiveVoice;
-
       setState(() {
         _liveConnecting = false;
         _liveActive = false;
-        _liveStatus = _keepLiveVoice
-            ? '재연결 대기'
-            : '연결 실패';
+        _liveStatus = automatic ? '재연결 실패' : '연결 실패';
       });
 
-      if (!automatic) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     }
   }
 

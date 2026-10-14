@@ -1,9 +1,18 @@
 from django.urls import path
 
-from . import views
+from . import views, merchant_views
 
 
 urlpatterns = [
+    # New merchant pilot endpoints: never authorize from a visual preview mode.
+    path("accounts/username-available/", merchant_views.username_available, name="merchant-username-available"),
+    path("accounts/signup/", merchant_views.signup, name="merchant-signup"),
+    path("accounts/login/", merchant_views.login, name="merchant-login"),
+    path("accounts/me/", merchant_views.account, name="merchant-account"),
+    path("accounts/logout/", merchant_views.logout, name="merchant-logout"),
+    path("merchant/businesses/search/", merchant_views.search_existing_business, name="merchant-existing-business-search"),
+    path("merchant/claims/", merchant_views.submit_claim, name="merchant-claim-submit"),
+    path("merchant/claims/<int:claim_id>/", merchant_views.claim_detail, name="merchant-claim-detail"),
     path(
         "health/",
         views.health,
