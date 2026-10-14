@@ -15,6 +15,72 @@ class PhoneIntent {
     ).hasMatch(text);
   }
 
+  static String destinationQuery(String utterance) {
+    final query = utterance
+        .replaceAll(RegExp(
+          r'전화(?:를|좀|한통)?(?:걸어주세요|걸어줘|걸어라|걸어|해주세요|해줘|해라|해|연결해주세요|연결해줘|연결해)|'
+          r'(?:전화)?연결(?:해주세요|해줘|해|시켜줘)|'
+          r'통화(?:시켜줘|연결해|해줘|걸어)',
+        ), '')
+        .replaceAll(RegExp(r'(?:에게|한테|에|로|으로)\\s*
+    String utterance,
+    List<Map<String, dynamic>> businesses,
+  ) {
+    final needle = utterance.replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase();
+    final withPhone = businesses.where((item) =>
+        (item['phone']?.toString().replaceAll(RegExp(r'[^0-9+]'), '') ?? '').length >= 7
+    ).toList();
+    final named = withPhone.where((item) {
+      final businessName = item['name']?.toString()
+          .replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase() ?? '';
+      return businessName.length >= 2 && needle.contains(businessName);
+    }).toList();
+    return destinationQuery(utterance).isNotEmpty ? named : withPhone;
+  }
+}
+), '')
+        .replaceAll(RegExp(r'^[^0-9a-zA-Z가-힣]+|[^0-9a-zA-Z가-힣]+
+    String utterance,
+    List<Map<String, dynamic>> businesses,
+  ) {
+    final needle = utterance.replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase();
+    final withPhone = businesses.where((item) =>
+        (item['phone']?.toString().replaceAll(RegExp(r'[^0-9+]'), '') ?? '').length >= 7
+    ).toList();
+    final named = withPhone.where((item) {
+      final businessName = item['name']?.toString()
+          .replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase() ?? '';
+      return businessName.length >= 2 && needle.contains(businessName);
+    }).toList();
+    return named.isNotEmpty ? named : withPhone;
+  }
+}
+), '')
+        .trim();
+    if (query.isEmpty || RegExp(r'^(그곳|그가게|그업체|거기|그집|그식당|여기|방금찾은곳)
+    String utterance,
+    List<Map<String, dynamic>> businesses,
+  ) {
+    final needle = utterance.replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase();
+    final withPhone = businesses.where((item) =>
+        (item['phone']?.toString().replaceAll(RegExp(r'[^0-9+]'), '') ?? '').length >= 7
+    ).toList();
+    final named = withPhone.where((item) {
+      final businessName = item['name']?.toString()
+          .replaceAll(RegExp(r'[^0-9a-zA-Z가-힣]'), '').toLowerCase() ?? '';
+      return businessName.length >= 2 && needle.contains(businessName);
+    }).toList();
+    return named.isNotEmpty ? named : withPhone;
+  }
+}
+).hasMatch(
+      query.replaceAll(RegExp(r'\\s+'), ''),
+    )) {
+      return '';
+    }
+    return query;
+  }
+
   static List<Map<String, dynamic>> matchingBusinesses(
     String utterance,
     List<Map<String, dynamic>> businesses,
