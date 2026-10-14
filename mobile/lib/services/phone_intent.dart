@@ -16,7 +16,7 @@ class PhoneIntent {
   }
 
   static String destinationQuery(String utterance) {
-    final query = utterance
+    final query = utterance.replaceAll(RegExp(r'\s+'), '')
         .replaceAll(RegExp(
           r'전화(?:를|좀|한통)?(?:걸어주세요|걸어줘|걸어라|걸어|해주세요|해줘|해라|해|연결해주세요|연결해줘|연결해)|'
           r'(?:전화)?연결(?:해주세요|해줘|해|시켜줘)|'
