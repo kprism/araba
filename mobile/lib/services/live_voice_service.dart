@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'araba_api.dart';
@@ -74,21 +75,41 @@ class LiveVoiceService {
   Future<void> start() async {
     if (_started) return;
 
-    onStatus('연결 중');
+    final startupWatch = Stopwatch()..start();
+    void reportStartup(String stage) {
+      onStatus(stage);
+      if (kDebugMode) {
+        debugPrint(
+          'ARABA_LIVE_STARTUP $stage: '
+          '${startupWatch.elapsedMilliseconds}ms',
+        );
+      }
+    }
+
+    reportStartup('마이크와 음성 연결 준비 중');
 
     try {
-      final peerConnection = await createPeerConnection(
-        <String, dynamic>{},
-      );
-      _peerConnection = peerConnection;
-
-      final stream = await navigator.mediaDevices.getUserMedia(
-        <String, dynamic>{
-          'audio': true,
-          'video': false,
-        },
-      );
-      _localStream = stream;
+      // Peer setup and microphone permission/device initialization are
+      // independent. Start both at once, and wait for BOTH even on failure:
+      // partial native resources can then be disposed by stop(force: true).
+      final setup = await Future.wait<Object>([
+        createPeerConnection(<String, dynamic>{}).then((connection) {
+          _peerConnection = connection;
+          return connection;
+        }),
+        navigator.mediaDevices.getUserMedia(
+          <String, dynamic>{
+            'audio': true,
+            'video': false,
+          },
+        ).then((stream) {
+          _localStream = stream;
+          return stream;
+        }),
+      ]);
+      final peerConnection = setup[0] as RTCPeerConnection;
+      final stream = setup[1] as MediaStream;
+      reportStartup('음성 장치 준비 완료');
 
       for (final track in stream.getAudioTracks()) {
         final sender = await peerConnection.addTrack(
@@ -203,6 +224,7 @@ class LiveVoiceService {
         );
       }
 
+      reportStartup('AI 음성 세션 연결 중');
       final session = await api.createLiveSession(
         offerSdp,
         apiKey: apiKey,
@@ -223,7 +245,7 @@ class LiveVoiceService {
           'answer',
         ),
       );
-
+      reportStartup('AI 응답 대기 중');
       await LiveKeepAliveService.start();
     } catch (error) {
       await stop(force: true);
