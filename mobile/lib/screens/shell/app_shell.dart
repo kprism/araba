@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../home/home_screen.dart';
 import '../merchant/merchant_portal_screen.dart';
 import '../my/my_screen.dart';
+import '../my/device_permissions_screen.dart';
+import '../../services/device_permissions.dart';
 import '../notifications/notifications_screen.dart';
 import '../tasks/tasks_screen.dart';
 
@@ -18,6 +22,31 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
   TestAppRole _testRole = TestAppRole.administrator;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_openPermissionsOnFirstRun());
+    });
+  }
+
+  Future<void> _openPermissionsOnFirstRun() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      final needed = await DevicePermissions.firstRunNeeded();
+      if (needed && mounted) _openPermissions(firstRun: true);
+    } catch (_) {
+      // A missing native channel on web/widget tests must not block the app.
+    }
+  }
+
+  void _openPermissions({bool firstRun = false}) {
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => DevicePermissionsScreen(firstRun: firstRun),
+    ));
+  }
 
   // This is a display-only preview in Android debug builds. In production
   // server-authenticated memberships will decide available roles.
@@ -82,6 +111,14 @@ class _AppShellState extends State<AppShell> {
 
     return Scaffold(
       body: Column(children: [
+        SafeArea(bottom: false, child: Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _openPermissions,
+            icon: const Icon(Icons.admin_panel_settings_outlined, size: 17),
+            label: const Text('권한 관리'),
+          ),
+        )),
         if (_rolePreviewEnabled) SafeArea(
           bottom: false,
           child: _previewBar(),

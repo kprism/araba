@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -9,9 +10,12 @@ import '../../services/business_photo_diagnostics.dart';
 import '../../services/araba_api.dart';
 import '../../services/conversation_context.dart';
 import '../../services/device_location_service.dart';
+import '../../services/device_permissions.dart';
+import '../../services/phone_intent.dart';
 import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
+import '../../services/merchant_account_api.dart';
 import '../../services/navigation_service.dart';
 import '../../services/navigation_dialog_service.dart';
 import '../../services/navigation_provider_service.dart';
@@ -32,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen>
   final _scroll = ScrollController();
   final _focus = FocusNode();
   final _api = ArabaApi();
+  final _merchantSearch = MerchantAccountApi();
   final _imagePicker = ImagePicker();
   final _keyStore = ApiKeyStore();
   final _kakaoStore = KakaoCredentialStore();
@@ -50,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen>
   final List<Map<String, dynamic>> _recentBusinessGroups = [];
   final NavigationDialogState _navigationDialog = NavigationDialogState();
   final NavigationProviderService _navigationProvider = NavigationProviderService();
+  NavigationRequest? _pendingNavigationSelection;
 
   final List<_Message> _messages = [
     _Message(
@@ -245,6 +251,9 @@ class _HomeScreenState extends State<HomeScreen>
         },
         onUserUtterance: (text) async {
           if (!mounted || _liveVoice != liveVoice) return false;
+          if (!_trainerMode && await _tryHandlePhone(text, fromVoice: true)) {
+            return true;
+          }
           if (!_trainerMode &&
               await _tryHandleNavigation(text, fromVoice: true)) {
             return true;
@@ -467,6 +476,8 @@ class _HomeScreenState extends State<HomeScreen>
     List<String>? actions,
     Uri? navigationUri,
     bool navigationModeChoices = false,
+    List<Map<String, dynamic>>? navigationCandidates,
+    List<Map<String, dynamic>>? phoneCandidates,
   }) {
     if (!mounted) return;
 
@@ -482,6 +493,8 @@ class _HomeScreenState extends State<HomeScreen>
           actions: actions,
           navigationUri: navigationUri,
           navigationModeChoices: navigationModeChoices,
+          navigationCandidates: navigationCandidates,
+          phoneCandidates: phoneCandidates,
         ),
       );
     });
@@ -2087,6 +2100,9 @@ class _HomeScreenState extends State<HomeScreen>
       }
     }
 
+    if (await _tryHandlePhone(text, fromVoice: false)) {
+      return;
+    }
     if (await _tryHandleNavigation(text, fromVoice: false)) {
       return;
     }
@@ -2151,6 +2167,144 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
 
+  Future<void> _dialBusiness(Map<String, dynamic> business) async {
+    final phone = business['phone']?.toString().trim() ?? '';
+    final name = business['name']?.toString().trim() ?? '업체';
+    if (phone.isEmpty) {
+      _addAssistantMessage(
+        text: '$name의 확인된 전화번호가 없어 전화를 걸지 않았습니다.',
+        badge: '전화번호 확인 필요',
+      );
+      return;
+    }
+    try {
+      var status = await DevicePermissions.status();
+      if (status['phone'] != true) {
+        _addAssistantMessage(
+          text: '휴대전화에서 직접 발신할 수 있도록 전화 권한을 요청합니다.',
+          badge: '전화 권한 요청',
+        );
+        status = await DevicePermissions.requestAll();
+      }
+      if (status['phone'] != true) {
+        _addAssistantMessage(
+          text: '전화 권한이 거부됐습니다. ARABA 상단의 권한 관리에서 '
+              'Android 앱 설정을 열어 전화 권한을 허용해주세요.',
+          badge: '전화 권한 미허용',
+        );
+        return;
+      }
+      await DevicePermissions.placeCall(phone);
+      _addAssistantMessage(
+        text: '$name ($phone)으로 전화 발신을 시작했습니다.',
+        badge: '전화 발신',
+      );
+    } on PlatformException catch (e) {
+      _addAssistantMessage(
+        text: e.message ?? '전화 발신에 실패했습니다. 권한 관리에서 상태를 확인해주세요.',
+        badge: '전화 연결 실패',
+      );
+    } catch (_) {
+      _addAssistantMessage(
+        text: '전화 발신을 시작하지 못했습니다. 기기 통화 기능과 권한을 확인해주세요.',
+        badge: '전화 연결 실패',
+      );
+    }
+  }
+
+  Future<bool> _tryHandlePhone(String text, {required bool fromVoice}) async {
+    if (!PhoneIntent.hasCallIntent(text)) return false;
+    if (!fromVoice && mounted) {
+      setState(() => _messages.add(_Message(isUser: true, text: text)));
+    }
+    // A phone number may be used when the user explicitly provided it.
+    final direct = RegExp(r'(?<![0-9])(?:0[0-9]{8,10}|\+82[0-9]{8,10})(?![0-9])')
+        .firstMatch(text.replaceAll(RegExp(r'[\s-]'), ''));
+    if (direct != null) {
+      await _dialBusiness({'name': '요청한 전화번호', 'phone': direct.group(0)});
+      return true;
+    }
+    var options = PhoneIntent.matchingBusinesses(text, _lastBusinesses);
+    final requestedName = PhoneIntent.destinationQuery(text);
+    var lookedUp = false;
+    if (options.isEmpty && requestedName.length >= 2) {
+      try {
+        final response = await _merchantSearch.searchExistingBusinesses(requestedName);
+        if (mounted) {
+          final candidates = response['businesses'];
+          options = candidates is List
+              ? candidates.whereType<Map>()
+                  .map((e) => Map<String, dynamic>.from(e))
+                  .where((e) => (e['phone']?.toString().replaceAll(
+                      RegExp(r'[^0-9+]'), '') ?? '').length >= 7)
+                  .take(8).toList()
+              : [];
+          lookedUp = true;
+        }
+      } catch (_) {
+        // Backend availability must not be mistaken for a confirmed number.
+      }
+    }
+    if (options.isEmpty) {
+      _addAssistantMessage(
+        text: '전화할 업체의 확인된 번호가 없습니다. 상호명을 말씀하거나 '
+            '전화번호를 알려주시면 연결하겠습니다.',
+        badge: '전화할 업체 확인',
+      );
+    } else if (options.length == 1 && (!lookedUp ||
+        options.single['name']?.toString().replaceAll(RegExp(r'\s+'), '').toLowerCase() ==
+            requestedName.replaceAll(RegExp(r'\s+'), '').toLowerCase())) {
+      await _dialBusiness(options.single);
+    } else {
+      _addAssistantMessage(
+        text: '전화할 업체를 선택해주세요. 전화번호가 확인된 업체만 표시합니다.',
+        badge: '전화할 업체 선택',
+        phoneCandidates: options.take(8).toList(),
+      );
+    }
+    return true;
+  }
+
+  Future<void> _selectNavigationCandidate(Map<String, dynamic> candidate) async {
+    final route = _pendingNavigationSelection;
+    if (route == null) {
+      _addAssistantMessage(
+        text: '이전 장소 선택이 만료되었습니다. 길찾기를 다시 요청해주세요.',
+      );
+      return;
+    }
+    _pendingNavigationSelection = null;
+    try {
+      final name = candidate['name']?.toString() ?? route.destination;
+      final prepared = await _navigationProvider.prepare(
+        route.toDestination(name),
+        destinationBusiness: candidate,
+      );
+      if (!mounted) return;
+      _addAssistantMessage(
+        text: '선택한 목적지: $name\n'
+            '${candidate['address'] ?? ''}\n'
+            '${prepared.provider.label}에서 길찾기를 엽니다.',
+        badge: '선택한 목적지',
+        navigationUri: prepared.uri,
+      );
+      final opened = await _navigationProvider.open(prepared);
+      if (!opened && mounted) {
+        _addAssistantMessage(
+          text: '지도 앱을 열지 못했습니다. MY에서 기본 지도 설정을 확인해주세요.',
+          badge: '길찾기 실행 실패',
+        );
+      }
+    } on NavigationProviderException catch (e) {
+      _addAssistantMessage(text: e.message, badge: '목적지 확인 필요');
+    } catch (_) {
+      _addAssistantMessage(
+        text: '선택한 목적지 길찾기에 실패했습니다. 지도 설정을 확인해주세요.',
+        badge: '지도 연결 실패',
+      );
+    }
+  }
+
   /// Movement requests bypass business search and always use real map apps.
   /// Both typed requests and GPT-Live utterances use the same handler.
   void _clearOldNavigationChoices() {
@@ -2168,6 +2322,7 @@ class _HomeScreenState extends State<HomeScreen>
     String text, {
     required bool fromVoice,
   }) async {
+    _pendingNavigationSelection = null;
     final wasWaitingForMode = _navigationDialog.waitingForTravelMode;
     final interpretation = _navigationDialog.interpret(text);
     if (interpretation == null) {
@@ -2270,6 +2425,16 @@ class _HomeScreenState extends State<HomeScreen>
           text: '${prepared.provider.label}을(를) 열지 못했습니다. '
               '선택한 지도 앱 설치 여부를 확인하거나 MY에서 다른 기본 지도를 선택해 주세요.',
           badge: '지도 앱 실행 실패',
+        );
+      }
+    } on NavigationCandidatesException catch (error) {
+      _pendingNavigationSelection = route;
+      if (mounted) {
+        _addAssistantMessage(
+          text: '이름과 지역이 비슷한 장소 순서입니다. '
+              '주소를 확인한 뒤 목적지를 터치해 선택해주세요.',
+          badge: '목적지 선택',
+          navigationCandidates: error.candidates,
         );
       }
     } on NavigationProviderException catch (error) {
@@ -2635,6 +2800,10 @@ class _HomeScreenState extends State<HomeScreen>
                               message,
                             );
                           },
+                          onNavigationCandidate: _selectNavigationCandidate,
+                          onPhoneCandidate: (business) {
+                            unawaited(_dialBusiness(business));
+                          },
                           onNavigationMode: (mode) {
                             if (_navigationDialog.waitingForTravelMode) {
                               _tryHandleNavigation(mode, fromVoice: false);
@@ -2699,6 +2868,8 @@ class _Message {
   final List<String>? actions;
   final Uri? navigationUri;
   bool navigationModeChoices;
+  final List<Map<String, dynamic>>? navigationCandidates;
+  final List<Map<String, dynamic>>? phoneCandidates;
 
   _Message({
     required this.isUser,
@@ -2713,6 +2884,8 @@ class _Message {
     this.actions,
     this.navigationUri,
     this.navigationModeChoices = false,
+    this.navigationCandidates,
+    this.phoneCandidates,
   });
 }
 
@@ -2765,6 +2938,8 @@ class _AssistantBubble extends StatelessWidget {
   }) onClarification;
   final ValueChanged<String> onAction;
   final ValueChanged<String> onNavigationMode;
+  final ValueChanged<Map<String, dynamic>> onNavigationCandidate;
+  final ValueChanged<Map<String, dynamic>> onPhoneCandidate;
   final bool trainerMode;
   final bool trainerSubmitting;
   final ValueChanged<bool> onTrainerFeedback;
@@ -2774,6 +2949,8 @@ class _AssistantBubble extends StatelessWidget {
     required this.onClarification,
     required this.onAction,
     required this.onNavigationMode,
+    required this.onNavigationCandidate,
+    required this.onPhoneCandidate,
     required this.trainerMode,
     required this.trainerSubmitting,
     required this.onTrainerFeedback,
@@ -2892,6 +3069,43 @@ class _AssistantBubble extends StatelessWidget {
                       businesses: message.businesses!,
                       matching: message.matching,
                     ),
+                  ],
+                  if (message.navigationCandidates != null &&
+                      message.navigationCandidates!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    for (var i = 0; i < message.navigationCandidates!.length; i++)
+                      Card(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            radius: 14,
+                            child: Text('${i + 1}',
+                              style: const TextStyle(fontSize: 12)),
+                          ),
+                          title: Text(message.navigationCandidates![i]['name']?.toString() ?? ''),
+                          subtitle: Text(message.navigationCandidates![i]['address']?.toString() ?? ''),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => onNavigationCandidate(message.navigationCandidates![i]),
+                        ),
+                      ),
+                  ],
+                  if (message.phoneCandidates != null &&
+                      message.phoneCandidates!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    for (final business in message.phoneCandidates!)
+                      Card(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        child: ListTile(
+                          leading: const Icon(Icons.call_outlined),
+                          title: Text(business['name']?.toString() ?? '업체'),
+                          subtitle: Text([
+                            business['address']?.toString() ?? '',
+                            business['phone']?.toString() ?? '',
+                          ].where((value) => value.isNotEmpty).join(' · ')),
+                          onTap: () => onPhoneCandidate(business),
+                          trailing: const Icon(Icons.chevron_right),
+                        ),
+                      ),
                   ],
                   if (message.navigationModeChoices) ...[
                     const SizedBox(height: 10),

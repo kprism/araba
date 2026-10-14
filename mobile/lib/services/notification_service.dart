@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -27,12 +28,15 @@ class NotificationService {
   StreamSubscription<String>? _tokenRefreshSubscription;
 
   Future<void> initialize() async {
-    await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
+    // Android notification consent belongs to the single first-run permissions
+    // screen. On iOS the Firebase permission prompt is still required.
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    }
     await _registerForUpdates();
 
     await _tokenRefreshSubscription?.cancel();
