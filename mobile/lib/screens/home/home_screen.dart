@@ -180,27 +180,32 @@ class _HomeScreenState extends State<HomeScreen>
   }) async {
     if (_liveConnecting) return;
 
+    // Respond to the very first tap immediately, even on a cold secure
+    // storage read. The UI must not look frozen while retrieving settings.
+    if (mounted) {
+      setState(() {
+        _liveConnecting = true;
+        _liveActive = false;
+        _liveStatus = automatic
+            ? '음성 자동 재연결 중'
+            : '마이크 연결 준비 중';
+      });
+    }
     try {
-      final apiKey = await _keyStore.read();
+      // Secure storage operations are independent and can run in parallel.
+      final settings = await Future.wait<Object?>([
+        _keyStore.read(),
+        _voicePreferenceStore.read(),
+      ]);
+      final apiKey = settings[0] as String?;
+      final voicePreferences = settings[1] as VoicePreferences;
 
       if (apiKey == null) {
         throw const ArabaApiException(
           'MY에서 OpenAI API Key를 먼저 저장해주세요.',
         );
       }
-
-      final voicePreferences =
-          await _voicePreferenceStore.read();
-
       if (!mounted) return;
-
-      setState(() {
-        _liveConnecting = true;
-        _liveActive = false;
-        _liveStatus = automatic
-            ? '음성 자동 재연결 중'
-            : 'GPT-Live 연결 중';
-      });
 
       late final LiveVoiceService liveVoice;
       liveVoice = LiveVoiceService(
