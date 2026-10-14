@@ -27,12 +27,8 @@ class NotificationService {
   StreamSubscription<String>? _tokenRefreshSubscription;
 
   Future<void> initialize() async {
-    await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
+    // Android permission consent now belongs to the single first-run
+    // permissions screen, avoiding overlapping system dialogs on startup.
     await _registerForUpdates();
 
     await _tokenRefreshSubscription?.cancel();
