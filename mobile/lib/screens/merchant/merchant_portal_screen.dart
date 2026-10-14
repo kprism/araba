@@ -267,7 +267,7 @@ class _MerchantPortalScreenState extends State<MerchantPortalScreen> {
       const Expanded(child: Text('내 업체 관리', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))),
       TextButton(onPressed: busy ? null : _logout, child: const Text('로그아웃')),
     ]),
-    Text('로그인: ' + username, style: const TextStyle(color: Colors.black54)),
+    Text('로그인: $username', style: const TextStyle(color: Colors.black54)),
     const SizedBox(height: 12),
     if (claims.isEmpty) _notice('기존 업체 DB에서 상호명을 찾아 관리권한을 신청하세요.'),
     for (final claim in claims) Card(child: ListTile(
@@ -296,7 +296,7 @@ class _MerchantPortalScreenState extends State<MerchantPortalScreen> {
   Widget _claimArea() => Card(child: Padding(
     padding: const EdgeInsets.all(14),
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('관리권한 신청: ' + (picked?['name']?.toString() ?? ''),
+      Text('관리권한 신청: ${picked?['name']?.toString() ?? ''}',
           style: const TextStyle(fontWeight: FontWeight.w800)),
       Text(picked?['address']?.toString() ?? ''),
       const SizedBox(height: 12),
