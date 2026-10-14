@@ -15,6 +15,7 @@ import '../../services/phone_intent.dart';
 import '../../services/google_places_credential_store.dart';
 import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
+import '../../services/merchant_account_api.dart';
 import '../../services/navigation_service.dart';
 import '../../services/navigation_dialog_service.dart';
 import '../../services/navigation_provider_service.dart';
@@ -35,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen>
   final _scroll = ScrollController();
   final _focus = FocusNode();
   final _api = ArabaApi();
+  final _merchantSearch = MerchantAccountApi();
   final _imagePicker = ImagePicker();
   final _keyStore = ApiKeyStore();
   final _kakaoStore = KakaoCredentialStore();
@@ -2222,14 +2224,36 @@ class _HomeScreenState extends State<HomeScreen>
       await _dialBusiness({'name': '요청한 전화번호', 'phone': direct.group(0)});
       return true;
     }
-    final options = PhoneIntent.matchingBusinesses(text, _lastBusinesses);
+    var options = PhoneIntent.matchingBusinesses(text, _lastBusinesses);
+    final requestedName = PhoneIntent.destinationQuery(text);
+    var lookedUp = false;
+    if (options.isEmpty && requestedName.length >= 2) {
+      try {
+        final response = await _merchantSearch.searchExistingBusinesses(requestedName);
+        if (mounted) {
+          final candidates = response['businesses'];
+          options = PhoneIntent.matchingBusinesses(
+            text,
+            candidates is List
+                ? candidates.whereType<Map>().map((e) =>
+                    Map<String, dynamic>.from(e)).toList()
+                : [],
+          );
+          lookedUp = true;
+        }
+      } catch (_) {
+        // Backend availability must not be mistaken for a confirmed number.
+      }
+    }
     if (options.isEmpty) {
       _addAssistantMessage(
         text: '전화할 업체의 확인된 번호가 없습니다. 상호명을 말씀하거나 '
             '전화번호를 알려주시면 연결하겠습니다.',
         badge: '전화할 업체 확인',
       );
-    } else if (options.length == 1) {
+    } else if (options.length == 1 && (!lookedUp ||
+        options.single['name']?.toString().replaceAll(RegExp(r'\\s+'), '').toLowerCase() ==
+            requestedName.replaceAll(RegExp(r'\\s+'), '').toLowerCase())) {
       await _dialBusiness(options.single);
     } else {
       _addAssistantMessage(
