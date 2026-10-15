@@ -1588,6 +1588,21 @@ def _fallback_place_intent_from_request(
         context.get("subject") or ""
     ).strip()
 
+    # Timeout recovery for explicit location + common business category.
+    # Do not infer a business type from unrelated/general utterances.
+    if not category and new_location:
+        for term, canonical in (
+            ("치과", "치과"), ("약국", "약국"),
+            ("타이어점", "타이어점"), ("미용실", "미용실"),
+            ("카페", "카페"), ("식당", "식당"),
+            ("주차장", "주차장"), ("병원", "병원"),
+            ("정비소", "정비소"), ("주유소", "주유소"),
+        ):
+            if term in current_text:
+                category = canonical
+                subject = canonical
+                break
+
     raw_terms = context.get("search_terms")
     search_terms = (
         [
