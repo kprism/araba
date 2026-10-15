@@ -320,4 +320,56 @@ void main() {
     expect(VerifiedPlaceFollowup.openThrough(
       doctor, 1260, nowKst: thursday), true);
   });
+
+  test('month and Thursday grouped hours qualify at 19', () {
+    final b = clinic('mon-thu','목요일야간치과','창원시',
+      hours: ['월·목 09:00-19:00']);
+    expect(VerifiedPlaceFollowup.openThrough(
+      b, 19 * 60, nowKst: thursday), true);
+    expect(VerifiedPlaceFollowup.openThrough(
+      b, 19 * 60 + 30, nowKst: thursday), false);
+    final c = clinic('mon-thu-dot','목요일19시치과','창원시',
+      hours: ['월.목 09:00-19:00']);
+    expect(VerifiedPlaceFollowup.openThrough(
+      c, 19 * 60, nowKst: thursday), true);
+  });
+
+  test('explicit Thursday seven is stored as Thursday nineteen', () {
+    final candidates = [clinic('1','목요일19시치과','창원시',
+        hours: ['월·목 09:00-19:00'])];
+    final request = VerifiedPlaceFollowup.missionFor(
+      '그중 목요일 7시까지 진료하는 곳은?',
+      candidates,
+      {'location':'창원시','category':'치과'},
+    )!;
+    final criteria = (request['criteria'] as List).single;
+    expect(criteria['day'], '목요일');
+    expect(criteria['value'], '19:00');
+    expect(VerifiedPlaceFollowup.confirmed(
+      candidates,candidates,request,nowKst: thursday,
+    ).length, 1);
+  });
+
+  test('unverified businesses nested in matching are evaluated in scope', () {
+    final a = clinic('a','치과A','경남 창원시',hours:['목요일 09:00-18:00']);
+    final b = clinic('b','치과B','경남 창원시',hours:['월·목 09:00-19:00']);
+    final c = clinic('c','서울치과','서울특별시');
+    final response = <String,dynamic>{
+      'businesses': [a],
+      'matching': {
+        'unverified_businesses':[b,c],
+        'excluded_businesses':[],
+      },
+    };
+    final returned = VerifiedPlaceFollowup.enrichedCandidates(response);
+    expect(returned.length, 3);
+    final mission = VerifiedPlaceFollowup.missionFor(
+      '그중 목요일 7시까지 하는 곳?',
+      [a,b], {'location':'창원시','category':'치과'},
+    )!;
+    final safe = VerifiedPlaceFollowup.confirmed(
+      [a,b], returned, mission, nowKst: thursday,
+    );
+    expect(safe.map((item)=>item['name']).toList(), ['치과B']);
+  });
 }
