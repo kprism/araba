@@ -1369,7 +1369,30 @@ class _HomeScreenState extends State<HomeScreen>
     ).toList();
     int? requestedMinute;
     if (closingCriterion.length == 1) {
-      final parts = RegExp(r'^(\\d{1,2}):(\\d{2})
+      final clock = (closingCriterion.single['value']?.toString() ?? '')
+          .split(':');
+      if (clock.length == 2) {
+        final h = int.tryParse(clock[0]);
+        final m = int.tryParse(clock[1]);
+        if (h != null && m != null && h <= 24 && m < 60) {
+          requestedMinute = h * 60 + m;
+        }
+      }
+    }
+    final unknownHours = requestedMinute == null ? 0 : checkedCohort.where(
+      (item) => VerifiedPlaceFollowup.openThrough(
+        item, requestedMinute!,
+      ) == null,
+    ).length;
+    final missingEvidence = unknownHours > 0
+        ? '$unknownHours곳은 영업시간 정보가 미확인되어 영업하지 않는다고 단정할 수 없습니다.'
+        : '확인된 영업시간 기준으로 해당 조건을 만족하는 곳이 없습니다.';
+    final answer = selected.isEmpty
+        ? '직전에 찾은 ${candidates.length}곳 중 조건 충족이 확인된 곳은 없습니다. '
+            '$missingEvidence'
+        : '$namedAnswer\n'
+            '직전 ${candidates.length}곳 중 검증된 조건 충족 '
+            '${selected.length}곳입니다.';
     _addAssistantMessage(
       text: answer,
       badge: selected.isNotEmpty ? '조건 비교 완료' : '조건 근거 추가 확인 필요',
