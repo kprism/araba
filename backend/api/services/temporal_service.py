@@ -317,6 +317,12 @@ def structured_business_hours(business):
         )
     ):
         raw = web.get("opening_hours")
+        if not isinstance(raw, list) and (
+            _naver(business).get("opening_hours_source") == "openai_web"
+        ):
+            # Legacy graph snapshots stored independently verified web hours
+            # in a Naver-shaped field. Recover only unmixed, sourced evidence.
+            raw = _naver(business).get("opening_hours")
         if isinstance(raw, list):
             include(_structured_hours_from_lines(raw, "openai_web_verified"))
 
