@@ -7,7 +7,11 @@ void main() {
   Map<String,dynamic> clinic(String id, String name, String address,
       {List<String>? hours}) => {
     'id': id, 'name': name, 'address': address,
-    'naver': {'opening_hours': hours ?? <String>[]},
+    'naver': {
+      'matched': true,
+      'page_checked': true,
+      'opening_hours': hours ?? <String>[],
+    },
   };
 
   test('spoken or typed followup keeps only previous three businesses', () {
@@ -71,6 +75,59 @@ void main() {
       daily, 21*60, nowKst: thursday), true);
     expect(VerifiedPlaceFollowup.openThrough(
       early, 21*60, nowKst: thursday), false);
+  });
+
+  test('unmatched provider hours cannot confirm a dental clinic', () {
+    final business = clinic('21','창원치과','경남 창원시',
+        hours:['목요일 09:00-23:00']);
+    (business['naver'] as Map<String,dynamic>)['matched'] = false;
+    expect(VerifiedPlaceFollowup.openThrough(
+      business, 21 * 60, nowKst: thursday), isNull);
+    (business['naver'] as Map<String,dynamic>)['matched'] = true;
+    (business['naver'] as Map<String,dynamic>)['page_checked'] = false;
+    expect(VerifiedPlaceFollowup.openThrough(
+      business, 21 * 60, nowKst: thursday), isNull);
+    business['google_places'] = {
+      'matched': false,
+      'current_opening_hours': ['목요일 08:00-23:00'],
+    };
+    expect(VerifiedPlaceFollowup.openThrough(
+      business, 21 * 60, nowKst: thursday), isNull);
+
+    final mission = VerifiedPlaceFollowup.missionFor(
+      '이중에서 오늘 밤 9시까지 하는 곳 알려줘',
+      [business], {'category':'치과','location':'창원'},
+    )!;
+    expect(VerifiedPlaceFollowup.confirmed(
+      [business], [business], mission, nowKst: thursday), isEmpty);
+  });
+
+  test('without closing-time proof nothing may be confirmed', () {
+    final original = [
+      clinic('1','창원 A','경남 창원시'),
+      clinic('2','창원 B','경남 창원시'),
+    ];
+    final mission = VerifiedPlaceFollowup.missionFor(
+      '그중 오늘 밤 9시까지 영업하는 곳',
+      original, {'category':'치과'},
+    )!;
+    final malformed = Map<String,dynamic>.from(mission);
+    malformed['criteria'] = <Map<String,dynamic>>[];
+    expect(VerifiedPlaceFollowup.confirmed(
+      original, original, malformed, nowKst: thursday), isEmpty);
+  });
+
+  test('colloquial prior set references remain scoped, new searches do not', () {
+    final original = [clinic('1','창원 A','경남 창원시')];
+    for (final utterance in [
+      '방금 찾은 곳 중 오늘 밤 9시까지 하는 치과',
+      '아까 찾은 곳 중 오늘 저녁 9시까지 하는 데',
+      '그중 오늘 밤 9시 이후까지 하는 업체',
+    ]) {
+      expect(VerifiedPlaceFollowup.missionFor(
+        utterance, original, {'location':'창원'}), isNotNull,
+        reason: utterance);
+    }
   });
 
   test('request for different or more places is not intercepted', () {
