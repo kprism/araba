@@ -130,9 +130,9 @@ class StrictLocalCohortAndTimeTests(TestCase):
             ],
         }
         request = (
-            "[대화 문맥 - 참고용]\\n"
+            "[대화 문맥 - 참고용]\n"
             + json.dumps(context, ensure_ascii=False)
-            + "\\n[현재 요청]\\n"
+            + "\n[현재 요청]\n"
             + "이중에서 오늘 밤 9시까지 하는 곳 알려줘"
         )
         with patch("api.services.mission_service.OpenAI") as openai:
