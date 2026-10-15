@@ -229,4 +229,25 @@ void main() {
     expect(VerifiedPlaceFollowup.openThrough(
       clinicSplit, 21 * 60, nowKst: thursday), true);
   });
+
+  test('typed and spoken generic conditions are parsed before GPT Core', () {
+    final original = [clinic('1', '치과A', '경남 창원시')];
+    for (final speech in [
+      '그중 주차 가능한 곳 알려줘',
+      '그 중 가장 가까운 곳은?',
+      '그중에서 가장 저렴한 곳 알려줘',
+    ]) {
+      final result = VerifiedPlaceFollowup.missionFor(
+        speech, original, {'category': '치과', 'location': '창원'},
+      );
+      expect(result, isNotNull, reason: speech);
+      expect(result!['search_mode'], 'comparison');
+      expect((result['criteria'] as List), hasLength(1));
+    }
+    final compound = VerifiedPlaceFollowup.missionFor(
+      '그중 오늘 밤 9시까지 진료하면서 주차 가능한 곳',
+      original, {'category': '치과', 'location': '창원'},
+    )!;
+    expect((compound['criteria'] as List), hasLength(2));
+  });
 }
