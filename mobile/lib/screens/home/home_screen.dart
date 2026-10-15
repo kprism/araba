@@ -18,6 +18,7 @@ import '../../services/live_voice_service.dart';
 import '../../services/merchant_account_api.dart';
 import '../../services/navigation_service.dart';
 import '../../services/place_result_scope.dart';
+import '../../services/verified_place_followup.dart';
 import '../../services/navigation_dialog_service.dart';
 import '../../services/navigation_provider_service.dart';
 import '../../services/naver_credential_store.dart';
@@ -257,6 +258,10 @@ class _HomeScreenState extends State<HomeScreen>
           }
           if (!_trainerMode &&
               await _tryHandleNavigation(text, fromVoice: true)) {
+            return true;
+          }
+          if (!_trainerMode &&
+              await _tryHandleVerifiedFollowup(text, fromVoice: true)) {
             return true;
           }
 
@@ -1094,9 +1099,16 @@ class _HomeScreenState extends State<HomeScreen>
           ? _namedMatchAnswer(updated)
           : '';
 
-      final remembered = updated.isNotEmpty
-          ? updated
-          : initialBusinesses;
+      // Enrichment can return a subset (or none) when facts are absent.
+      // Never shrink the originally displayed cohort on that account.
+      String identity(Map<String, dynamic> item) =>
+          '${item['id']?.toString() ?? ''}|${item['name']?.toString() ?? ''}|${item['address']?.toString() ?? ''}';
+      final refreshed = {
+        for (final item in updated) identity(item): item,
+      };
+      final remembered = initialBusinesses
+          .map((item) => refreshed[identity(item)] ?? item)
+          .toList();
       _rememberBusinessGroup(mission, remembered);
 
       final detailStatus = anyDetails
@@ -1104,7 +1116,7 @@ class _HomeScreenState extends State<HomeScreen>
           : '$detailFailure 출처가 없는 값은 임의로 채우지 않았어요.';
       setState(() {
         final message = _messages[messageIndex];
-        message.businesses = updated;
+        message.businesses = remembered;
         message.matching = matching;
         message.badge = hasCriteria
             ? (
@@ -1232,6 +1244,22 @@ class _HomeScreenState extends State<HomeScreen>
     return mode == 'comparison' && reuse;
   }
 
+  Future<bool> _tryHandleVerifiedFollowup(
+    String text, {required bool fromVoice}
+  ) async {
+    final mission = VerifiedPlaceFollowup.missionFor(
+      text, _lastBusinesses, _conversationContext.snapshot,
+    );
+    if (mission == null) return false;
+
+    if (!fromVoice) {
+      setState(() => _messages.add(_Message(isUser: true, text: text)));
+      _toBottom();
+    }
+    await _runRealResearch(mission, forceComplete: true);
+    return true;
+  }
+
   Future<void> _runRecentPlaceComparison(
     Map<String, dynamic> mission,
     int revision,
@@ -1268,8 +1296,12 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    final selected = PlaceResultScope.followup(
-      candidates, _businessesFrom(result),
+    // Never trust a remote summary or matching status as independent proof.
+    // The backend may still run a previous version of the matching engine.
+    final selected = VerifiedPlaceFollowup.confirmed(
+      candidates,
+      PlaceResultScope.followup(candidates, _businessesFrom(result)),
+      mission,
     );
     final rawMatching = result['matching'];
     final matching = rawMatching is Map
@@ -1302,6 +1334,11 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     final namedAnswer = _namedMatchAnswer(selected);
+    final strictTimeFilter = (mission['criteria'] is List) &&
+        (mission['criteria'] as List).whereType<Map>().any(
+          (criterion) => criterion['field'] == 'closing_time' &&
+              criterion['operator'] == 'gte',
+        );
     final answer = namedAnswer.isNotEmpty
         ? namedAnswer
         : (
@@ -1313,8 +1350,10 @@ class _HomeScreenState extends State<HomeScreen>
                         : '조건을 판정했지만 아직 최종 확정할 근거가 부족해요.'
                   )
           );
-    final summaryLine = summary.isNotEmpty &&
-            summary != answer
+    // A model-generated summary may name businesses outside the cohort
+    // or confidently recommend unknown hours. Never print it for this filter.
+    final summaryLine = !strictTimeFilter &&
+            summary.isNotEmpty && summary != answer
         ? '\n$summary'
         : '';
 
@@ -1323,16 +1362,23 @@ class _HomeScreenState extends State<HomeScreen>
           ? '직전에 찾은 ${candidates.length}곳 안에서는 이번 조건을 '
               '충족한다고 확인된 업체가 없습니다. '
               '영업시간이 미확인된 곳은 확정 추천하지 않겠습니다.'
-          : '$answer$summaryLine\n'
-              '조건충족 $matchedCount · 미확인 $unverifiedCount · '
-              '불일치 $excludedCount',
-      badge: answerReady && selected.isNotEmpty
+          : strictTimeFilter
+              ? '$namedAnswer\n'
+                  '직전 ${candidates.length}곳 중 영업시간 근거 확인 '
+                  '${selected.length}곳 · 나머지는 미확인 또는 조건 불일치'
+              : '$answer$summaryLine\n'
+                  '조건충족 $matchedCount · 미확인 $unverifiedCount · '
+                  '불일치 $excludedCount',
+      badge: selected.isNotEmpty &&
+              (strictTimeFilter || answerReady)
           ? '조건 비교 완료'
           : '조건 근거 추가 확인 필요',
       businesses: selected,
       matching: matching,
     );
-    _speakProgress(answer);
+    _speakProgress(selected.isEmpty
+        ? '이전에 찾은 업체 중 해당 시간까지 영업한다고 확인된 곳은 없습니다.'
+        : strictTimeFilter ? namedAnswer : answer);
   }
 
   Future<void> _runRealResearch(
@@ -2114,6 +2160,10 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     if (await _tryHandleNavigation(text, fromVoice: false)) {
+      return;
+    }
+    if (!_trainerMode &&
+        await _tryHandleVerifiedFollowup(text, fromVoice: false)) {
       return;
     }
 
