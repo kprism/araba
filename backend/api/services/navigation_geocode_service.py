@@ -105,6 +105,8 @@ def _related_name(query, place):
     from difflib import SequenceMatcher
 
     target, _ = _place_and_area(query)
+    if _same_school(query, place) or _same_school(target, place):
+        return True
     requested_type = _venue_type(target)
     candidate_type = _venue_type(place["name"])
     if requested_type and requested_type != candidate_type:
