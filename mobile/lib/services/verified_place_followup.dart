@@ -111,14 +111,29 @@ class VerifiedPlaceFollowup {
     final naver = b['naver'];
     final checkedNaver = naver is Map &&
         naver['matched'] == true && naver['page_checked'] == true;
+    final web = b['openai_web'];
+    final checkedWeb = web is Map &&
+        web['matched'] == true && web['identity_confirmed'] == true &&
+        web['opening_hours_found'] == true &&
+        web['sources'] is List &&
+        (web['sources'] as List).any((url) =>
+          url is String && (url.startsWith('https://') ||
+              url.startsWith('http://')));
+    final output = <Map<String,dynamic>>[];
+    void include(List<Map<String,dynamic>> rows) {
+      final selectedDays = output.map((r) => r['weekday']).toSet();
+      output.addAll(rows.where((r) =>
+          !selectedDays.contains(r['weekday'])));
+    }
     final fromServer = b['structured_opening_hours'];
     if (fromServer is List) {
       final checked = fromServer.whereType<Map>().where((r) {
         final source = r['source']?.toString() ?? '';
         return (source.startsWith('google_places') && checkedGoogle) ||
-            (source == 'naver_verified_page' && checkedNaver);
+            (source == 'naver_verified_page' && checkedNaver) ||
+            (source == 'openai_web_verified' && checkedWeb);
       }).map((r) => Map<String,dynamic>.from(r)).toList();
-      if (checked.isNotEmpty) return checked;
+      include(checked);
     }
 
     List<Map<String,dynamic>> parseLines(List lines, String source) {
@@ -158,15 +173,65 @@ class VerifiedPlaceFollowup {
         final lines = google[key];
         if (lines is List) {
           final records = parseLines(lines, 'google_places');
-          if (records.isNotEmpty) return records;
+          include(records);
         }
       }
     }
     if (checkedNaver) {
       final lines = naver['opening_hours'];
-      if (lines is List) return parseLines(lines, 'naver_verified_page');
+      if (lines is List) include(parseLines(lines, 'naver_verified_page'));
     }
-    return [];
+    if (checkedWeb) {
+      final lines = web['opening_hours'];
+      if (lines is List) {
+        include(parseLines(lines, 'openai_web_verified'));
+      }
+    }
+
+    // Fresh ARABA Graph weekly facts remain usable even when an upstream
+    // provider returns no hours on this particular enrichment attempt.
+    final weekly = b['weekly_opening_hours'];
+    final fresh = b['araba_fresh_facts'];
+    if (b['araba_cache_hit'] == true && fresh is List &&
+        fresh.contains('weekly_opening_hours') && weekly is List) {
+      for (final rawDay in weekly.whereType<Map>()) {
+        final source = rawDay['source']?.toString() ?? '';
+        if (!const {
+          'google_places_current', 'google_places_regular',
+          'naver_verified_page', 'openai_web_verified',
+        }.contains(source)) continue;
+        final weekday = rawDay['weekday']?.toString() ?? '';
+        if (!days.contains(weekday)) continue;
+        if (rawDay['status'] == 'closed') {
+          include([{'weekday':weekday,'closed':true,'source':source}]);
+          continue;
+        }
+        if (rawDay['status'] != 'open') continue;
+        final sessions = rawDay['sessions'];
+        if (sessions is! List) continue;
+        final rows = <Map<String,dynamic>>[];
+        for (final item in sessions.whereType<Map>()) {
+          final start = item['start_time']?.toString() ?? '';
+          final end = item['end_time']?.toString() ?? '';
+          final clock = RegExp(r'^(\d{1,2}):(\d{2})
+  }
+);
+          final a = clock.firstMatch(start);
+          final z = clock.firstMatch(end);
+          if (a == null || z == null) continue;
+          final begin = int.parse(a.group(1)!) * 60 + int.parse(a.group(2)!);
+          final finish = int.parse(z.group(1)!) * 60 + int.parse(z.group(2)!);
+          if (begin < 0 || begin >= 1440 ||
+              finish <= begin || finish > 10080) continue;
+          rows.add({
+            'weekday':weekday,'start_minute':begin,'end_minute':finish,
+            'start_time':start,'end_time':end,'source':source,
+          });
+        }
+        include(rows);
+      }
+    }
+    return output;
   }
 
   static bool? openThrough(
