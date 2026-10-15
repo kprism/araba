@@ -57,7 +57,9 @@ class ConversationContext {
     final before = m.group(1)!;
     final after = m.group(2)!;
     if (const {'치과','병원','피부과','식당','카페','약국'}
-        .contains(after)) return null;
+        .contains(after)) {
+      return null;
+    }
 
     final initial = text.substring(0, m.start).trim();
     final explicit = RegExp(
@@ -72,9 +74,13 @@ class ConversationContext {
           RegExp(r'치과|병원|의원|약국|식당|카페|타이어')
               .hasMatch(known)) old = known;
     }
-    if (old.isEmpty || old == before) return null;
+    if (old.isEmpty || old == before) {
+      return null;
+    }
     final target = old.replaceFirst(before, after);
-    if (target == old) return null;
+    if (target == old) {
+      return null;
+    }
 
     var category = _known['category']?.toString().trim() ?? '';
     if (target.contains('치과')) {
@@ -89,7 +95,9 @@ class ConversationContext {
         RegExp(r'병원|의원').hasMatch(target)) {
       category = '병원';
     }
-    if (category.isEmpty) return null;
+    if (category.isEmpty) {
+      return null;
+    }
     return {
       'intent': 'place_search',
       'title': '$target 찾기',
