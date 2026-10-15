@@ -67,12 +67,16 @@ class ConversationContext {
       r'식당|카페|타이어점))$',
     ).firstMatch(initial);
     var old = explicit?.group(1) ?? '';
-    if (!old.contains(before)) old = '';
+    if (!old.contains(before)) {
+      old = '';
+    }
     if (old.isEmpty) {
       final known = _known['target_business']?.toString() ?? '';
       if (known.contains(before) &&
           RegExp(r'치과|병원|의원|약국|식당|카페|타이어')
-              .hasMatch(known)) old = known;
+              .hasMatch(known)) {
+        old = known;
+      }
     }
     if (old.isEmpty || old == before) {
       return null;
