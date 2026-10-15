@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from api.models import Business, BusinessExperience
+from api.models import Business, BusinessExperience, BusinessFact
 from api.services.business_graph_service import (
     add_business_experience,
     persist_businesses,
@@ -356,3 +356,78 @@ class BusinessEvidenceRefreshTests(TestCase):
         self.assertFalse(stored.get("image_url"))
         self.assertFalse(stored.get("image_identity_verified"))
         self.assertIn("photo", stored["araba_missing_facts"])
+
+class WeeklyHoursPersistenceTests(TestCase):
+    def test_verified_monday_thursday_19_is_saved_with_unknown_other_days(self):
+        from api.services.temporal_service import weekly_hours_table
+        from api.services.business_matching_service import match_businesses
+
+        business = {
+            "id": "kakao-900", "name": "목요일19시치과",
+            "source": "kakao", "address": "창원시 의창구 중동 9",
+            "naver": {
+                "matched": True, "page_checked": True,
+                "opening_hours": ["월·목 09:00-19:00"],
+            },
+        }
+        rows = weekly_hours_table(business)
+        self.assertEqual(len(rows), 7)
+        self.assertEqual(rows[0]["status"], "open")
+        self.assertEqual(rows[3]["status"], "open")
+        self.assertEqual(rows[3]["sessions"][0]["start_time"], "09:00")
+        self.assertEqual(rows[3]["sessions"][0]["end_time"], "19:00")
+        self.assertEqual(rows[1]["status"], "unknown")
+
+        saved = persist_businesses([business], {"category": "치과"})
+        stored = Business.objects.get()
+        self.assertEqual(
+            stored.snapshot["weekly_opening_hours"][3]["sessions"][0]["end_time"],
+            "19:00",
+        )
+        fact = BusinessFact.objects.get(
+            business=stored,
+            key="weekly_opening_hours",
+            source="araba_normalized",
+        )
+        self.assertEqual(
+            fact.value["value"][3]["weekday"],
+            "목요일",
+        )
+        criteria = {"criteria": [{
+            "id": "thursday19", "field": "closing_time",
+            "operator": "gte", "value": "19:00",
+            "day": "목요일", "required": True,
+        }]}
+        result = match_businesses(criteria, saved)
+        self.assertEqual(result["matched_count"], 1)
+
+    def test_weekday_split_shift_and_closed_not_equal_unknown(self):
+        from api.services.temporal_service import weekly_hours_table
+        business = {
+            "naver": {
+                "matched": True, "page_checked": True,
+                "opening_hours": [
+                    "목요일 09:00-12:00",
+                    "목요일 14:00-19:00",
+                    "금요일 휴무",
+                ],
+            },
+        }
+        rows = weekly_hours_table(business)
+        self.assertEqual(len(rows[3]["sessions"]), 2)
+        self.assertEqual(rows[4]["status"], "closed")
+        self.assertEqual(rows[5]["status"], "unknown")
+
+    def test_unverified_hours_are_not_written_as_weekly_fact(self):
+        business = {
+            "id": "kakao-901", "name": "미확인치과",
+            "address": "창원시 의창구 중동 11", "source": "kakao",
+            "naver": {
+                "matched": True, "page_checked": False,
+                "opening_hours": ["목요일 09:00-23:00"],
+            },
+        }
+        persist_businesses([business], {"category": "치과"})
+        self.assertFalse(BusinessFact.objects.filter(
+            key="weekly_opening_hours",
+        ).exists())
