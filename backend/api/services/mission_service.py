@@ -1894,6 +1894,7 @@ def _fast_recent_place_comparison(user_request):
                         str(item.get("label") or field).strip()
                         or field
                     ),
+                    **({"day": item["day"]} if item.get("day") else {}),
                 }
             )
 
