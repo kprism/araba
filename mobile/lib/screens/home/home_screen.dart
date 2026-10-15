@@ -1382,6 +1382,7 @@ class _HomeScreenState extends State<HomeScreen>
     final unknownHours = requestedMinute == null ? 0 : checkedCohort.where(
       (item) => VerifiedPlaceFollowup.openThrough(
         item, requestedMinute!,
+        weekday: closingCriterion.single['day']?.toString(),
       ) == null,
     ).length;
     final missingEvidence = unknownHours > 0
