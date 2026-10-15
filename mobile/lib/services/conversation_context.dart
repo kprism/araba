@@ -44,6 +44,84 @@ class ConversationContext {
     ].join('\n');
   }
 
+  /// Recognize an unambiguous speech correction of a named business.
+  /// Other corrections remain with GPT Core, without guessing businesses.
+  Map<String, dynamic>? explicitNameCorrectionMission(String utterance) {
+    final text = utterance.trim();
+    final matches = RegExp(
+      r'([0-9A-Za-z가-힣]{2,20}?)(?:이|가)?\s*(?:아니고|말고)'
+      r'\s*[,，]?\s*([0-9A-Za-z가-힣]{2,20})',
+    ).allMatches(text).toList();
+    if (matches.isEmpty) return null;
+    final m = matches.last;
+    final before = m.group(1)!;
+    final after = m.group(2)!;
+    if (const {'치과','병원','피부과','식당','카페','약국'}
+        .contains(after)) {
+      return null;
+    }
+
+    final initial = text.substring(0, m.start).trim();
+    final explicit = RegExp(
+      r'([0-9A-Za-z가-힣]{2,45}(?:치과의원|치과|의원|병원|약국|'
+      r'식당|카페|타이어점))$',
+    ).firstMatch(initial);
+    var old = explicit?.group(1) ?? '';
+    if (!old.contains(before)) {
+      old = '';
+    }
+    if (old.isEmpty) {
+      final known = _known['target_business']?.toString() ?? '';
+      if (known.contains(before) &&
+          RegExp(r'치과|병원|의원|약국|식당|카페|타이어')
+              .hasMatch(known)) {
+        old = known;
+      }
+    }
+    if (old.isEmpty || old == before) {
+      return null;
+    }
+    final target = old.replaceFirst(before, after);
+    if (target == old) {
+      return null;
+    }
+
+    var category = _known['category']?.toString().trim() ?? '';
+    if (target.contains('치과')) {
+      category = '치과';
+    } else if (target.contains('약국')) {
+      category = '약국';
+    } else if (target.contains('식당')) {
+      category = '식당';
+    } else if (target.contains('카페')) {
+      category = '카페';
+    } else if (category.isEmpty &&
+        RegExp(r'병원|의원').hasMatch(target)) {
+      category = '병원';
+    }
+    if (category.isEmpty) {
+      return null;
+    }
+    return {
+      'intent': 'place_search',
+      'title': '$target 찾기',
+      'summary': '$target 찾기',
+      'user_goal': text,
+      'category': category,
+      'search_mode': 'exact_place',
+      'response_mode': 'research',
+      'ready_to_research': true,
+      'location': _known['location']?.toString().trim() ?? '',
+      'subject': target,
+      'target_business': target,
+      'requested_count': 1,
+      'search_terms': [target],
+      'attributes': {'spoken_name_correction': true},
+      'criteria': <Map<String, dynamic>>[],
+      'required_facts': ['업체명', '주소', '전화번호'],
+    };
+  }
+
   void rememberMission(
     Map<String, dynamic> mission,
   ) {

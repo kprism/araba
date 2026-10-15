@@ -261,6 +261,10 @@ class _HomeScreenState extends State<HomeScreen>
             return true;
           }
           if (!_trainerMode &&
+              await _tryHandleExplicitNameCorrection(text, fromVoice: true)) {
+            return true;
+          }
+          if (!_trainerMode &&
               await _tryHandleVerifiedFollowup(text, fromVoice: true)) {
             return true;
           }
@@ -1263,6 +1267,21 @@ class _HomeScreenState extends State<HomeScreen>
     return mode == 'comparison' && reuse;
   }
 
+  Future<bool> _tryHandleExplicitNameCorrection(
+    String text, {required bool fromVoice}
+  ) async {
+    final mission = _conversationContext.explicitNameCorrectionMission(text);
+    if (mission == null) return false;
+    if (!fromVoice) {
+      setState(() => _messages.add(_Message(isUser: true, text: text)));
+      _toBottom();
+    }
+    // Preserve the corrected target even if downstream research is slow.
+    _conversationContext.rememberMission(mission);
+    await _runRealResearch(mission);
+    return true;
+  }
+
   Future<bool> _tryHandleVerifiedFollowup(
     String text, {required bool fromVoice}
   ) async {
@@ -2229,6 +2248,10 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     if (await _tryHandleNavigation(text, fromVoice: false)) {
+      return;
+    }
+    if (!_trainerMode &&
+        await _tryHandleExplicitNameCorrection(text, fromVoice: false)) {
       return;
     }
     if (!_trainerMode &&

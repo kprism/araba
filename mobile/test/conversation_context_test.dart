@@ -260,4 +260,64 @@ test('place search history keeps recent categories for later follow-up', () {
     '치과',
   );
 });
+
+test('STT correction of an explicitly named clinic skips GPT Core', () {
+  final context = ConversationContext();
+  final mission = context.explicitNameCorrectionMission(
+    '하이스트용치과 하이스트가 아니고 카이스트',
+  )!;
+  expect(mission['target_business'], '카이스트용치과');
+  expect(mission['search_terms'], ['카이스트용치과']);
+  expect(mission['category'], '치과');
+  expect(mission['search_mode'], 'exact_place');
+  expect(mission['requested_count'], 1);
+});
+
+test('short spoken correction reuses prior exact place and location', () {
+  final context = ConversationContext();
+  context.rememberMission({
+    'intent': 'place_search',
+    'search_mode': 'exact_place',
+    'location': '창원시 의창구 중동',
+    'category': '치과',
+    'target_business': '하이스트용치과',
+  });
+  final mission = context.explicitNameCorrectionMission(
+    '하이스트가 아니고 카이스트',
+  )!;
+  expect(mission['target_business'], '카이스트용치과');
+  expect(mission['location'], '창원시 의창구 중동');
+  context.rememberMission(mission);
+  expect(context.snapshot['target_business'], '카이스트용치과');
+});
+
+test('ambiguous topic and location corrections do not guess a name', () {
+  final context = ConversationContext();
+  for (final utterance in [
+    '치과 말고 피부과',
+    '하이스트가 아니고 카이스트',
+    '창원시 아니고 부산시',
+    '그중 오늘 밤 9시까지 하는 곳',
+    '우산 하나 만들어줘',
+  ]) {
+    expect(
+      context.explicitNameCorrectionMission(utterance),
+      isNull, reason: utterance,
+    );
+  }
+});
+
+test('unrelated stale exact target is not used for new name', () {
+  final context = ConversationContext();
+  context.rememberMission({
+    'category': '치과',
+    'target_business': '다른치과',
+    'search_mode': 'exact_place',
+  });
+  expect(
+    context.explicitNameCorrectionMission(
+      '하이스트가 아니고 카이스트',
+    ), isNull,
+  );
+});
 }
