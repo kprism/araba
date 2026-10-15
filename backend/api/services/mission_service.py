@@ -2031,6 +2031,19 @@ def _fast_recent_place_comparison(user_request):
                 threshold,
                 f"{display_hour} 이후까지 영업",
             )
+            if "오늘" in compact or "금일" in compact:
+                from .temporal_service import current_time_context
+                today = current_time_context()["weekday"]
+                for item in criteria:
+                    if (
+                        item["field"] == "closing_time"
+                        and item["operator"] == "gte"
+                        and item["value"] == threshold
+                    ):
+                        item["day"] = today
+                        item["label"] = (
+                            f"오늘({today}) {display_hour}까지 영업"
+                        )
 
     if (
         "새벽까지" in compact
@@ -2251,6 +2264,23 @@ def split_independent_requests(request_text):
     ]
 
 
+def _enforce_requested_place_count(mission, request_text):
+    """Take the explicit user count, never a guessed LLM count."""
+    if not isinstance(mission, dict) or mission.get("intent") != "place_search":
+        return mission
+    _, current = _split_contextual_request(request_text)
+    match = re.search(
+        r"(?<!\d)(\d{1,2})\s*(?:곳|군데|개\s*업체|개\s*상점|개\s*장소)",
+        current,
+    )
+    if not match:
+        return mission
+    requested = max(1, min(int(match.group(1)), 10))
+    result = dict(mission)
+    result["requested_count"] = requested
+    return result
+
+
 def create_mission(
     user_request,
     api_key=None,
@@ -2366,7 +2396,9 @@ def create_mission(
     diagnostics["stage"] = "route_intent"
     diagnostics["route"] = intent["intent"]
 
-    mission = _mission_from_intent(intent)
+    mission = _enforce_requested_place_count(
+        _mission_from_intent(intent), request_text,
+    )
     mission = _apply_device_context_to_mission(
         mission,
         request_text,
