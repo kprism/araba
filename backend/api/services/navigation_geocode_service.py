@@ -115,8 +115,12 @@ def _related_name(query, place):
     actual = _name_core(place["name"])
     if not asked or not actual:
         return False
-    if asked in actual or actual in asked:
-        return min(len(asked), len(actual)) >= 2
+    if asked in actual:
+        return len(asked) >= 2
+    if actual in asked:
+        # A generic two-syllable neighborhood prefix is not enough to offer
+        # an unrelated hospital, hall, shop or school.
+        return len(actual) >= 3 and len(actual) >= len(asked) - 1
     # Restrict fuzzy fallback to substantive names, never generic categories.
     return (
         len(asked) >= 3 and len(actual) >= 3
