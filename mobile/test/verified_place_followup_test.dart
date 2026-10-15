@@ -372,4 +372,93 @@ void main() {
     );
     expect(safe.map((item)=>item['name']).toList(), ['치과B']);
   });
+
+  test('voice Korean 아홉 시 and 숫자 9시 both become 21:00', () {
+    final original = [
+      clinic('1','카페A','창원',hours:['목요일 09:00-21:30']),
+    ];
+    for (final speech in [
+      '어, 이중에 오늘 밤 아홉 시까지 하는 카페를 찾아줘',
+      '그중 오늘 밤 9시까지 영업하는 카페만 알려줘',
+      '그중 목요일 오후 아홉 시까지 여는 곳',
+      '그중 목요일 21시까지 영업하는 곳',
+    ]) {
+      final mission = VerifiedPlaceFollowup.missionFor(
+        speech, original, {'category':'카페','location':'창원'},
+      );
+      expect(mission, isNotNull, reason: speech);
+      expect((mission!['criteria'] as List).first['value'],'21:00',
+        reason: speech);
+    }
+    final halfHour = VerifiedPlaceFollowup.missionFor(
+      '그중 오늘 밤 아홉 시 반까지 영업하는 곳',
+      original, {'category':'카페'},
+    );
+    expect((halfHour!['criteria'] as List).first['value'],'21:30');
+  });
+
+  test('two identity verified web cafe hours qualify without Naver match', () {
+    Map<String,dynamic> webCafe(String id, String name, String time) => {
+      'id':id, 'name':name, 'address':'경남 창원시 성산구',
+      'naver':{'matched':false, 'page_checked':false,
+        'opening_hours':['목요일 09:00-$time'],
+        'opening_hours_source':'openai_web'},
+      'openai_web':{
+        'matched':true,'identity_confirmed':true,
+        'opening_hours_found':true,
+        'sources':['https://example.com/verified/$id'],
+        'opening_hours':['목요일 09:00-$time'],
+      },
+    };
+    final original = [
+      webCafe('c1','카페A','22:00'),
+      webCafe('c2','카페B','21:30'),
+      clinic('c3','카페C','경남 창원시 성산구'),
+    ];
+    final mission = VerifiedPlaceFollowup.missionFor(
+      '어 이중에 오늘 밤 아홉 시까지 하는 카페를 찾아줘',
+      original, {'category':'카페','location':'창원시'},
+    )!;
+    final selected = VerifiedPlaceFollowup.confirmed(
+      original, [
+        ...original,
+        webCafe('outsider','서울카페','23:00'),
+      ], mission, nowKst: thursday,
+    );
+    expect(selected.map((e)=>e['name']).toList(), ['카페A','카페B']);
+    expect(VerifiedPlaceFollowup.openThrough(
+      original[2], 1260, nowKst: thursday), isNull);
+  });
+
+  test('model web hours without independent sources never qualify', () {
+    final cafe = clinic('bad','추측카페','경남 창원시',hours:[]);
+    cafe['openai_web']={
+      'matched':true,'identity_confirmed':true,
+      'opening_hours_found':true,'sources':[],
+      'opening_hours':['목요일 09:00-23:00'],
+    };
+    expect(VerifiedPlaceFollowup.openThrough(
+      cafe, 1260, nowKst: thursday), isNull);
+  });
+
+  test('fresh ARABA weekly fact can answer without provider response', () {
+    final cafe = clinic('graph','기록카페','경남 창원시',hours:[]);
+    cafe['araba_cache_hit']=true;
+    cafe['araba_fresh_facts']=['weekly_opening_hours'];
+    cafe['weekly_opening_hours']=[{
+      'weekday':'목요일','status':'open',
+      'source':'openai_web_verified',
+      'sessions':[{
+        'start_time':'09:00','end_time':'22:00',
+        'source':'openai_web_verified',
+      }],
+    }];
+    (cafe['naver'] as Map)['matched']=false;
+    (cafe['naver'] as Map)['page_checked']=false;
+    expect(VerifiedPlaceFollowup.openThrough(
+      cafe, 1260, nowKst: thursday), true);
+    cafe['araba_fresh_facts']=[];
+    expect(VerifiedPlaceFollowup.openThrough(
+      cafe, 1260, nowKst: thursday), isNull);
+  });
 }
