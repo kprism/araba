@@ -1,442 +1,911 @@
-import 'dart:convert';
+importundefined'dart:convert';
 
-class ConversationContext {
-  final Map<String, dynamic> _known = {};
+classundefinedConversationContextundefined{
+undefinedundefinedfinalundefinedMap<String,undefineddynamic>undefined_knownundefined=undefined{};
 
-  String? get location =>
-      _known['location']?.toString();
+undefinedundefinedString?undefinedgetundefinedlocationundefined=>
+undefinedundefinedundefinedundefinedundefinedundefined_known['location']?.toString();
 
-  Map<String, dynamic> get snapshot =>
-      Map<String, dynamic>.from(_known);
+undefinedundefinedMap<String,undefineddynamic>undefinedgetundefinedsnapshotundefined=>
+undefinedundefinedundefinedundefinedundefinedundefinedMap<String,undefineddynamic>.from(_known);
 
-  String enrichRequest(String requestText) {
-    final text = requestText.trim();
+undefinedundefinedStringundefinedenrichRequest(StringundefinedrequestText)undefined{
+undefinedundefinedundefinedundefinedfinalundefinedtextundefined=undefinedrequestText.trim();
 
-    if (_known.isEmpty ||
-        text.contains('[대화 문맥') ||
-        text.contains('[현재 요청]')) {
-      return text;
-    }
+undefinedundefinedundefinedundefinedifundefined(_known.isEmptyundefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedtext.contains('[대화undefined문맥')undefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedtext.contains('[현재undefined요청]'))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinedtext;
+undefinedundefinedundefinedundefined}
 
-    final knownLocation =
-        _known['location']?.toString().trim() ?? '';
+undefinedundefinedundefinedundefinedfinalundefinedknownLocationundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['location']?.toString().trim()undefined??undefined'';
 
-    return [
-      '[대화 문맥 - 참고용]',
-      if (knownLocation.isNotEmpty)
-        '[대화 문맥] 이미 확인된 지역: $knownLocation',
-      jsonEncode(_known),
-      '',
-      '판단 규칙:',
-      '1. 아래 [현재 요청]이 항상 최우선입니다.',
-      '2. 현재 요청에서 사용자가 최종적으로 원하는 결과와 판단을 먼저 해석하세요.',
-      '3. 지역·업종·상호명은 목적을 해결하기 위한 조건이며, 그 자체를 목적처럼 다루지 마세요.',
-      '4. 대화 문맥은 현재 요청과 충돌하지 않는 정보만 재사용하고, 이미 확인된 정보는 다시 묻지 마세요.',
-      '5. 현재 요청이 새로운 업종·주제·지역을 명시하면 이전 주제의 category, subject, target_business, constraints, attributes를 승계하지 마세요.',
-      '6. "그곳", "그중", "여기서", "이 중에서", "방금 찾은 곳 중", "아까", "거기"처럼 직전 결과를 가리키는 후속표현이면 이전 검색 결과 범위를 그대로 이어가세요.',
-      '7. "거기 아니고", "말고", "아니, 여기"처럼 사용자가 지역이나 장소를 정정하면 이전 위치보다 정정된 현재 요청을 우선하고 직전 결과 범위를 재사용하지 마세요.',
-      '8. 한 발화 안에서 "쌈밥이 아니고 국밥집", "치과 말고 피부과"처럼 업종·메뉴를 고치면 앞의 취소된 말은 버리고 마지막 정정만 현재 요청으로 사용하세요.',
-      '9. 사용자의 목표가 정해졌는데 실행 결과를 크게 바꾸는 사용자만 알 수 있는 필수 정보가 빠졌다면, ARABA가 직접 조사할 수 있는 정보는 제외하고 현재 필요한 항목을 한 번의 질문에 모두 묶어서 물으세요.',
-      '10. ARABA가 방금 물어본 질문에 대한 사용자의 짧은 답은 새 요청이 아니라 기존 목표를 구체화하는 답으로 합쳐서 해석하세요.',
-      '',
-      '[현재 요청]',
-      text,
-    ].join('\n');
-  }
+undefinedundefinedundefinedundefinedreturnundefined[
+undefinedundefinedundefinedundefinedundefinedundefined'[대화undefined문맥undefined-undefined참고용]',
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(knownLocation.isNotEmpty)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'[대화undefined문맥]undefined이미undefined확인된undefined지역:undefined$knownLocation',
+undefinedundefinedundefinedundefinedundefinedundefinedjsonEncode(_known),
+undefinedundefinedundefinedundefinedundefinedundefined'',
+undefinedundefinedundefinedundefinedundefinedundefined'판단undefined규칙:',
+undefinedundefinedundefinedundefinedundefinedundefined'1.undefined아래undefined[현재undefined요청]이undefined항상undefined최우선입니다.',
+undefinedundefinedundefinedundefinedundefinedundefined'2.undefined현재undefined요청에서undefined사용자가undefined최종적으로undefined원하는undefined결과와undefined판단을undefined먼저undefined해석하세요.',
+undefinedundefinedundefinedundefinedundefinedundefined'3.undefined지역·업종·상호명은undefined목적을undefined해결하기undefined위한undefined조건이며,undefined그undefined자체를undefined목적처럼undefined다루지undefined마세요.',
+undefinedundefinedundefinedundefinedundefinedundefined'4.undefined대화undefined문맥은undefined현재undefined요청과undefined충돌하지undefined않는undefined정보만undefined재사용하고,undefined이미undefined확인된undefined정보는undefined다시undefined묻지undefined마세요.',
+undefinedundefinedundefinedundefinedundefinedundefined'5.undefined현재undefined요청이undefined새로운undefined업종·주제·지역을undefined명시하면undefined이전undefined주제의undefinedcategory,undefinedsubject,undefinedtarget_business,undefinedconstraints,undefinedattributes를undefined승계하지undefined마세요.',
+undefinedundefinedundefinedundefinedundefinedundefined'6.undefined"그곳",undefined"그중",undefined"여기서",undefined"이undefined중에서",undefined"방금undefined찾은undefined곳undefined중",undefined"아까",undefined"거기"처럼undefined직전undefined결과를undefined가리키는undefined후속표현이면undefined이전undefined검색undefined결과undefined범위를undefined그대로undefined이어가세요.',
+undefinedundefinedundefinedundefinedundefinedundefined'7.undefined"거기undefined아니고",undefined"말고",undefined"아니,undefined여기"처럼undefined사용자가undefined지역이나undefined장소를undefined정정하면undefined이전undefined위치보다undefined정정된undefined현재undefined요청을undefined우선하고undefined직전undefined결과undefined범위를undefined재사용하지undefined마세요.',
+undefinedundefinedundefinedundefinedundefinedundefined'8.undefined한undefined발화undefined안에서undefined"쌈밥이undefined아니고undefined국밥집",undefined"치과undefined말고undefined피부과"처럼undefined업종·메뉴를undefined고치면undefined앞의undefined취소된undefined말은undefined버리고undefined마지막undefined정정만undefined현재undefined요청으로undefined사용하세요.',
+undefinedundefinedundefinedundefinedundefinedundefined'9.undefined사용자의undefined목표가undefined정해졌는데undefined실행undefined결과를undefined크게undefined바꾸는undefined사용자만undefined알undefined수undefined있는undefined필수undefined정보가undefined빠졌다면,undefinedARABA가undefined직접undefined조사할undefined수undefined있는undefined정보는undefined제외하고undefined현재undefined필요한undefined항목을undefined한undefined번의undefined질문에undefined모두undefined묶어서undefined물으세요.',
+undefinedundefinedundefinedundefinedundefinedundefined'10.undefinedARABA가undefined방금undefined물어본undefined질문에undefined대한undefined사용자의undefined짧은undefined답은undefined새undefined요청이undefined아니라undefined기존undefined목표를undefined구체화하는undefined답으로undefined합쳐서undefined해석하세요.',
+undefinedundefinedundefinedundefinedundefinedundefined'',
+undefinedundefinedundefinedundefinedundefinedundefined'[현재undefined요청]',
+undefinedundefinedundefinedundefinedundefinedundefinedtext,
+undefinedundefinedundefinedundefined].join('\n');
+undefinedundefined}
 
-  void rememberMission(
-    Map<String, dynamic> mission,
-  ) {
-    final previousCategory =
-        _known['category']?.toString().trim() ?? '';
-    final nextCategory =
-        mission['category']?.toString().trim() ?? '';
-    final previousLocation =
-        _known['location']?.toString().trim() ?? '';
-    final nextLocation =
-        mission['location']?.toString().trim() ?? '';
-    final nextMode =
-        mission['search_mode']?.toString().trim() ?? '';
-    final nextAttributes = mission['attributes'];
-    final reuseRecent = nextAttributes is Map &&
-        nextAttributes['reuse_recent_results'] == true;
-    final newSearch = !reuseRecent &&
-        (nextMode == 'category_discovery' ||
-         nextMode == 'area_discovery' ||
-         nextMode == 'exact_place');
-    final locationChanged = previousLocation.isNotEmpty &&
-        nextLocation.isNotEmpty &&
-        previousLocation != nextLocation &&
-        mission['location_explicit'] == true;
-    // Each new search has its own criteria and results. Retain only the
-    // bounded search history for references such as "아까 빵집".
-    if (newSearch) {
-      for (final key in [
-        'criteria',
-        'constraints',
-        'attributes',
-        'task_state',
-        'recent_place_results',
-      ]) {
-        _known.remove(key);
-      }
-    }
+undefinedundefined///undefinedResolveundefinedaundefinedclearlyundefinedspokenundefined*business-name*undefinedrepairundefinedwithoutundefinedGPTundefinedCore.
+undefinedundefined///undefinedOnlyundefinedreplacesundefinedaundefinedwordundefinedinsideundefinedanundefinedexplicitlyundefinedstatedundefined/undefinedrememberedundefinedname.
+undefinedundefined///undefinedAmbiguousundefinedcategory,undefinedlocationundefinedandundefinedgeneralundefinedtextundefinedgoundefinedtoundefinednormalundefinedintentundefinedAI.
+undefinedundefinedMap<String,undefineddynamic>?undefinedexplicitNameCorrectionMission(Stringundefinedutterance)undefined{
+undefinedundefinedundefinedundefinedfinalundefinedtextundefined=undefinedutterance.trim();
+undefinedundefinedundefinedundefinedfinalundefinedmatchesundefined=undefinedRegExp(
+undefinedundefinedundefinedundefinedundefinedundefinedr'([0-9A-Za-z가-힣]{2,20}?)(?:이|가)?\\s*(?:아니고|말고)'
+undefinedundefinedundefinedundefinedundefinedundefinedr'\\s*[,，]?\\s*([0-9A-Za-z가-힣]{2,20})',
+undefinedundefinedundefinedundefined).allMatches(text).toList();
+undefinedundefinedundefinedundefinedifundefined(matches.isEmpty)undefinedreturnundefinednull;
+undefinedundefinedundefinedundefinedfinalundefinedmatchundefined=undefinedmatches.last;
+undefinedundefinedundefinedundefinedfinalundefinedpreviousundefined=undefinedmatch.group(1)!;
+undefinedundefinedundefinedundefinedfinalundefinedcorrectedundefined=undefinedmatch.group(2)!;
+undefinedundefinedundefinedundefinedifundefined(constundefined{
+undefinedundefinedundefinedundefinedundefinedundefined'치과','병원','피부과','식당','카페','약국',
+undefinedundefinedundefinedundefinedundefinedundefined'오늘','내일','여기','거기','저녁',
+undefinedundefinedundefinedundefined}.contains(corrected))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinednull;
+undefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedfinalundefinedprefixundefined=undefinedtext.substring(0,undefinedmatch.start).trim();
+undefinedundefinedundefinedundefinedfinalundefinedexplicitNameundefined=undefinedRegExp(
+undefinedundefinedundefinedundefinedundefinedundefinedr'([0-9A-Za-z가-힣]{2,45}(?:치과의원|치과|의원|병원|약국|'
+undefinedundefinedundefinedundefinedundefinedundefinedr'식당|카페|타이어점))undefinedundefinedundefinedundefinedMap<String,undefineddynamic>undefinedmission,
+undefinedundefined)undefined{
+undefinedundefinedundefinedundefinedfinalundefinedpreviousCategoryundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['category']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinednextCategoryundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['category']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinedpreviousLocationundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['location']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinednextLocationundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['location']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinednextModeundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['search_mode']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinednextAttributesundefined=undefinedmission['attributes'];
+undefinedundefinedundefinedundefinedfinalundefinedreuseRecentundefined=undefinednextAttributesundefinedisundefinedMapundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextAttributes['reuse_recent_results']undefined==undefinedtrue;
+undefinedundefinedundefinedundefinedfinalundefinednewSearchundefined=undefined!reuseRecentundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(nextModeundefined==undefined'category_discovery'undefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextModeundefined==undefined'area_discovery'undefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextModeundefined==undefined'exact_place');
+undefinedundefinedundefinedundefinedfinalundefinedlocationChangedundefined=undefinedpreviousLocation.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextLocation.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedpreviousLocationundefined!=undefinednextLocationundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['location_explicit']undefined==undefinedtrue;
+undefinedundefinedundefinedundefined//undefinedEachundefinednewundefinedsearchundefinedhasundefineditsundefinedownundefinedcriteriaundefinedandundefinedresults.undefinedRetainundefinedonlyundefinedthe
+undefinedundefinedundefinedundefined//undefinedboundedundefinedsearchundefinedhistoryundefinedforundefinedreferencesundefinedsuchundefinedasundefined"아까undefined빵집".
+undefinedundefinedundefinedundefinedifundefined(newSearch)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedforundefined(finalundefinedkeyundefinedinundefined[
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'criteria',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'constraints',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'attributes',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'task_state',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'recent_place_results',
+undefinedundefinedundefinedundefinedundefinedundefined])undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known.remove(key);
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
 
-    if (locationChanged) {
-      _known.remove('target_business');
-      _known.remove('subject');
-    }
+undefinedundefinedundefinedundefinedifundefined(locationChanged)undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known.remove('target_business');
+undefinedundefinedundefinedundefinedundefinedundefined_known.remove('subject');
+undefinedundefinedundefinedundefined}
 
-    if (previousCategory.isNotEmpty &&
-        nextCategory.isNotEmpty &&
-        previousCategory != nextCategory) {
-      for (final key in [
-        'subcategories',
-        'subject',
-        'target_business',
-        'attributes',
-        'constraints',
-        'criteria',
-        'task_state',
-        'comparison',
-        'user_goal',
-        'decision_needed',
-        'expected_answer',
-        'search_mode',
-        'intent',
-      ]) {
-        _known.remove(key);
-      }
-    }
-    final searchMode =
-        mission['search_mode']?.toString().trim() ?? '';
+undefinedundefinedundefinedundefinedifundefined(previousCategory.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextCategory.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedpreviousCategoryundefined!=undefinednextCategory)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedforundefined(finalundefinedkeyundefinedinundefined[
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'subcategories',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'subject',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'target_business',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'attributes',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'constraints',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'criteria',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'task_state',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'comparison',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'user_goal',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'decision_needed',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'expected_answer',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'search_mode',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'intent',
+undefinedundefinedundefinedundefinedundefinedundefined])undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known.remove(key);
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedfinalundefinedsearchModeundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['search_mode']?.toString().trim()undefined??undefined'';
 
-    if (searchMode == 'category_discovery' ||
-        searchMode == 'area_discovery' ||
-        searchMode == 'comparison') {
-      _known.remove('target_business');
+undefinedundefinedundefinedundefinedifundefined(searchModeundefined==undefined'category_discovery'undefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedsearchModeundefined==undefined'area_discovery'undefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedsearchModeundefined==undefined'comparison')undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known.remove('target_business');
 
-      final currentAttributes = _known['attributes'];
-      if (currentAttributes is Map) {
-        final cleaned =
-            Map<String, dynamic>.from(currentAttributes);
-        cleaned.remove('selected_business_name');
-        cleaned.remove('selected_business_address');
-        cleaned.remove('selected_business_phone');
-        cleaned.remove('selected_business_opening_hours');
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcurrentAttributesundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(currentAttributesundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcleanedundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedMap<String,undefineddynamic>.from(currentAttributes);
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_name');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_address');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_phone');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_opening_hours');
 
-        if (cleaned.isEmpty) {
-          _known.remove('attributes');
-        } else {
-          _known['attributes'] = cleaned;
-        }
-      }
-    }
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(cleaned.isEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known.remove('attributes');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}undefinedelseundefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedcleaned;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
 
-    if (searchMode == 'exact_place') {
-      final newTarget =
-          mission['target_business']?.toString().trim() ?? '';
-      final oldTarget =
-          _known['target_business']?.toString().trim() ?? '';
+undefinedundefinedundefinedundefinedifundefined(searchModeundefined==undefined'exact_place')undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinednewTargetundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['target_business']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedoldTargetundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['target_business']?.toString().trim()undefined??undefined'';
 
-      if (newTarget.isNotEmpty &&
-          oldTarget.isNotEmpty &&
-          newTarget != oldTarget) {
-        final currentAttributes = _known['attributes'];
-        if (currentAttributes is Map) {
-          final cleaned =
-              Map<String, dynamic>.from(currentAttributes);
-          cleaned.remove('selected_business_name');
-          cleaned.remove('selected_business_address');
-          cleaned.remove('selected_business_phone');
-          cleaned.remove('selected_business_opening_hours');
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(newTarget.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedoldTarget.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednewTargetundefined!=undefinedoldTarget)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcurrentAttributesundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(currentAttributesundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcleanedundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedMap<String,undefineddynamic>.from(currentAttributes);
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_name');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_address');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_phone');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_opening_hours');
 
-          if (cleaned.isEmpty) {
-            _known.remove('attributes');
-          } else {
-            _known['attributes'] = cleaned;
-          }
-        }
-      }
-    }
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(cleaned.isEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known.remove('attributes');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}undefinedelseundefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedcleaned;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
 
-    for (final key in [
-      'category',
-      'subcategories',
-      'intent',
-      'search_mode',
-      'location',
-      'subject',
-      'target_business',
-      'comparison',
-      'criteria',
-      'task_state',
-      'user_goal',
-      'decision_needed',
-      'expected_answer',
-      'location_context',
-    ]) {
-      final value = mission[key];
+undefinedundefinedundefinedundefinedforundefined(finalundefinedkeyundefinedinundefined[
+undefinedundefinedundefinedundefinedundefinedundefined'category',
+undefinedundefinedundefinedundefinedundefinedundefined'subcategories',
+undefinedundefinedundefinedundefinedundefinedundefined'intent',
+undefinedundefinedundefinedundefinedundefinedundefined'search_mode',
+undefinedundefinedundefinedundefinedundefinedundefined'location',
+undefinedundefinedundefinedundefinedundefinedundefined'subject',
+undefinedundefinedundefinedundefinedundefinedundefined'target_business',
+undefinedundefinedundefinedundefinedundefinedundefined'comparison',
+undefinedundefinedundefinedundefinedundefinedundefined'criteria',
+undefinedundefinedundefinedundefinedundefinedundefined'task_state',
+undefinedundefinedundefinedundefinedundefinedundefined'user_goal',
+undefinedundefinedundefinedundefinedundefinedundefined'decision_needed',
+undefinedundefinedundefinedundefinedundefinedundefined'expected_answer',
+undefinedundefinedundefinedundefinedundefinedundefined'location_context',
+undefinedundefinedundefinedundefined])undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedvalueundefined=undefinedmission[key];
 
-      if (!_isUseful(value)) {
-        continue;
-      }
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(!_isUseful(value))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcontinue;
+undefinedundefinedundefinedundefinedundefinedundefined}
 
-      if (key == 'location_context' && value is Map) {
-        final context =
-            Map<String, dynamic>.from(value);
-        if (context['type'] == 'device_location') {
-          _known[key] = {
-            'value': '현재 위치',
-            'type': 'device_location',
-            'source': 'device',
-          };
-          continue;
-        }
-      }
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(keyundefined==undefined'location_context'undefined&&undefinedvalueundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcontextundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedMap<String,undefineddynamic>.from(value);
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(context['type']undefined==undefined'device_location')undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known[key]undefined=undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'value':undefined'현재undefined위치',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'type':undefined'device_location',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'source':undefined'device',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined};
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcontinue;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
 
-      _known[key] = value;
-    }
+undefinedundefinedundefinedundefinedundefinedundefined_known[key]undefined=undefinedvalue;
+undefinedundefinedundefinedundefined}
 
-    final attributes = mission['attributes'];
+undefinedundefinedundefinedundefinedfinalundefinedattributesundefined=undefinedmission['attributes'];
 
-    if (attributes is Map) {
-      final current = _known['attributes'];
-      final merged = current is Map
-          ? Map<String, dynamic>.from(current)
-          : <String, dynamic>{};
+undefinedundefinedundefinedundefinedifundefined(attributesundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcurrentundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedmergedundefined=undefinedcurrentundefinedisundefinedMap
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedMap<String,undefineddynamic>.from(current)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String,undefineddynamic>{};
 
-      for (final entry in attributes.entries) {
-        if (_isUseful(entry.value)) {
-          merged[
-            entry.key.toString()
-          ] = entry.value;
-        }
-      }
+undefinedundefinedundefinedundefinedundefinedundefinedforundefined(finalundefinedentryundefinedinundefinedattributes.entries)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(_isUseful(entry.value))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmerged[
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedentry.key.toString()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined]undefined=undefinedentry.value;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
 
-      if (merged.isNotEmpty) {
-        _known['attributes'] = merged;
-      }
-    }
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(merged.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedmerged;
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
 
-    final constraints = mission['constraints'];
+undefinedundefinedundefinedundefinedfinalundefinedconstraintsundefined=undefinedmission['constraints'];
 
-    if (constraints is List) {
-      final existing =
-          (_known['constraints'] is List)
-          ? List<String>.from(
-              (_known['constraints'] as List)
-                  .map((item) => item.toString()),
-            )
-          : <String>[];
+undefinedundefinedundefinedundefinedifundefined(constraintsundefinedisundefinedList)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedexistingundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(_known['constraints']undefinedisundefinedList)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedList<String>.from(
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(_known['constraints']undefinedasundefinedList)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.map((item)undefined=>undefineditem.toString()),
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String>[];
 
-      for (final item in constraints) {
-        final text = item.toString().trim();
+undefinedundefinedundefinedundefinedundefinedundefinedforundefined(finalundefineditemundefinedinundefinedconstraints)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedtextundefined=undefineditem.toString().trim();
 
-        if (text.isNotEmpty &&
-            !existing.contains(text)) {
-          existing.add(text);
-        }
-      }
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(text.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined!existing.contains(text))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedexisting.add(text);
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
 
-      if (existing.isNotEmpty) {
-        _known['constraints'] = existing;
-      }
-    }
-  }
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(existing.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['constraints']undefined=undefinedexisting;
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+undefinedundefined}
 
-  void rememberBusinessResults(
-    Map<String, dynamic> mission,
-    List<Map<String, dynamic>> businesses,
-  ) {
-    if (businesses.isEmpty) return;
+undefinedundefinedvoidundefinedrememberBusinessResults(
+undefinedundefinedundefinedundefinedMap<String,undefineddynamic>undefinedmission,
+undefinedundefinedundefinedundefinedList<Map<String,undefineddynamic>>undefinedbusinesses,
+undefinedundefined)undefined{
+undefinedundefinedundefinedundefinedifundefined(businesses.isEmpty)undefinedreturn;
 
-    final category =
-        mission['category']?.toString().trim() ?? '';
-    final location =
-        mission['location']?.toString().trim() ?? '';
+undefinedundefinedundefinedundefinedfinalundefinedcategoryundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['category']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinedlocationundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['location']?.toString().trim()undefined??undefined'';
 
-    final summarized = <Map<String, dynamic>>[];
+undefinedundefinedundefinedundefinedfinalundefinedsummarizedundefined=undefined<Map<String,undefineddynamic>>[];
 
-    for (var index = 0;
-        index < businesses.length && index < 10;
-        index++) {
-      final business = businesses[index];
-      final naverValue = business['naver'];
-      final naver = naverValue is Map
-          ? Map<String, dynamic>.from(naverValue)
-          : <String, dynamic>{};
-      final rawHours = naver['opening_hours'];
-      final hours = rawHours is List
-          ? rawHours
-              .map((item) => item.toString().trim())
-              .where((item) => item.isNotEmpty)
-              .take(4)
-              .toList()
-          : <String>[];
-      final rawPrices = naver['prices'];
-      final prices = rawPrices is List
-          ? rawPrices
-              .whereType<Map>()
-              .take(3)
-              .map(
-                (item) => {
-                  'name': item['name']?.toString().trim() ?? '',
-                  'price': item['price']?.toString().trim() ?? '',
-                  'currency': item['currency']?.toString().trim() ?? '',
-                },
-              )
-              .toList()
-          : <Map<String, dynamic>>[];
+undefinedundefinedundefinedundefinedforundefined(varundefinedindexundefined=undefined0;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedindexundefined<undefinedbusinesses.lengthundefined&&undefinedindexundefined<undefined10;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedindex++)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedbusinessundefined=undefinedbusinesses[index];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinednaverValueundefined=undefinedbusiness['naver'];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinednaverundefined=undefinednaverValueundefinedisundefinedMap
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedMap<String,undefineddynamic>.from(naverValue)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String,undefineddynamic>{};
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedrawHoursundefined=undefinednaver['opening_hours'];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedhoursundefined=undefinedrawHoursundefinedisundefinedList
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedrawHours
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.map((item)undefined=>undefineditem.toString().trim())
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.where((item)undefined=>undefineditem.isNotEmpty)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.take(4)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.toList()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String>[];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedrawPricesundefined=undefinednaver['prices'];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedpricesundefined=undefinedrawPricesundefinedisundefinedList
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedrawPrices
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.whereType<Map>()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.take(3)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.map(
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(item)undefined=>undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'name':undefineditem['name']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'price':undefineditem['price']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'currency':undefineditem['currency']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined},
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.toList()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<Map<String,undefineddynamic>>[];
 
-      summarized.add({
-        'rank': index + 1,
-        'name':
-            business['name']?.toString().trim() ?? '',
-        'address':
-            business['address']?.toString().trim() ?? '',
-        'phone':
-            business['phone']?.toString().trim() ?? '',
-        if (hours.isNotEmpty)
-          'opening_hours': hours,
-        if (naver.containsKey('parking_available'))
-          'parking_available':
-              naver['parking_available'],
-        if (prices.isNotEmpty)
-          'prices': prices,
-      });
-    }
+undefinedundefinedundefinedundefinedundefinedundefinedsummarized.add({
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'rank':undefinedindexundefined+undefined1,
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'name':
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['name']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'address':
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['address']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'phone':
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['phone']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(hours.isNotEmpty)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'opening_hours':undefinedhours,
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(naver.containsKey('parking_available'))
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'parking_available':
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednaver['parking_available'],
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(prices.isNotEmpty)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'prices':undefinedprices,
+undefinedundefinedundefinedundefinedundefinedundefined});
+undefinedundefinedundefinedundefined}
 
-    final resultSet = <String, dynamic>{
-      'category': category,
-      'location': location,
-      'results': summarized,
-    };
+undefinedundefinedundefinedundefinedfinalundefinedresultSetundefined=undefined<String,undefineddynamic>{
+undefinedundefinedundefinedundefinedundefinedundefined'category':undefinedcategory,
+undefinedundefinedundefinedundefinedundefinedundefined'location':undefinedlocation,
+undefinedundefinedundefinedundefinedundefinedundefined'results':undefinedsummarized,
+undefinedundefinedundefinedundefined};
 
-    _known['recent_place_results'] = summarized;
+undefinedundefinedundefinedundefined_known['recent_place_results']undefined=undefinedsummarized;
 
-    final existingValue = _known['recent_place_searches'];
-    final history = existingValue is List
-        ? existingValue
-            .whereType<Map>()
-            .map(
-              (item) =>
-                  Map<String, dynamic>.from(item),
-            )
-            .toList()
-        : <Map<String, dynamic>>[];
+undefinedundefinedundefinedundefinedfinalundefinedexistingValueundefined=undefined_known['recent_place_searches'];
+undefinedundefinedundefinedundefinedfinalundefinedhistoryundefined=undefinedexistingValueundefinedisundefinedList
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedexistingValue
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.whereType<Map>()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.map(
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(item)undefined=>
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedMap<String,undefineddynamic>.from(item),
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.toList()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<Map<String,undefineddynamic>>[];
 
-    history.removeWhere((item) {
-      return item['category'] == category &&
-          item['location'] == location;
-    });
-    history.insert(0, resultSet);
+undefinedundefinedundefinedundefinedhistory.removeWhere((item)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefineditem['category']undefined==undefinedcategoryundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefineditem['location']undefined==undefinedlocation;
+undefinedundefinedundefinedundefined});
+undefinedundefinedundefinedundefinedhistory.insert(0,undefinedresultSet);
 
-    if (history.length > 3) {
-      history.removeRange(3, history.length);
-    }
+undefinedundefinedundefinedundefinedifundefined(history.lengthundefined>undefined3)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedhistory.removeRange(3,undefinedhistory.length);
+undefinedundefinedundefinedundefined}
 
-    _known['recent_place_searches'] = history;
-  }
+undefinedundefinedundefinedundefined_known['recent_place_searches']undefined=undefinedhistory;
+undefinedundefined}
 
-  void rememberBusiness(
-    Map<String, dynamic> business,
-  ) {
-    final name =
-        business['name']?.toString().trim() ?? '';
-    if (name.isNotEmpty) {
-      _known['target_business'] = name;
-      _known['subject'] = name;
-    }
+undefinedundefinedvoidundefinedrememberBusiness(
+undefinedundefinedundefinedundefinedMap<String,undefineddynamic>undefinedbusiness,
+undefinedundefined)undefined{
+undefinedundefinedundefinedundefinedfinalundefinednameundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['name']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedifundefined(name.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known['target_business']undefined=undefinedname;
+undefinedundefinedundefinedundefinedundefinedundefined_known['subject']undefined=undefinedname;
+undefinedundefinedundefinedundefined}
 
-    final address =
-        business['address']?.toString().trim() ?? '';
-    final phone =
-        business['phone']?.toString().trim() ?? '';
+undefinedundefinedundefinedundefinedfinalundefinedaddressundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['address']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinedphoneundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['phone']?.toString().trim()undefined??undefined'';
 
-    final current = _known['attributes'];
-    final merged = current is Map
-        ? Map<String, dynamic>.from(current)
-        : <String, dynamic>{};
+undefinedundefinedundefinedundefinedfinalundefinedcurrentundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedfinalundefinedmergedundefined=undefinedcurrentundefinedisundefinedMap
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedMap<String,undefineddynamic>.from(current)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String,undefineddynamic>{};
 
-    if (name.isNotEmpty) {
-      merged['selected_business_name'] = name;
-    }
-    if (address.isNotEmpty) {
-      merged['selected_business_address'] = address;
-    }
-    if (phone.isNotEmpty) {
-      merged['selected_business_phone'] = phone;
-    }
+undefinedundefinedundefinedundefinedifundefined(name.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_name']undefined=undefinedname;
+undefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedifundefined(address.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_address']undefined=undefinedaddress;
+undefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedifundefined(phone.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_phone']undefined=undefinedphone;
+undefinedundefinedundefinedundefined}
 
-    final naver = business['naver'];
-    if (naver is Map) {
-      final hours = naver['opening_hours'];
-      if (hours is List && hours.isNotEmpty) {
-        merged['selected_business_opening_hours'] =
-            List<String>.from(
-          hours.map((item) => item.toString()),
-        );
-      }
+undefinedundefinedundefinedundefinedfinalundefinednaverundefined=undefinedbusiness['naver'];
+undefinedundefinedundefinedundefinedifundefined(naverundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedhoursundefined=undefinednaver['opening_hours'];
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(hoursundefinedisundefinedListundefined&&undefinedhours.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_opening_hours']undefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedList<String>.from(
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedhours.map((item)undefined=>undefineditem.toString()),
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined);
+undefinedundefinedundefinedundefinedundefinedundefined}
 
-      if (naver.containsKey('parking_available')) {
-        merged['selected_business_parking_available'] =
-            naver['parking_available'];
-      }
-    }
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(naver.containsKey('parking_available'))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_parking_available']undefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednaver['parking_available'];
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
 
-    if (merged.isNotEmpty) {
-      _known['attributes'] = merged;
-    }
-  }
+undefinedundefinedundefinedundefinedifundefined(merged.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedmerged;
+undefinedundefinedundefinedundefined}
+undefinedundefined}
 
-  void rememberAttributes(
-    Map<String, dynamic> attributes,
-  ) {
-    final current = _known['attributes'];
-    final merged = current is Map
-        ? Map<String, dynamic>.from(current)
-        : <String, dynamic>{};
+undefinedundefinedvoidundefinedrememberAttributes(
+undefinedundefinedundefinedundefinedMap<String,undefineddynamic>undefinedattributes,
+undefinedundefined)undefined{
+undefinedundefinedundefinedundefinedfinalundefinedcurrentundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedfinalundefinedmergedundefined=undefinedcurrentundefinedisundefinedMap
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedMap<String,undefineddynamic>.from(current)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String,undefineddynamic>{};
 
-    for (final entry in attributes.entries) {
-      if (_isUseful(entry.value)) {
-        merged[
-          entry.key.toString()
-        ] = entry.value;
-      }
-    }
+undefinedundefinedundefinedundefinedforundefined(finalundefinedentryundefinedinundefinedattributes.entries)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(_isUseful(entry.value))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmerged[
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedentry.key.toString()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined]undefined=undefinedentry.value;
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
 
-    if (merged.isNotEmpty) {
-      _known['attributes'] = merged;
-    }
-  }
+undefinedundefinedundefinedundefinedifundefined(merged.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedmerged;
+undefinedundefinedundefinedundefined}
+undefinedundefined}
 
-  bool _isUseful(dynamic value) {
-    if (value == null) {
-      return false;
-    }
+undefinedundefinedboolundefined_isUseful(dynamicundefinedvalue)undefined{
+undefinedundefinedundefinedundefinedifundefined(valueundefined==undefinednull)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinedfalse;
+undefinedundefinedundefinedundefined}
 
-    if (value is String) {
-      final normalized = value.trim().toLowerCase();
+undefinedundefinedundefinedundefinedifundefined(valueundefinedisundefinedString)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinednormalizedundefined=undefinedvalue.trim().toLowerCase();
 
-      return normalized.isNotEmpty &&
-          normalized != 'null' &&
-          normalized != '미정' &&
-          normalized != '없음';
-    }
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinednormalized.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednormalizedundefined!=undefined'null'undefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednormalizedundefined!=undefined'미정'undefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednormalizedundefined!=undefined'없음';
+undefinedundefinedundefinedundefined}
 
-    if (value is List) {
-      return value.isNotEmpty;
-    }
+undefinedundefinedundefinedundefinedifundefined(valueundefinedisundefinedList)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinedvalue.isNotEmpty;
+undefinedundefinedundefinedundefined}
 
-    if (value is Map) {
-      return value.isNotEmpty;
-    }
+undefinedundefinedundefinedundefinedifundefined(valueundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinedvalue.isNotEmpty;
+undefinedundefinedundefinedundefined}
 
-    return true;
-  }
+undefinedundefinedundefinedundefinedreturnundefinedtrue;
+undefinedundefined}
 
-  void clear() {
-    _known.clear();
-  }
+undefinedundefinedvoidundefinedclear()undefined{
+undefinedundefinedundefinedundefined_known.clear();
+undefinedundefined}
+}
+,
+undefinedundefinedundefinedundefined).firstMatch(prefix);
+undefinedundefinedundefinedundefinedvarundefinedoldNameundefined=undefined'';
+undefinedundefinedundefinedundefinedifundefined(explicitNameundefined!=undefinednullundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedexplicitName.group(1)!.contains(previous))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedoldNameundefined=undefinedexplicitName.group(1)!;
+undefinedundefinedundefinedundefined}undefinedelseundefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedknownundefined=undefined_known['target_business']?.toString()undefined??undefined'';
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(known.contains(previous)undefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedRegExp(r'치과|병원|의원|약국|식당|카페|타이어')
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.hasMatch(known))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedoldNameundefined=undefinedknown;
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedifundefined(oldName.isEmptyundefined||undefinedoldNameundefined==undefinedprevious)undefinedreturnundefinednull;
+undefinedundefinedundefinedundefinedfinalundefinedtargetundefined=undefinedoldName.replaceFirst(previous,undefinedcorrected);
+undefinedundefinedundefinedundefinedifundefined(targetundefined==undefinedoldName)undefinedreturnundefinednull;
+
+undefinedundefinedundefinedundefinedvarundefinedcategoryundefined=undefined_known['category']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedifundefined(target.contains('치과'))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedcategoryundefined=undefined'치과';
+undefinedundefinedundefinedundefined}undefinedelseundefinedifundefined(target.contains('병원')undefined||undefinedtarget.contains('의원'))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedcategoryundefined=undefinedcategory.isEmptyundefined?undefined'병원'undefined:undefinedcategory;
+undefinedundefinedundefinedundefined}undefinedelseundefinedifundefined(target.contains('약국'))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedcategoryundefined=undefined'약국';
+undefinedundefinedundefinedundefined}undefinedelseundefinedifundefined(target.contains('식당'))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedcategoryundefined=undefined'식당';
+undefinedundefinedundefinedundefined}undefinedelseundefinedifundefined(target.contains('카페'))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedcategoryundefined=undefined'카페';
+undefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedifundefined(category.isEmpty)undefinedreturnundefinednull;
+undefinedundefinedundefinedundefinedfinalundefinedlocationundefined=undefined_known['location']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedreturnundefined{
+undefinedundefinedundefinedundefinedundefinedundefined'intent':undefined'place_search',
+undefinedundefinedundefinedundefinedundefinedundefined'title':undefined'$targetundefined찾기',
+undefinedundefinedundefinedundefinedundefinedundefined'summary':undefined'$targetundefined찾기',
+undefinedundefinedundefinedundefinedundefinedundefined'user_goal':undefinedtext,
+undefinedundefinedundefinedundefinedundefinedundefined'category':undefinedcategory,
+undefinedundefinedundefinedundefinedundefinedundefined'search_mode':undefined'exact_place',
+undefinedundefinedundefinedundefinedundefinedundefined'response_mode':undefined'research',
+undefinedundefinedundefinedundefinedundefinedundefined'ready_to_research':undefinedtrue,
+undefinedundefinedundefinedundefinedundefinedundefined'location':undefinedlocation,
+undefinedundefinedundefinedundefinedundefinedundefined'subject':undefinedtarget,
+undefinedundefinedundefinedundefinedundefinedundefined'target_business':undefinedtarget,
+undefinedundefinedundefinedundefinedundefinedundefined'requested_count':undefined1,
+undefinedundefinedundefinedundefinedundefinedundefined'search_terms':undefined[target],
+undefinedundefinedundefinedundefinedundefinedundefined'attributes':undefined{'spoken_name_correction':undefinedtrue},
+undefinedundefinedundefinedundefinedundefinedundefined'criteria':undefined<Map<String,undefineddynamic>>[],
+undefinedundefinedundefinedundefinedundefinedundefined'required_facts':undefined['업체명',undefined'주소',undefined'전화번호'],
+undefinedundefinedundefinedundefined};
+undefinedundefined}
+
+undefinedundefinedvoidundefinedrememberMission(
+undefinedundefinedundefinedundefinedMap<String,undefineddynamic>undefinedmission,
+undefinedundefined)undefined{
+undefinedundefinedundefinedundefinedfinalundefinedpreviousCategoryundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['category']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinednextCategoryundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['category']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinedpreviousLocationundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['location']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinednextLocationundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['location']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinednextModeundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['search_mode']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinednextAttributesundefined=undefinedmission['attributes'];
+undefinedundefinedundefinedundefinedfinalundefinedreuseRecentundefined=undefinednextAttributesundefinedisundefinedMapundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextAttributes['reuse_recent_results']undefined==undefinedtrue;
+undefinedundefinedundefinedundefinedfinalundefinednewSearchundefined=undefined!reuseRecentundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(nextModeundefined==undefined'category_discovery'undefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextModeundefined==undefined'area_discovery'undefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextModeundefined==undefined'exact_place');
+undefinedundefinedundefinedundefinedfinalundefinedlocationChangedundefined=undefinedpreviousLocation.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextLocation.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedpreviousLocationundefined!=undefinednextLocationundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['location_explicit']undefined==undefinedtrue;
+undefinedundefinedundefinedundefined//undefinedEachundefinednewundefinedsearchundefinedhasundefineditsundefinedownundefinedcriteriaundefinedandundefinedresults.undefinedRetainundefinedonlyundefinedthe
+undefinedundefinedundefinedundefined//undefinedboundedundefinedsearchundefinedhistoryundefinedforundefinedreferencesundefinedsuchundefinedasundefined"아까undefined빵집".
+undefinedundefinedundefinedundefinedifundefined(newSearch)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedforundefined(finalundefinedkeyundefinedinundefined[
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'criteria',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'constraints',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'attributes',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'task_state',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'recent_place_results',
+undefinedundefinedundefinedundefinedundefinedundefined])undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known.remove(key);
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedifundefined(locationChanged)undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known.remove('target_business');
+undefinedundefinedundefinedundefinedundefinedundefined_known.remove('subject');
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedifundefined(previousCategory.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednextCategory.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedpreviousCategoryundefined!=undefinednextCategory)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedforundefined(finalundefinedkeyundefinedinundefined[
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'subcategories',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'subject',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'target_business',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'attributes',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'constraints',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'criteria',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'task_state',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'comparison',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'user_goal',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'decision_needed',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'expected_answer',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'search_mode',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'intent',
+undefinedundefinedundefinedundefinedundefinedundefined])undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known.remove(key);
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedfinalundefinedsearchModeundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['search_mode']?.toString().trim()undefined??undefined'';
+
+undefinedundefinedundefinedundefinedifundefined(searchModeundefined==undefined'category_discovery'undefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedsearchModeundefined==undefined'area_discovery'undefined||
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedsearchModeundefined==undefined'comparison')undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known.remove('target_business');
+
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcurrentAttributesundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(currentAttributesundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcleanedundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedMap<String,undefineddynamic>.from(currentAttributes);
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_name');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_address');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_phone');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_opening_hours');
+
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(cleaned.isEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known.remove('attributes');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}undefinedelseundefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedcleaned;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedifundefined(searchModeundefined==undefined'exact_place')undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinednewTargetundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['target_business']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedoldTargetundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['target_business']?.toString().trim()undefined??undefined'';
+
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(newTarget.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedoldTarget.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednewTargetundefined!=undefinedoldTarget)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcurrentAttributesundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(currentAttributesundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcleanedundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedMap<String,undefineddynamic>.from(currentAttributes);
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_name');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_address');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_phone');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcleaned.remove('selected_business_opening_hours');
+
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(cleaned.isEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known.remove('attributes');
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}undefinedelseundefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedcleaned;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedforundefined(finalundefinedkeyundefinedinundefined[
+undefinedundefinedundefinedundefinedundefinedundefined'category',
+undefinedundefinedundefinedundefinedundefinedundefined'subcategories',
+undefinedundefinedundefinedundefinedundefinedundefined'intent',
+undefinedundefinedundefinedundefinedundefinedundefined'search_mode',
+undefinedundefinedundefinedundefinedundefinedundefined'location',
+undefinedundefinedundefinedundefinedundefinedundefined'subject',
+undefinedundefinedundefinedundefinedundefinedundefined'target_business',
+undefinedundefinedundefinedundefinedundefinedundefined'comparison',
+undefinedundefinedundefinedundefinedundefinedundefined'criteria',
+undefinedundefinedundefinedundefinedundefinedundefined'task_state',
+undefinedundefinedundefinedundefinedundefinedundefined'user_goal',
+undefinedundefinedundefinedundefinedundefinedundefined'decision_needed',
+undefinedundefinedundefinedundefinedundefinedundefined'expected_answer',
+undefinedundefinedundefinedundefinedundefinedundefined'location_context',
+undefinedundefinedundefinedundefined])undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedvalueundefined=undefinedmission[key];
+
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(!_isUseful(value))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcontinue;
+undefinedundefinedundefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(keyundefined==undefined'location_context'undefined&&undefinedvalueundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcontextundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedMap<String,undefineddynamic>.from(value);
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(context['type']undefined==undefined'device_location')undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known[key]undefined=undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'value':undefined'현재undefined위치',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'type':undefined'device_location',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'source':undefined'device',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined};
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedcontinue;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedundefinedundefined_known[key]undefined=undefinedvalue;
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedfinalundefinedattributesundefined=undefinedmission['attributes'];
+
+undefinedundefinedundefinedundefinedifundefined(attributesundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedcurrentundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedmergedundefined=undefinedcurrentundefinedisundefinedMap
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedMap<String,undefineddynamic>.from(current)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String,undefineddynamic>{};
+
+undefinedundefinedundefinedundefinedundefinedundefinedforundefined(finalundefinedentryundefinedinundefinedattributes.entries)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(_isUseful(entry.value))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmerged[
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedentry.key.toString()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined]undefined=undefinedentry.value;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(merged.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedmerged;
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedfinalundefinedconstraintsundefined=undefinedmission['constraints'];
+
+undefinedundefinedundefinedundefinedifundefined(constraintsundefinedisundefinedList)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedexistingundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(_known['constraints']undefinedisundefinedList)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedList<String>.from(
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(_known['constraints']undefinedasundefinedList)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.map((item)undefined=>undefineditem.toString()),
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String>[];
+
+undefinedundefinedundefinedundefinedundefinedundefinedforundefined(finalundefineditemundefinedinundefinedconstraints)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedtextundefined=undefineditem.toString().trim();
+
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(text.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined!existing.contains(text))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedexisting.add(text);
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(existing.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined_known['constraints']undefined=undefinedexisting;
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+undefinedundefined}
+
+undefinedundefinedvoidundefinedrememberBusinessResults(
+undefinedundefinedundefinedundefinedMap<String,undefineddynamic>undefinedmission,
+undefinedundefinedundefinedundefinedList<Map<String,undefineddynamic>>undefinedbusinesses,
+undefinedundefined)undefined{
+undefinedundefinedundefinedundefinedifundefined(businesses.isEmpty)undefinedreturn;
+
+undefinedundefinedundefinedundefinedfinalundefinedcategoryundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['category']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinedlocationundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmission['location']?.toString().trim()undefined??undefined'';
+
+undefinedundefinedundefinedundefinedfinalundefinedsummarizedundefined=undefined<Map<String,undefineddynamic>>[];
+
+undefinedundefinedundefinedundefinedforundefined(varundefinedindexundefined=undefined0;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedindexundefined<undefinedbusinesses.lengthundefined&&undefinedindexundefined<undefined10;
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedindex++)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedbusinessundefined=undefinedbusinesses[index];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinednaverValueundefined=undefinedbusiness['naver'];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinednaverundefined=undefinednaverValueundefinedisundefinedMap
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedMap<String,undefineddynamic>.from(naverValue)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String,undefineddynamic>{};
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedrawHoursundefined=undefinednaver['opening_hours'];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedhoursundefined=undefinedrawHoursundefinedisundefinedList
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedrawHours
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.map((item)undefined=>undefineditem.toString().trim())
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.where((item)undefined=>undefineditem.isNotEmpty)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.take(4)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.toList()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String>[];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedrawPricesundefined=undefinednaver['prices'];
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedpricesundefined=undefinedrawPricesundefinedisundefinedList
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedrawPrices
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.whereType<Map>()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.take(3)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.map(
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(item)undefined=>undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'name':undefineditem['name']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'price':undefineditem['price']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'currency':undefineditem['currency']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined},
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.toList()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<Map<String,undefineddynamic>>[];
+
+undefinedundefinedundefinedundefinedundefinedundefinedsummarized.add({
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'rank':undefinedindexundefined+undefined1,
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'name':
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['name']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'address':
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['address']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'phone':
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['phone']?.toString().trim()undefined??undefined'',
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(hours.isNotEmpty)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'opening_hours':undefinedhours,
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(naver.containsKey('parking_available'))
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'parking_available':
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednaver['parking_available'],
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedifundefined(prices.isNotEmpty)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined'prices':undefinedprices,
+undefinedundefinedundefinedundefinedundefinedundefined});
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedfinalundefinedresultSetundefined=undefined<String,undefineddynamic>{
+undefinedundefinedundefinedundefinedundefinedundefined'category':undefinedcategory,
+undefinedundefinedundefinedundefinedundefinedundefined'location':undefinedlocation,
+undefinedundefinedundefinedundefinedundefinedundefined'results':undefinedsummarized,
+undefinedundefinedundefinedundefined};
+
+undefinedundefinedundefinedundefined_known['recent_place_results']undefined=undefinedsummarized;
+
+undefinedundefinedundefinedundefinedfinalundefinedexistingValueundefined=undefined_known['recent_place_searches'];
+undefinedundefinedundefinedundefinedfinalundefinedhistoryundefined=undefinedexistingValueundefinedisundefinedList
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedexistingValue
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.whereType<Map>()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.map(
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined(item)undefined=>
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedMap<String,undefineddynamic>.from(item),
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined.toList()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<Map<String,undefineddynamic>>[];
+
+undefinedundefinedundefinedundefinedhistory.removeWhere((item)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefineditem['category']undefined==undefinedcategoryundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefineditem['location']undefined==undefinedlocation;
+undefinedundefinedundefinedundefined});
+undefinedundefinedundefinedundefinedhistory.insert(0,undefinedresultSet);
+
+undefinedundefinedundefinedundefinedifundefined(history.lengthundefined>undefined3)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedhistory.removeRange(3,undefinedhistory.length);
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefined_known['recent_place_searches']undefined=undefinedhistory;
+undefinedundefined}
+
+undefinedundefinedvoidundefinedrememberBusiness(
+undefinedundefinedundefinedundefinedMap<String,undefineddynamic>undefinedbusiness,
+undefinedundefined)undefined{
+undefinedundefinedundefinedundefinedfinalundefinednameundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['name']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedifundefined(name.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known['target_business']undefined=undefinedname;
+undefinedundefinedundefinedundefinedundefinedundefined_known['subject']undefined=undefinedname;
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedfinalundefinedaddressundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['address']?.toString().trim()undefined??undefined'';
+undefinedundefinedundefinedundefinedfinalundefinedphoneundefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedbusiness['phone']?.toString().trim()undefined??undefined'';
+
+undefinedundefinedundefinedundefinedfinalundefinedcurrentundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedfinalundefinedmergedundefined=undefinedcurrentundefinedisundefinedMap
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedMap<String,undefineddynamic>.from(current)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String,undefineddynamic>{};
+
+undefinedundefinedundefinedundefinedifundefined(name.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_name']undefined=undefinedname;
+undefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedifundefined(address.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_address']undefined=undefinedaddress;
+undefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefinedifundefined(phone.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_phone']undefined=undefinedphone;
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedfinalundefinednaverundefined=undefinedbusiness['naver'];
+undefinedundefinedundefinedundefinedifundefined(naverundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinedhoursundefined=undefinednaver['opening_hours'];
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(hoursundefinedisundefinedListundefined&&undefinedhours.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_opening_hours']undefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedList<String>.from(
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedhours.map((item)undefined=>undefineditem.toString()),
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined);
+undefinedundefinedundefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(naver.containsKey('parking_available'))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmerged['selected_business_parking_available']undefined=
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednaver['parking_available'];
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedifundefined(merged.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedmerged;
+undefinedundefinedundefinedundefined}
+undefinedundefined}
+
+undefinedundefinedvoidundefinedrememberAttributes(
+undefinedundefinedundefinedundefinedMap<String,undefineddynamic>undefinedattributes,
+undefinedundefined)undefined{
+undefinedundefinedundefinedundefinedfinalundefinedcurrentundefined=undefined_known['attributes'];
+undefinedundefinedundefinedundefinedfinalundefinedmergedundefined=undefinedcurrentundefinedisundefinedMap
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined?undefinedMap<String,undefineddynamic>.from(current)
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined:undefined<String,undefineddynamic>{};
+
+undefinedundefinedundefinedundefinedforundefined(finalundefinedentryundefinedinundefinedattributes.entries)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedifundefined(_isUseful(entry.value))undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedmerged[
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedentry.key.toString()
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefined]undefined=undefinedentry.value;
+undefinedundefinedundefinedundefinedundefinedundefined}
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedifundefined(merged.isNotEmpty)undefined{
+undefinedundefinedundefinedundefinedundefinedundefined_known['attributes']undefined=undefinedmerged;
+undefinedundefinedundefinedundefined}
+undefinedundefined}
+
+undefinedundefinedboolundefined_isUseful(dynamicundefinedvalue)undefined{
+undefinedundefinedundefinedundefinedifundefined(valueundefined==undefinednull)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinedfalse;
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedifundefined(valueundefinedisundefinedString)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedfinalundefinednormalizedundefined=undefinedvalue.trim().toLowerCase();
+
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinednormalized.isNotEmptyundefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednormalizedundefined!=undefined'null'undefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednormalizedundefined!=undefined'미정'undefined&&
+undefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinedundefinednormalizedundefined!=undefined'없음';
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedifundefined(valueundefinedisundefinedList)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinedvalue.isNotEmpty;
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedifundefined(valueundefinedisundefinedMap)undefined{
+undefinedundefinedundefinedundefinedundefinedundefinedreturnundefinedvalue.isNotEmpty;
+undefinedundefinedundefinedundefined}
+
+undefinedundefinedundefinedundefinedreturnundefinedtrue;
+undefinedundefined}
+
+undefinedundefinedvoidundefinedclear()undefined{
+undefinedundefinedundefinedundefined_known.clear();
+undefinedundefined}
 }
