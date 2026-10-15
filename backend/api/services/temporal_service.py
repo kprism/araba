@@ -70,25 +70,32 @@ def _google(business):
 
 def _hours_lines(business):
     google = _google(business)
-    for key in (
-        "current_opening_hours",
-        "regular_opening_hours",
-    ):
-        value = google.get(key)
-        if isinstance(value, list) and value:
-            return [
-                _text(item)
-                for item in value
-                if _text(item)
-            ], "google_places"
+    if google.get("matched") is True:
+        for key in (
+            "current_opening_hours",
+            "regular_opening_hours",
+        ):
+            value = google.get(key)
+            if isinstance(value, list) and value:
+                return [
+                    _text(item)
+                    for item in value
+                    if _text(item)
+                ], "google_places"
 
-    raw = _naver(business).get("opening_hours")
+    naver = _naver(business)
+    # Identity matched AND detailed page inspected are required for factual
+    # operating hours. Never trust an unrelated search snippet.
+    if naver.get("matched") is not True or naver.get("page_checked") is not True:
+        return [], "opening_hours_unverified"
+
+    raw = naver.get("opening_hours")
     if isinstance(raw, list) and raw:
         return [
             _text(item)
             for item in raw
             if _text(item)
-        ], "naver_or_web"
+        ], "naver_verified_page"
 
     return [], "opening_hours"
 
