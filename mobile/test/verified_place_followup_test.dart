@@ -461,4 +461,22 @@ void main() {
     expect(VerifiedPlaceFollowup.openThrough(
       cafe, 1260, nowKst: thursday), isNull);
   });
+
+  test('legacy provenanced web hours reuse Naver-shaped cache safely', () {
+    final cafe = clinic('legacy','예전카페','경남 창원시',
+      hours:['목요일 09:00-22:00']);
+    (cafe['naver'] as Map)['matched']=false;
+    (cafe['naver'] as Map)['page_checked']=false;
+    (cafe['naver'] as Map)['opening_hours_source']='openai_web';
+    cafe['openai_web']={
+      'matched':true,'identity_confirmed':true,
+      'opening_hours_found':true,
+      'sources':['https://example.com/verified'],
+    };
+    expect(VerifiedPlaceFollowup.openThrough(
+      cafe, 1260, nowKst: thursday), true);
+    (cafe['naver'] as Map)['opening_hours_source']='stored+openai_web';
+    expect(VerifiedPlaceFollowup.openThrough(
+      cafe, 1260, nowKst: thursday), isNull);
+  });
 }
