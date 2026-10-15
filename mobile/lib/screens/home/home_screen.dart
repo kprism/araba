@@ -1334,11 +1334,33 @@ class _HomeScreenState extends State<HomeScreen>
     final matching = rawMatching is Map
         ? Map<String, dynamic>.from(rawMatching)
         : <String, dynamic>{};
+    // Backends may classify valid 12-hour English Google schedules as
+    // unverified. Re-evaluate every original candidate from its actual
+    // identity-matched hours, including the enriched unknown candidate list.
+    // This is NOT a fresh discovery search and cannot introduce new places.
+    final unknown = result['unverified_businesses'];
+    final excluded = matching['excluded_businesses'];
+    final returned = PlaceResultScope.followup(candidates, [
+      ..._businessesFrom(result),
+      if (unknown is List)
+        ...unknown.whereType<Map>().map(
+          (item) => Map<String, dynamic>.from(item),
+        ),
+      if (excluded is List)
+        ...excluded.whereType<Map>().map(
+          (item) => Map<String, dynamic>.from(item),
+        ),
+    ]);
+    String identity(Map<String,dynamic> item) =>
+        '${item['id']}|${item['name']}|${item['address']}';
+    final refreshed = {
+      for (final item in returned) identity(item): item,
+    };
+    final checkedCohort = candidates.map(
+      (item) => refreshed[identity(item)] ?? item,
+    ).toList();
     final selected = VerifiedPlaceFollowup.confirmed(
-      candidates,
-      PlaceResultScope.followup(candidates, _businessesFrom(result)),
-      mission,
-      matching: matching,
+      candidates, checkedCohort, mission, matching: matching,
     );
 
     // Filtering a prior result must not turn its subset into a new

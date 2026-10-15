@@ -250,4 +250,74 @@ void main() {
     )!;
     expect((compound['criteria'] as List), hasLength(2));
   });
+
+  test('Korean evening nine and 21:00 are the same numeric time', () {
+    final original = [clinic('1','야간치과','경남 창원시')];
+    for (final utterance in [
+      '그중 오늘 밤 9시까지 하는 곳 알려줘',
+      '이중에서 오늘 오후 9시까지 진료하는 곳',
+      '그중 21시까지 하는 곳',
+    ]) {
+      final parsed = VerifiedPlaceFollowup.missionFor(
+        utterance, original, {'category':'치과','location':'창원'},
+      )!;
+      expect((parsed['criteria'] as List).first['value'], '21:00',
+          reason: utterance);
+    }
+  });
+
+  test('verified English Thursday PM schedule qualifies at 21', () {
+    final clinicGoogle = clinic('g1', '창원야간치과', '창원시');
+    clinicGoogle['google_places'] = {
+      'matched': true,
+      'current_opening_hours': [
+        'Thursday: 9:00 AM – 9:30 PM',
+        'Friday: 9:00 AM – 5:00 PM',
+      ],
+    };
+    final rows = VerifiedPlaceFollowup.normalizedHours(clinicGoogle);
+    final thursdayHours = rows.where((r) => r['weekday'] == '목요일').first;
+    expect(thursdayHours['start_time'], '09:00');
+    expect(thursdayHours['end_time'], '21:30');
+    expect(VerifiedPlaceFollowup.openThrough(
+      clinicGoogle, 1260, nowKst: thursday), true);
+    expect(VerifiedPlaceFollowup.openThrough(
+      clinicGoogle, 1320, nowKst: thursday), false);
+  });
+
+  test('Korean PM to PM and server structured hours are normalized', () {
+    final clinicKorean = clinic('k1','한글야간치과','창원시',
+        hours: ['목요일 오전 9:00~오후 9:00']);
+    expect(VerifiedPlaceFollowup.openThrough(
+      clinicKorean, 1260, nowKst: thursday), true);
+    clinicKorean['structured_opening_hours'] = [{
+      'weekday': '목요일', 'start_time': '09:00', 'end_time': '21:30',
+      'start_minute': 540, 'end_minute': 1290,
+      'source': 'naver_verified_page',
+    }];
+    expect(VerifiedPlaceFollowup.openThrough(
+      clinicKorean, 1290, nowKst: thursday), true);
+  });
+
+  test('unmatched provider and late opening are never recommended', () {
+    final doctor = clinic('p1','증거없는치과','창원시');
+    doctor['google_places'] = {
+      'matched': false,
+      'current_opening_hours': ['Thursday: 9:00 AM – 11:00 PM'],
+    };
+    expect(VerifiedPlaceFollowup.openThrough(
+      doctor, 1260, nowKst: thursday), isNull);
+
+    final opensLate = clinic('p2','늦게여는치과','창원시',
+        hours: ['목요일 21:30-23:00']);
+    expect(VerifiedPlaceFollowup.openThrough(
+      opensLate, 1260, nowKst: thursday), false);
+  });
+
+  test('structured normalized weekday schedule handles English weekly range', () {
+    final doctor = clinic('range','매일치과','창원시',
+      hours: ['Mo-Fr 09:00-21:30']);
+    expect(VerifiedPlaceFollowup.openThrough(
+      doctor, 1260, nowKst: thursday), true);
+  });
 }

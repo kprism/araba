@@ -2,6 +2,7 @@ import re
 
 from .temporal_service import (
     evaluate_business_now, _hours_lines, _day_applies, _time_ranges, _line_closed,
+    structured_business_hours,
 )
 
 
@@ -259,23 +260,28 @@ def _distance_value(business):
     return None
 
 
-def _closing_time_on_day(business, day):
-    """Only evidence for the requested weekday may confirm 21:00 closing."""
-    from .temporal_service import DAY_NAMES
-    if day not in DAY_NAMES:
+def _closing_time_on_day(business, day, *, at_minute=None):
+    """A 21:00 candidate must open no later than 21:00 and close at/after it."""
+    if day not in DAY_ORDER:
         return None
-    lines, _ = _hours_lines(business)
-    applicable = [line for line in lines if _day_applies(line, day)]
-    if not applicable:
+    intervals = [
+        row for row in structured_business_hours(business)
+        if row["weekday"] == day
+    ]
+    if not intervals:
         return None
-    if any(_line_closed(line) for line in applicable):
+    if any(row.get("closed") is True for row in intervals):
         return 0
     ends = [
-        end
-        for line in applicable
-        for _, end in _time_ranges(line)
+        row["end_minute"]
+        for row in intervals
+        if isinstance(row.get("end_minute"), int)
+        and (
+            at_minute is None
+            or row["start_minute"] <= at_minute <= row["end_minute"]
+        )
     ]
-    return max(ends) if ends else None
+    return max(ends) if ends else 0
 
 
 def _criterion_value(business, criterion):
@@ -291,7 +297,14 @@ def _criterion_value(business, criterion):
     if field in TIME_FIELDS:
         day = _text(criterion.get("day"))
         if day and field == "closing_time":
-            return _closing_time_on_day(business, day), "weekday_opening_hours"
+            requested = (
+                _time_to_minutes(criterion.get("value"))
+                if _text(criterion.get("operator")).lower() == "gte"
+                else None
+            )
+            return _closing_time_on_day(
+                business, day, at_minute=requested,
+            ), "verified_weekday_start_end"
         ranges = _opening_ranges(business)
         if not ranges:
             return None, "opening_hours"

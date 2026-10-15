@@ -123,6 +123,25 @@ def _day_applies(text, target_day):
         for alias in DAY_ENGLISH[target_day]
     ):
         return True
+    # Schema.org hours may use "Mo-Fr" or "Mon-Fri".
+    english_short = {
+        "mo": 0, "mon": 0, "tu": 1, "tue": 1,
+        "we": 2, "wed": 2, "th": 3, "thu": 3,
+        "fr": 4, "fri": 4, "sa": 5, "sat": 5,
+        "su": 6, "sun": 6,
+    }
+    english_range = re.search(
+        r"\b(mo|tu|we|th|fr|sa|su|mon|tue|wed|thu|fri|sat|sun)"
+        r"\s*[-~–]\s*"
+        r"(mo|tu|we|th|fr|sa|su|mon|tue|wed|thu|fri|sat|sun)\b",
+        lower,
+    )
+    if english_range:
+        first = english_short[english_range.group(1)]
+        last = english_short[english_range.group(2)]
+        if first <= last:
+            return first <= target_index <= last
+        return target_index >= first or target_index <= last
 
     range_pattern = re.compile(
         r"([월화수목금토일])(?:요일)?\s*[~\-–]\s*"
@@ -153,28 +172,149 @@ def _day_applies(text, target_day):
     return False
 
 
-def _time_ranges(text):
-    compact = re.sub(r"\s+", "", text)
-    if "24시간" in compact or "24hours" in compact.lower():
-        return [(0, 24 * 60)]
-
-    ranges = []
+def _clock_tokens(text):
+    """Extract 12/24-hour clock values without losing AM/PM modifiers."""
     pattern = re.compile(
-        r"(\d{1,2}):(\d{2})\s*[~\-–]\s*(\d{1,2}):(\d{2})"
+        r"(?i)(?<![\da-z])(?:(오전|오후|am|pm)\s*)?"
+        r"(\d{1,2})(?::(\d{2})|시(?:\s*(\d{1,2})분)?)"
+        r"\s*(오전|오후|am|pm)?(?!\d)"
     )
+    tokens = []
     for match in pattern.finditer(text):
-        opening = int(match.group(1)) * 60 + int(match.group(2))
-        closing = int(match.group(3)) * 60 + int(match.group(4))
-        if not (
-            0 <= opening <= 24 * 60
-            and 0 <= closing <= 24 * 60
-        ):
+        hour = int(match.group(2))
+        minute = int(match.group(3) or match.group(4) or 0)
+        period = (match.group(1) or match.group(5) or "").lower()
+        if hour > 24 or minute >= 60 or (period and not 1 <= hour <= 12):
             continue
+        if period in {"pm", "오후"} and hour < 12:
+            hour += 12
+        elif period in {"am", "오전"} and hour == 12:
+            hour = 0
+        if not period and hour == 24 and minute:
+            continue
+        tokens.append((hour * 60 + minute, period))
+    return tokens
+
+
+def _time_ranges(text):
+    """Parse inclusive operating windows; keep source day separate."""
+    compact = re.sub(r"\s+", "", str(text or ""))
+    lower = compact.lower()
+    if ("24시간" in compact or "24hours" in lower
+            or "open24hours" in lower):
+        return [(0, 24 * 60)]
+    tokens = _clock_tokens(str(text or ""))
+    ranges = []
+    # Pair consecutive times. A daily split shift may contain two pairs.
+    for index in range(0, len(tokens) - 1, 2):
+        opening, open_period = tokens[index]
+        closing, close_period = tokens[index + 1]
+        if open_period in {"pm", "오후"} and not close_period and closing < 720:
+            closing += 720
         if closing <= opening:
             closing += 24 * 60
         ranges.append((opening, closing))
-
     return ranges
+
+
+def structured_business_hours(business):
+    """Verified weekday / start / end records, never guessed from snippets.
+
+    Google current periods take precedence over regular periods and textual
+    descriptions. Verified Naver page hours are the fallback, not a rival
+    set of contradictory hours.
+    """
+    google = _google(business)
+    if google.get("matched") is True:
+        for key, source in (
+            ("current_periods", "google_places_current"),
+            ("regular_periods", "google_places_regular"),
+        ):
+            raw = google.get(key)
+            rows = []
+            if not isinstance(raw, list):
+                continue
+            for period in raw:
+                if not isinstance(period, dict):
+                    continue
+                start = period.get("open")
+                close = period.get("close")
+                if not isinstance(start, dict):
+                    continue
+                first_day = start.get("day")
+                if not isinstance(first_day, int) or not 0 <= first_day <= 6:
+                    continue
+                opening = int(start.get("hour") or 0) * 60 + int(start.get("minute") or 0)
+                if not 0 <= opening < 1440:
+                    continue
+                if isinstance(close, dict):
+                    close_day = close.get("day")
+                    if not isinstance(close_day, int) or not 0 <= close_day <= 6:
+                        continue
+                    closing = (
+                        (close_day - first_day) % 7 * 1440
+                        + int(close.get("hour") or 0) * 60
+                        + int(close.get("minute") or 0)
+                    )
+                    if closing <= opening:
+                        closing += 1440
+                else:
+                    # Google omits close for all-day, seven-day businesses.
+                    opening, closing = 0, 1440
+                weekday = DAY_NAMES[(first_day + 6) % 7]
+                rows.append({
+                    "weekday": weekday,
+                    "start_time": f"{opening // 60:02d}:{opening % 60:02d}",
+                    "end_time": f"{closing // 60:02d}:{closing % 60:02d}",
+                    "start_minute": opening,
+                    "end_minute": closing,
+                    "source": source,
+                })
+            if rows:
+                return rows
+
+        for key, source in (
+            ("current_opening_hours", "google_places_current"),
+            ("regular_opening_hours", "google_places_regular"),
+        ):
+            raw = google.get(key)
+            if not isinstance(raw, list):
+                continue
+            rows = _structured_hours_from_lines(raw, source)
+            if rows:
+                return rows
+
+    naver = _naver(business)
+    if naver.get("matched") is True and naver.get("page_checked") is True:
+        raw = naver.get("opening_hours")
+        if isinstance(raw, list):
+            return _structured_hours_from_lines(raw, "naver_verified_page")
+    return []
+
+
+def _structured_hours_from_lines(lines, source):
+    rows = []
+    for text in lines:
+        if not isinstance(text, str):
+            continue
+        applicable = [day for day in DAY_NAMES if _day_applies(text, day)]
+        if not applicable:
+            continue
+        closed = _line_closed(text)
+        ranges = [] if closed else _time_ranges(text)
+        for day in applicable:
+            if closed:
+                rows.append({"weekday": day, "closed": True, "source": source})
+            for opening, closing in ranges:
+                rows.append({
+                    "weekday": day,
+                    "start_time": f"{opening // 60:02d}:{opening % 60:02d}",
+                    "end_time": f"{closing // 60:02d}:{closing % 60:02d}",
+                    "start_minute": opening,
+                    "end_minute": closing,
+                    "source": source,
+                })
+    return rows
 
 
 def _line_closed(text):
@@ -267,6 +407,7 @@ def evaluate_business_now(business, now=None):
 def annotate_business_now(business, now=None):
     item = dict(business)
     status = evaluate_business_now(item, now=now)
+    item["structured_opening_hours"] = structured_business_hours(item)
     item["current_status"] = status
     item["is_open_now"] = status["is_open_now"]
     item["orderable_now"] = status["orderable_now"]

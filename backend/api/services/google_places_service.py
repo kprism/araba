@@ -326,14 +326,19 @@ def enrich_business_with_google_places(
             current_hours
         ),
         "current_opening_hours": (
-            _weekday_descriptions(
-                current_hours
-            )
+            _weekday_descriptions(current_hours)
         ),
         "regular_opening_hours": (
-            _weekday_descriptions(
-                regular_hours
-            )
+            _weekday_descriptions(regular_hours)
+        ),
+        # Structured provider windows prevent AM/PM and weekday ambiguity.
+        "current_periods": (
+            current_hours.get("periods", [])
+            if isinstance(current_hours, dict) else []
+        ),
+        "regular_periods": (
+            regular_hours.get("periods", [])
+            if isinstance(regular_hours, dict) else []
         ),
         "delivery": place.get("delivery"),
         "takeout": place.get("takeout"),

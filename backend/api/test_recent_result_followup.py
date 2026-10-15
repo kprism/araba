@@ -290,3 +290,89 @@ class OpeningDayMatchingTests(TestCase):
             result["matched_count"],
             1,
         )
+
+class VerifiedWeeklyHoursNormalizationTests(TestCase):
+    def setUp(self):
+        self.mission = {
+            "criteria": [{
+                "id": "today21", "field": "closing_time",
+                "operator": "gte", "value": "21:00",
+                "day": "목요일", "required": True,
+            }]
+        }
+
+    def test_google_english_ampm_matches_21(self):
+        from api.services.temporal_service import structured_business_hours
+        value = {
+            "name": "창원야간치과", "id": "cw1",
+            "google_places": {
+                "matched": True,
+                "current_opening_hours": [
+                    "Thursday: 9:00 AM – 9:30 PM",
+                    "Friday: 9:00 AM – 6:00 PM",
+                ],
+            },
+        }
+        rows = structured_business_hours(value)
+        today = [row for row in rows if row["weekday"] == "목요일"]
+        self.assertEqual(today[0]["start_time"], "09:00")
+        self.assertEqual(today[0]["end_time"], "21:30")
+        matched = match_businesses(self.mission, [value])
+        self.assertEqual(matched["matched_count"], 1)
+
+    def test_korean_pm_and_unverified_identity(self):
+        normal = {
+            "id": "cw2", "name": "밤9시치과",
+            "naver": {"matched": True, "page_checked": True,
+                      "opening_hours": ["목요일 오전 9:00~오후 9:00"]},
+        }
+        unverified = {
+            "id": "cw3", "name": "검증되지않은치과",
+            "google_places": {"matched": False, "current_opening_hours": [
+                "Thursday: 9:00 AM - 11:00 PM",
+            ]},
+        }
+        result = match_businesses(self.mission, [normal, unverified])
+        self.assertEqual(result["matched_count"], 1)
+        self.assertEqual(result["unverified_count"], 1)
+        self.assertEqual(result["display_businesses"][0]["name"], "밤9시치과")
+
+    def test_google_provider_periods_are_weekday_start_end(self):
+        from api.services.temporal_service import structured_business_hours
+        business = {"name": "구글치과", "google_places": {
+            "matched": True,
+            "current_periods": [{
+                "open": {"day": 4, "hour": 9, "minute": 0},
+                "close": {"day": 4, "hour": 21, "minute": 30},
+            }],
+        }}
+        rows = structured_business_hours(business)
+        self.assertEqual(rows[0]["weekday"], "목요일")
+        self.assertEqual(rows[0]["end_minute"], 1290)
+        self.assertEqual(match_businesses(
+            self.mission, [business],
+        )["matched_count"], 1)
+
+    def test_opening_at_2130_does_not_qualify_for_2100(self):
+        late = {"id": "cw4", "name": "21시30분개원",
+                "naver": {"matched": True, "page_checked": True,
+                          "opening_hours": ["목요일 21:30-23:30"]}}
+        result = match_businesses(self.mission, [late])
+        self.assertEqual(result["matched_count"], 0)
+        self.assertEqual(result["excluded_count"], 1)
+
+    def test_english_weekday_range(self):
+        monday = {
+            "name": "평일치과",
+            "naver": {"matched": True, "page_checked": True,
+                      "opening_hours": ["Mo-Fr 09:00-21:00"]},
+        }
+        self.assertEqual(match_businesses(self.mission, [monday])["matched_count"], 1)
+
+    def test_other_day_does_not_claim_thursday_hours(self):
+        wrong = {
+            "name": "금요일만야간",
+            "naver": {"matched": True, "page_checked": True,
+                      "opening_hours": ["금요일 09:00-22:00"]},
+        }
+        self.assertEqual(match_businesses(self.mission, [wrong])["unverified_count"], 1)
