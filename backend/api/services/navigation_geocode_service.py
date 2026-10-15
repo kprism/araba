@@ -13,19 +13,113 @@ def _canonical(value):
     return re.sub(r"\s+", "", str(value or "")).casefold()
 
 
+# This is a geographic vocabulary, not a list of particular businesses.
+# Bare city names occur frequently in spoken Korean ("창원 대산고등학교").
+_BARE_CITIES = frozenset("""
+서울 부산 대구 인천 광주 대전 울산 세종 제주 창원 김해 진주 양산 밀양
+통영 거제 사천 고성 고양 수원 성남 용인 안양 안산 화성 평택 파주
+남양주 의정부 광명 부천 시흥 군포 하남 김포 광주 이천 여주
+춘천 원주 강릉 속초 동해 삼척 태백 포항 경주 구미 안동 김천
+영주 상주 문경 경산 청주 충주 제천 천안 아산 공주 보령 서산
+당진 논산 계룡 전주 군산 익산 정읍 남원 김제 목포 여수 순천
+광양 나주 영암 영광 무안 해남 서귀포
+""".split())
+_PROVINCES = frozenset("""
+경남 경북 경기 강원 전남 전북 충남 충북 제주 경상남도 경상북도
+경기도 강원도 전라남도 전라북도 충청남도 충청북도 제주특별자치도
+""".split())
+_METROPOLITAN_ALIASES = {
+    "서울": "서울특별시", "부산": "부산광역시",
+    "대구": "대구광역시", "인천": "인천광역시",
+    "광주": "광주광역시", "대전": "대전광역시",
+    "울산": "울산광역시", "세종": "세종특별자치시",
+    "제주": "제주시",
+}
+
+
 def _place_and_area(query):
-    """Recognize explicit city context without assuming user's own city."""
+    """Extract an EXPLICIT location as a hard constraint for any place type.
+
+    No GPS/user-city inference here. Even when the search term is colloquial,
+    "창원 대산고등학교" must never return a school in Seoul or Gyeonggi.
+    """
     query = " ".join(str(query or "").strip().split())
-    pattern = re.compile(
-        r"^(?:(?:경남|경북|강원|경기|전남|전북|충남|충북|"
-        r"경상남도|경상북도|강원도|경기도|전라남도|전라북도|"
-        r"충청남도|충청북도)\s+)?"
-        r"([가-힣]{2,}(?:특별시|광역시|시|군))\s+(.+)$"
-    )
-    match = pattern.match(query)
-    if match:
-        return match.group(2).strip(), match.group(1).strip()
+    parts = query.split()
+    if not parts:
+        return "", ""
+    if parts[0] in _PROVINCES and len(parts) > 1:
+        # Provinces may be followed by a city, or used as an area themselves.
+        if len(parts) == 2:
+            return parts[1], parts[0]
+        query = " ".join(parts[1:])
+        parts = query.split()
+    if len(parts) >= 2:
+        leading = parts[0]
+        if (
+            leading in _BARE_CITIES
+            or re.fullmatch(r"[가-힣]{2,}(?:특별시|광역시|특별자치시|시|군|구)", leading)
+        ):
+            return " ".join(parts[1:]), leading
     return query, ""
+
+
+def _region_matches(region, place):
+    if not region:
+        return True
+    address = _canonical(place.get("address"))
+    region_name = _canonical(region)
+    forms = {region_name}
+    if region_name.endswith("시"):
+        forms.add(region_name[:-1])
+    if region_name.endswith("군"):
+        forms.add(region_name[:-1])
+    else:
+        forms.add(region_name + "시")
+    expanded = _METROPOLITAN_ALIASES.get(region_name)
+    if expanded:
+        forms.add(_canonical(expanded))
+    return any(len(form) >= 2 and form in address for form in forms)
+
+
+def _venue_type(text):
+    name = _canonical(text)
+    for token, kind in (
+        ("고등학교", "high"), ("중학교", "middle"),
+        ("초등학교", "elementary"), ("대학교", "university"),
+        ("병원", "hospital"), ("약국", "pharmacy"),
+    ):
+        if token in name:
+            return kind
+    return ""
+
+
+def _name_core(text):
+    name = _canonical(text)
+    for suffix in ("고등학교", "중학교", "초등학교", "대학교", "병원", "약국"):
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
+def _related_name(query, place):
+    from difflib import SequenceMatcher
+
+    target, _ = _place_and_area(query)
+    requested_type = _venue_type(target)
+    candidate_type = _venue_type(place["name"])
+    if requested_type and requested_type != candidate_type:
+        return False
+    asked = _name_core(target)
+    actual = _name_core(place["name"])
+    if not asked or not actual:
+        return False
+    if asked in actual or actual in asked:
+        return min(len(asked), len(actual)) >= 2
+    # Restrict fuzzy fallback to substantive names, never generic categories.
+    return (
+        len(asked) >= 3 and len(actual) >= 3
+        and SequenceMatcher(None, asked, actual).ratio() >= 0.75
+    )
 
 
 def _school_stem(value):
@@ -58,24 +152,25 @@ def _same_school(query, place):
 
 
 def _school_search_queries(query):
-    """Try common school spelling variants only after the user phrase fails."""
-    parts = query.split()
-    ending = parts[-1] if parts else ""
-    if not _school_stem(ending) and not _school_stem(query):
-        return [query]
+    """Try compact and regional/name variants, without dropping region checks."""
+    target, city = _place_and_area(query)
     variants = [query]
     compact = query.replace(" ", "")
     if compact != query:
         variants.append(compact)
-    # "북면고" is colloquial; the official name often ends in "고등학교".
+    if city:
+        if target not in variants:
+            variants.append(target)
+        joined = city + target.replace(" ", "")
+        if joined not in variants:
+            variants.append(joined)
+    ending = target.replace(" ", "")
     if ending.endswith("고") and not ending.endswith("고등학교"):
-        official = ending[:-1] + "고등학교"
-        if len(parts) > 1:
-            variants.append(" ".join([*parts[:-1], official]))
-        variants.append(official)
-    elif len(parts) > 1:
+        variants.append(ending[:-1] + "고등학교")
+    if target.endswith("고등학교") and " " in target:
         variants.append(ending)
-    return list(dict.fromkeys(variants))[:4]
+    return list(dict.fromkeys(variants))[:5]
+
 
 
 def _identity_verified(query, place, region):
@@ -84,7 +179,9 @@ def _identity_verified(query, place, region):
     requested = _canonical(query)
     target, _ = _place_and_area(query)
     target = _canonical(target)
-    if region and _canonical(region) not in address and _canonical(region) not in label:
+    if not _region_matches(region, place):
+        return False
+    if not _related_name(query, place):
         return False
     if _same_school(query, place) or _same_school(target, place):
         return True
@@ -146,8 +243,8 @@ def _candidate_rank(query, place):
     else:
         tokens = re.findall(r"[가-힣a-zA-Z0-9]{2,}", requested)
         score += sum(8 for token in tokens if _canonical(token) in actual_name)
-    if city and _canonical(city) in address:
-        score += 28
+    if city and _region_matches(city, place):
+        score += 100
     if requested_name and requested_name in address:
         score += 12
     return score
@@ -191,7 +288,7 @@ def _result_for(query, places):
         return {"status": "ambiguous", "candidates": _rank_candidates(query, verified)}
     regional = [
         place for place in places
-        if not region or _canonical(region) in _canonical(place["address"])
+        if _region_matches(region, place) and _related_name(query, place)
     ]
     # The same weak suggestion returned from keyword and address endpoints is
     # still one unverified place, not two independent candidates.
@@ -203,7 +300,8 @@ def _result_for(query, places):
         ): place
         for place in regional
     }
-    if len(unique) > 1:
+    if unique:
+        # Even one fuzzy match requires an explicit tap; never auto-launch.
         return {"status": "ambiguous", "candidates": _rank_candidates(query, list(unique.values()))}
     return {"status": "not_found", "candidates": []}
 
