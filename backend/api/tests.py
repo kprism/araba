@@ -2070,7 +2070,7 @@ class StructuredBusinessMatchingTests(TestCase):
             {
                 "id": "a",
                 "name": "A치과",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "parking_available": True,
                     "opening_hours": ["월 09:00-21:00"],
                     "prices": [
@@ -2085,7 +2085,7 @@ class StructuredBusinessMatchingTests(TestCase):
             {
                 "id": "b",
                 "name": "B치과",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "parking_available": True,
                     "opening_hours": ["월 09:00-19:00"],
                     "prices": [
@@ -2100,7 +2100,7 @@ class StructuredBusinessMatchingTests(TestCase):
             {
                 "id": "c",
                 "name": "C치과",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "parking_available": False,
                     "opening_hours": ["월 09:00-22:00"],
                     "prices": [
@@ -2115,7 +2115,7 @@ class StructuredBusinessMatchingTests(TestCase):
             {
                 "id": "d",
                 "name": "D치과",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "parking_available": True,
                     "opening_hours": ["월 09:00-21:00"],
                     "prices": [],
