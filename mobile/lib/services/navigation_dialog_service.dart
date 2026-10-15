@@ -161,6 +161,32 @@ class NavigationDialogState {
       return _readyOrAskMode(full);
     }
 
+    // Operational follow-ups are not new search missions. A question about
+    // WHY an earlier navigation attempt failed must not pay for a fresh GPT
+    // Core intent request, or accidentally become a restaurant/place search.
+    final compact = text.replaceAll(RegExp(r'\s+'), '');
+    final navigationTroubleshooting =
+        RegExp(r'내비|네비|길안내|길찾기|경로').hasMatch(compact) &&
+        RegExp(r'왜|이유|오류|실패|안돼|안되|않아|됐는데|못해|문제')
+            .hasMatch(compact);
+    if (navigationTroubleshooting) {
+      return NavigationDialogDecision(
+        question: _last == null
+            ? '길안내가 실패한 원인은 목적지 검색, 지도 연결 또는 '
+                '위치 권한 중 하나일 수 있습니다. 목적지와 이동수단을 알려주시면 '
+                '지도 앱 연결부터 다시 확인할게요.'
+            : '이전 길찾기 목적지 ${_last!.destination}을(를) 유지하고 있어요. '
+                '목적지 검색이나 지도 앱 연결이 실패했을 수 있습니다. '
+                '정확한 오류 단계는 진단이 필요합니다. '
+                '다시 길안내해줘라고 말씀하시면 이어서 시도할게요.',
+      );
+    }
+    if (_last != null &&
+        RegExp(r'^(?:다시|한번더|재시도).*?(?:길|내비|네비|경로|안내)')
+            .hasMatch(compact)) {
+      return _readyOrAskMode(_last!);
+    }
+
     // An answer to our transport question continues the same route rather
     // than falling through to unrelated business search.
     if (_awaitingMode && _last != null) {

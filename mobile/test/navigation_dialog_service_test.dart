@@ -149,6 +149,34 @@ void main() {
       expect(next?.route?.travelMode, 'transit');
     });
 
+    test('the pictured long mixed live request stays in local navigation', () {
+      final dialog = NavigationDialogState();
+      final initial = dialog.interpret(
+        '창원대산고등학교 갈 건데길 좀 알아봐줘기존에 내비게이션 됐는데 왜',
+      );
+      expect(initial, isNotNull);
+      expect(initial?.route, isNull);
+      expect(dialog.waitingForTravelMode, isTrue);
+      expect(dialog.lastRoute?.destination, '창원대산고등학교');
+      final transport = dialog.interpret('자동차');
+      expect(transport?.route?.destination, '창원대산고등학교');
+      expect(transport?.route?.travelMode, 'driving');
+    });
+
+    test('why navigation failed gets local answer without redirecting to Core', () {
+      final dialog = NavigationDialogState();
+      dialog.interpret('창원대산고등학교까지 자동차로 길 알려줘');
+      dialog.awaitCorrection();
+      final why = dialog.interpret('기존에는 내비게이션이 됐는데 왜 갑자기 안돼?');
+      expect(why?.question, contains('이전 길찾기 목적지'));
+      expect(why?.route, isNull);
+      expect(dialog.lastRoute?.destination, '창원대산고등학교');
+      final repeat = dialog.interpret('다시 길 안내해줘');
+      expect(repeat?.route?.destination, '창원대산고등학교');
+      expect(repeat?.route?.travelMode, 'driving');
+      expect(dialog.interpret('상남동 음식점 찾아줘'), isNull);
+    });
+
     test('ordinary request after an old route never hijacked', () {
       final dialog = NavigationDialogState();
       dialog.interpret('창원시청에서 부산역까지 자동차로 길 알려줘');

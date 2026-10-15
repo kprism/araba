@@ -89,6 +89,47 @@ void main() {
       );
     });
 
+    test('spoken multi-clause request goes straight to route, not GPT Core', () {
+      for (final phrase in [
+        '창원대산고등학교 갈 건데길 좀 알아봐줘기존에 내비게이션 됐는데 왜',
+        '창원대산고등학교 갈 건데 길 좀 알아봐줘 기존에 네비게이션 됐는데 왜?',
+        '부산역 갈 건데 길 좀 알아봐줘',
+        '경남도청 갈 거야 경로 알려줘',
+      ]) {
+        final result = NavigationRequest.tryParse(phrase);
+        expect(result, isNotNull, reason: phrase);
+        expect(result!.destination.contains('왜'), isFalse, reason: phrase);
+        expect(result.destination.contains('내비게이션'), isFalse, reason: phrase);
+        expect(result.currentLocation, isTrue, reason: phrase);
+      }
+      expect(
+        NavigationRequest.tryParse(
+          '창원대산고등학교 갈 건데길 좀 알아봐줘기존에 내비게이션 됐는데 왜',
+        )?.destination,
+        '창원대산고등학교',
+      );
+      expect(
+        NavigationRequest.tryParse('부산역 갈 건데 길 좀 알아봐줘')
+            ?.destination,
+        '부산역',
+      );
+    });
+
+    test('navigation failure why-question alone is not a fake destination', () {
+      expect(
+        NavigationRequest.tryParse('기존에 내비게이션 됐는데 왜?'),
+        isNull,
+      );
+      expect(
+        NavigationRequest.tryParse('왜 네비게이션이 안돼?'),
+        isNull,
+      );
+      expect(
+        NavigationRequest.tryParse('창원 상남동 식당 찾아줘'),
+        isNull,
+      );
+    });
+
     test('destination only with go-to wording', () {
       expect(
         NavigationRequest.tryParse('부산역으로 안내해줘')?.destination,
