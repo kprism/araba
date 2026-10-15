@@ -2289,6 +2289,9 @@ class _HomeScreenState extends State<HomeScreen>
         navigationUri: prepared.uri,
       );
       final opened = await _navigationProvider.open(prepared);
+      if (opened) {
+        _navigationDialog.reset();
+      }
       if (!opened && mounted) {
         _addAssistantMessage(
           text: '지도 앱을 열지 못했습니다. MY에서 기본 지도 설정을 확인해주세요.',
@@ -2429,6 +2432,9 @@ class _HomeScreenState extends State<HomeScreen>
       }
     } on NavigationCandidatesException catch (error) {
       _pendingNavigationSelection = route;
+      // The next utterance may be a correction ("대산고등학교로 갈 거야"),
+      // not a new place-search mission. Preserve the route and travel mode.
+      _navigationDialog.awaitCorrection();
       if (mounted) {
         _addAssistantMessage(
           text: '이름과 지역이 비슷한 장소 순서입니다. '

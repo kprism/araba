@@ -74,7 +74,8 @@ class NavigationGeocodeTests(SimpleTestCase):
         data = resolve_navigation_place("북면문화", api_key="test")
         self.assertEqual(data["status"], "ambiguous")
         self.assertEqual(data["candidates"][0]["name"], "북면문화회관")
-        self.assertEqual(len(data["candidates"]), 3)
+        # Irrelevant hospitals/schools must not be suggested for a hall.
+        self.assertEqual(len(data["candidates"]), 1)
 
     @patch("api.services.navigation_geocode_service.httpx.get")
     def test_no_place_is_not_fabricated(self, fetch):
@@ -90,7 +91,7 @@ class NavigationGeocodeTests(SimpleTestCase):
             point("창원체육관", "경남 창원 문화로 2"),
         )
         data = resolve_navigation_place("창원 시설", api_key="test")
-        self.assertEqual(data["status"], "ambiguous")
+        self.assertEqual(data["status"], "not_found")
 
     @patch("api.services.navigation_geocode_service.httpx.get")
     def test_invalid_provider_http_status_is_error(self, fetch):
@@ -233,6 +234,94 @@ class NavigationWrongDestinationRegressions(SimpleTestCase):
             "의창파출소", "경남 창원시 의창구 중동",
         ))
         data = resolve_navigation_place("창원시 의창소방서", api_key="test")
+        self.assertEqual(data["status"], "not_found")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_spoken_city_is_hard_constraint_and_official_name_retry(self, fetch):
+        def search(url, **kwargs):
+            term = kwargs["params"]["query"]
+            if term == "창원대산고등학교":
+                return result(point(
+                    "창원대산고등학교", "경남 창원시 의창구 대산면",
+                    y="35.330", x="128.690",
+                ))
+            return result(
+                point("경기고등학교", "서울 강남구 영동대로 643",
+                      y="37.5", x="127.05"),
+                point("경남공업고등학교", "부산 부산진구 전포대로",
+                      y="35.2", x="129.06"),
+                point("서울고등학교", "서울 서초구",
+                      y="37.48", x="127.0"),
+            )
+
+        fetch.side_effect = search
+        data = resolve_navigation_place("창원 대산 고등학교", api_key="test")
+        self.assertEqual(data["status"], "resolved")
+        self.assertEqual(data["place"]["name"], "창원대산고등학교")
+        self.assertGreaterEqual(fetch.call_count, 2)
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_explicit_city_rejects_every_wrong_region_candidate(self, fetch):
+        fetch.return_value = result(
+            point("대산고등학교", "서울 서초구", y="37.5", x="127.0"),
+            point("경기고등학교", "서울 강남구", y="37.5", x="127.1"),
+            point("경남공업고등학교", "부산 부산진구", y="35.1", x="129.0"),
+        )
+        data = resolve_navigation_place("경남 창원 대산고등학교", api_key="test")
+        self.assertEqual(data["status"], "not_found")
+        self.assertEqual(data["candidates"], [])
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_same_city_similar_school_requires_tap_never_opens_wrong_one(self, fetch):
+        fetch.return_value = result(
+            point("대산고등학교 별관", "경남 창원시 의창구 대산면", y="35.330"),
+        )
+        data = resolve_navigation_place("창원 대산고등학교", api_key="test")
+        self.assertEqual(data["status"], "ambiguous")
+        self.assertEqual(data["candidates"][0]["name"], "대산고등학교 별관")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_location_constraint_applies_to_hospitals_and_station_names(self, fetch):
+        for query, wrong, correct in [
+            ("부산 중앙병원", point("중앙병원", "서울 강남구", y="37.5"),
+             point("중앙병원", "부산 동구")),
+            ("서울 강남구청", point("강남구청", "경남 창원시"),
+             point("강남구청", "서울 강남구 학동로", y="37.51")),
+            ("창원 북면약국", point("북면약국", "강원 춘천시 북면", y="37.9"),
+             point("북면약국", "경남 창원시 북면")),
+        ]:
+            with self.subTest(query=query):
+                fetch.return_value = result(wrong, correct)
+                data = resolve_navigation_place(query, api_key="test")
+                self.assertEqual(data["status"], "resolved")
+                self.assertEqual(data["place"]["address"], correct["road_address_name"])
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_different_school_type_is_not_suggested(self, fetch):
+        fetch.return_value = result(
+            point("대산중학교", "경남 창원시 의창구 대산면"),
+            point("대산초등학교", "경남 창원시 의창구 대산면", y="35.33"),
+        )
+        data = resolve_navigation_place("창원 대산고등학교", api_key="test")
+        self.assertEqual(data["status"], "not_found")
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_location_alias_with_si_suffix_matches_kakao_address(self, fetch):
+        fetch.return_value = result(
+            point("대산고등학교", "경상남도 창원시 의창구 대산면"),
+            point("대산고등학교", "서울 강남구", y="37.5"),
+        )
+        data = resolve_navigation_place("창원시 대산고등학교", api_key="test")
+        self.assertEqual(data["status"], "resolved")
+        self.assertIn("창원시", data["place"]["address"])
+
+    @patch("api.services.navigation_geocode_service.httpx.get")
+    def test_unrelated_similar_named_places_not_offered_without_city(self, fetch):
+        fetch.return_value = result(
+            point("경기고등학교", "서울 강남구", y="37.5"),
+            point("서울고등학교", "서울 서초구", y="37.4"),
+        )
+        data = resolve_navigation_place("대산고등학교", api_key="test")
         self.assertEqual(data["status"], "not_found")
 
     @patch("api.services.navigation_geocode_service.httpx.get")

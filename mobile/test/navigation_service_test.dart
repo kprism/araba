@@ -71,6 +71,24 @@ void main() {
       expect(request?.travelModeExplicit, isFalse);
     });
 
+    test('current location with a hyphen and spoken hesitation is kept out of destination', () {
+      for (final speech in [
+        '어 여기서- 창원 대산 고등학교 가는 길 알려줘',
+        '지금 여기서 창원 대산고등학교 가는 길 알려줘',
+        '여기서, 부산역 가는 길 알려줘',
+      ]) {
+        final route = NavigationRequest.tryParse(speech);
+        expect(route, isNotNull, reason: speech);
+        expect(route?.currentLocation, isTrue, reason: speech);
+        expect(route?.destination.startsWith('여기'), isFalse, reason: speech);
+      }
+      expect(
+        NavigationRequest.tryParse('어 여기서- 창원 대산 고등학교 가는 길 알려줘')
+            ?.destination,
+        '창원 대산 고등학교',
+      );
+    });
+
     test('destination only with go-to wording', () {
       expect(
         NavigationRequest.tryParse('부산역으로 안내해줘')?.destination,

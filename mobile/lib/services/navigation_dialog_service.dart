@@ -111,8 +111,9 @@ class NavigationDialogState {
         .replaceFirst(RegExp(r'^(?:아니[,.! ]*|아니야[,.! ]*|잠깐[,.! ]*|정정할게[,.! ]*|그거\s*말고\s*)'), '')
         .replaceFirst(RegExp(r'^(?:목적지|도착지)(?:는|가|를|는요)?\s*[:：]?\s*'), '')
         .replaceFirst(RegExp(r'^(?:그곳\s*말고\s*|거기\s*말고\s*)'), '')
-        .replaceAll(RegExp(r'(?:으로|로)\s*(?:가(?:줘|자|는\s*길)?|안내해줘|길\s*알려줘|변경해줘)?[.!]?$'), '')
+        .replaceAll(RegExp(r'(?:으로|로)\s*(?:가(?:줘|자|는\s*길|려고|겠어|겠습니다)?|갈\s*거(?:야|예요|에요|다)|갈래|안내해줘|길\s*알려줘|변경해줘)?[.!]?$'), '')
         .replaceAll(RegExp(r'(?:까지)\s*(?:가줘|안내해줘|가자)?[.!]?$'), '')
+        .replaceAll(RegExp(r'(?:갈\s*거(?:야|예요|에요|다)|가려고|가겠어|갈래)[.!]?$'), '')
         .replaceAll(RegExp(r'(?:이야|야|입니다|이요|요)[.!]?$'), '')
         .replaceAll(RegExp(r'[\s,.!?]+$'), '')
         .trim();

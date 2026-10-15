@@ -120,6 +120,35 @@ void main() {
           ?.route?.destination, '부산역');
     });
 
+    test('destination corrected during candidates never becomes merchant search', () {
+      final dialog = NavigationDialogState();
+      final first = dialog.interpret(
+        '어 여기서- 창원 대산 고등학교 가는 길 알려줘',
+      );
+      expect(first?.route, isNull);
+      expect(dialog.lastRoute?.destination, '창원 대산 고등학교');
+      final byCar = dialog.interpret('자동차');
+      expect(byCar?.route?.travelMode, 'driving');
+
+      // The backend provided off-region candidates. HomeScreen calls
+      // awaitCorrection() instead of letting the next utterance fall to AI.
+      dialog.awaitCorrection();
+      final corrected = dialog.interpret('대산고등학교로 갈 거야');
+      expect(corrected?.route?.destination, '대산고등학교');
+      expect(corrected?.route?.travelMode, 'driving');
+      expect(corrected?.route?.currentLocation, isTrue);
+    });
+
+    test('new route can replace old route while previous destination is unresolved', () {
+      final dialog = NavigationDialogState();
+      dialog.interpret('창원시청에서 부산역까지 자동차로 길 알려줘');
+      dialog.awaitCorrection();
+      final next = dialog.interpret('경남도청에서 마산역까지 대중교통으로 길 알려줘');
+      expect(next?.route?.origin, '경남도청');
+      expect(next?.route?.destination, '마산역');
+      expect(next?.route?.travelMode, 'transit');
+    });
+
     test('ordinary request after an old route never hijacked', () {
       final dialog = NavigationDialogState();
       dialog.interpret('창원시청에서 부산역까지 자동차로 길 알려줘');
