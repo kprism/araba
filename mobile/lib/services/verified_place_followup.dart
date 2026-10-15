@@ -265,9 +265,13 @@ class VerifiedPlaceFollowup {
           naver['matched'] == true && naver['page_checked'] == true;
       return other.every((criterion) {
         final field = criterion['field']?.toString() ?? '';
-        if (field == 'parking_available' && !checkedNaver) return false;
+        if (field == 'parking_available' && !checkedNaver) {
+          return false;
+        }
         if (field == 'price' && !checkedNaver &&
-            b['verified_total_price'] == null) return false;
+            b['verified_total_price'] == null) {
+          return false;
+        }
         return facts.whereType<Map>().any((fact) =>
             fact['field'] == criterion['field'] &&
             fact['operator'] == criterion['operator'] &&
