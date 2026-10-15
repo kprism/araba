@@ -145,22 +145,55 @@ class VerifiedPlaceFollowup {
     if (visible.isEmpty) return null;
     final compactText = compact(utterance);
     if (!referencesCohort(utterance)) return null;
+    final criteria = <Map<String,dynamic>>[];
+    final neededFacts = <String>[];
     final clock = RegExp(
       r'(새벽|오전|낮|오후|저녁|밤)?(\d{1,2})시(까지|이후|넘어서|넘게|에도)'
     ).firstMatch(compactText);
-    if (clock == null) return null;
-    var hour = int.parse(clock.group(2)!);
-    final timeOfDay = clock.group(1) ?? '';
-    if (hour < 1 || hour > 24) return null;
-    if (timeOfDay == '새벽' && hour <= 11) hour += 24;
-    if ((timeOfDay == '오후' || timeOfDay == '저녁' ||
-         timeOfDay == '밤' || timeOfDay.isEmpty) && hour <= 11) {
-      hour += 12;
+    if (clock != null) {
+      var hour = int.parse(clock.group(2)!);
+      final timeOfDay = clock.group(1) ?? '';
+      if (hour < 1 || hour > 24) return null;
+      if (timeOfDay == '새벽' && hour <= 11) hour += 24;
+      if ((timeOfDay == '오후' || timeOfDay == '저녁' ||
+           timeOfDay == '밤' || timeOfDay.isEmpty) && hour <= 11) {
+        hour += 12;
+      }
+      if (timeOfDay == '오전' && hour == 12) hour = 0;
+      if (hour > 35) return null;
+      criteria.add({
+        'id':'local_today_closing','field':'closing_time',
+        'operator':'gte','value':'${hour.toString().padLeft(2,'0')}:00',
+        'day':days[koreanNow().weekday-1], 'required':true,
+        'label':'오늘 $hour시까지 영업'
+      });
+      neededFacts.add('오늘 영업시간');
     }
-    if (timeOfDay == '오전' && hour == 12) hour = 0;
-    if (hour > 35) {
-      return null;
+    if (RegExp(r'주차.*(가능|되는|되고|있는|있고|있나)').hasMatch(compactText)) {
+      criteria.add({
+        'id':'local_parking', 'field':'parking_available',
+        'operator':'eq', 'value':true, 'required':true,
+        'label':'주차 가능'
+      });
+      neededFacts.add('주차 가능 여부');
     }
+    if (RegExp(r'가장가까|제일가까|가까운').hasMatch(compactText)) {
+      criteria.add({
+        'id':'local_nearest', 'field':'distance_m',
+        'operator':'min', 'value':null, 'required':true,
+        'label':'가장 가까운 곳'
+      });
+      neededFacts.add('거리');
+    }
+    if (RegExp(r'가장저렴|제일저렴|가장싼|제일싼').hasMatch(compactText)) {
+      criteria.add({
+        'id':'local_lowest_price', 'field':'price',
+        'operator':'min', 'value':null, 'required':true,
+        'label':'가장 저렴한 곳'
+      });
+      neededFacts.add('가격');
+    }
+    if (criteria.isEmpty) return null;
     return {
       'intent':'place_search','search_mode':'comparison',
       'response_mode':'research','ready_to_research':true,
@@ -169,13 +202,8 @@ class VerifiedPlaceFollowup {
       'user_goal':utterance, 'summary':utterance,
       'requested_count':visible.length,
       'attributes':{'reuse_recent_results':true,'strict_original_cohort':true},
-      'criteria':[{
-        'id':'local_today_closing','field':'closing_time',
-        'operator':'gte','value':'${hour.toString().padLeft(2,'0')}:00',
-        'day':days[koreanNow().weekday-1], 'required':true,
-        'label':'오늘 $hour시까지 영업'
-      }],
-      'required_facts':['오늘 영업시간'], 'comparison':'criteria_filter'
+      'criteria':criteria,
+      'required_facts':neededFacts, 'comparison':'criteria_filter'
     };
   }
 
