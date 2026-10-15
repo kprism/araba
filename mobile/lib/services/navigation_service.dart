@@ -193,13 +193,13 @@ class NavigationRequest {
             onlyDestination ??
             RegExp(r'^(.+?)(?:으로|로)\s*(?:가는|가|안내|길|경로)')
                 .firstMatch(text) ??
-            RegExp(r'^(.+?)\\s+가는\\s*길').firstMatch(text) ??
+            RegExp(r'^(.+?)\s+가는\s*길').firstMatch(text) ??
             // Natural speech: "창원대산고등학교 갈 건데 길 좀
             // 알아봐줘. 기존에 내비게이션 됐는데 왜?" The trailing
             // troubleshooting question is not part of the destination.
             RegExp(
-              r'^(.+?)\\s+갈\\s*(?:건데|거야|거예요|거에요|겁니다|려고|게)\\s*'
-              r'[, ]*\\s*(?:길|경로|내비|네비)',
+              r'^(.+?)\s+갈\s*(?:건데|거야|거예요|거에요|겁니다|려고|게)\s*'
+              r'[, ]*\s*(?:길|경로|내비|네비)',
             ).firstMatch(text);
         if (destinationOnly == null) return null;
         path = destinationOnly.group(1)?.trim() ?? '';
