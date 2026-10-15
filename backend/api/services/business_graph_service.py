@@ -8,6 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from api.models import Business, BusinessExperience, BusinessFact
+from api.services.temporal_service import weekly_hours_table
 
 
 DETAIL_CACHE_TTL_HOURS = 24
@@ -49,6 +50,7 @@ TRUSTED_IMAGE_SOURCES = {
 
 FACT_TTLS = {
     "opening_hours": timedelta(days=2),
+    "weekly_opening_hours": timedelta(days=2),
     "parking_available": timedelta(days=30),
     "prices": timedelta(days=7),
     "image_url": timedelta(days=30),
@@ -174,6 +176,15 @@ def _fact_payloads(business):
             }
         )
 
+    # Never persist a guessed schedule. Derived weekly rows must originate
+    # from identity-verified provider hours.
+    weekly = business.get("weekly_opening_hours")
+    if isinstance(weekly, list) and any(
+        isinstance(day, dict) and day.get("status") != "unknown"
+        for day in weekly
+    ):
+        payloads["weekly_opening_hours"] = weekly
+
     return {
         key: value
         for key, value in payloads.items()
@@ -182,6 +193,8 @@ def _fact_payloads(business):
 
 
 def _fact_source(business, key):
+    if key == "weekly_opening_hours":
+        return "araba_normalized"
     if key in {"opening_hours", "parking_available", "prices"}:
         naver = business.get("naver")
         if isinstance(naver, dict) and naver.get("matched") is True:
@@ -324,6 +337,12 @@ def _upsert_business(business, mission=None, *, detail_refreshed=False):
             business,
         )
     )
+    # Populate the existing JSON snapshot and BusinessFact rather than
+    # altering the test database schema or creating duplicate storage tables.
+    verified_rows = weekly_hours_table(snapshot)
+    if any(day["status"] != "unknown" for day in verified_rows):
+        snapshot["weekly_opening_hours"] = verified_rows
+        business = {**business, "weekly_opening_hours": verified_rows}
     source_meta = (
         deepcopy(record.source_meta)
         if isinstance(record.source_meta, dict)
