@@ -2125,7 +2125,7 @@ def _fast_recent_place_comparison(user_request):
 
     time_match = re.search(
         r"(새벽|오전|낮|오후|저녁|밤)?"
-        r"(\d{1,2})시(?:이후|넘어서|넘게|까지)",
+        r"(\d{1,2})시(?:(\d{1,2})분|반)?(?:이후|넘어서|넘게|까지)",
         compact,
     )
     if time_match:
@@ -2141,8 +2141,13 @@ def _fast_recent_place_comparison(user_request):
         elif not daypart and 1 <= hour <= 11:
             hour += 12
 
-        if 0 <= hour <= 35:
-            threshold = f"{hour:02d}:00"
+        minute = (
+            int(time_match.group(3))
+            if time_match.group(3) is not None
+            else 30 if "시반" in compact else 0
+        )
+        if 0 <= hour <= 35 and 0 <= minute < 60:
+            threshold = f"{hour:02d}:{minute:02d}"
             display_hour = (
                 f"새벽 {hour - 24}시"
                 if hour >= 24
@@ -2155,9 +2160,12 @@ def _fast_recent_place_comparison(user_request):
                 threshold,
                 f"{display_hour} 이후까지 영업",
             )
-            if "오늘" in compact or "금일" in compact:
+            if day_match or "오늘" in compact or "금일" in compact:
                 from .temporal_service import current_time_context
-                today = current_time_context()["weekday"]
+                today = (
+                    day_match.group(1)
+                    if day_match else current_time_context()["weekday"]
+                )
                 for item in criteria:
                     if (
                         item["field"] == "closing_time"
