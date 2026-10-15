@@ -1099,9 +1099,18 @@ class _HomeScreenState extends State<HomeScreen>
           ? _namedMatchAnswer(updated)
           : '';
 
-      final remembered = updated.isNotEmpty
-          ? updated
-          : initialBusinesses;
+      // Enrichment can return a subset (or none) when facts are absent.
+      // Never shrink the originally displayed cohort on that account.
+      String identity(Map<String, dynamic> item) =>
+          (item['id']?.toString() ?? '') + '|' +
+          (item['name']?.toString() ?? '') + '|' +
+          (item['address']?.toString() ?? '');
+      final refreshed = {
+        for (final item in updated) identity(item): item,
+      };
+      final remembered = initialBusinesses
+          .map((item) => refreshed[identity(item)] ?? item)
+          .toList();
       _rememberBusinessGroup(mission, remembered);
 
       final detailStatus = anyDetails
@@ -1109,7 +1118,7 @@ class _HomeScreenState extends State<HomeScreen>
           : '$detailFailure 출처가 없는 값은 임의로 채우지 않았어요.';
       setState(() {
         final message = _messages[messageIndex];
-        message.businesses = updated;
+        message.businesses = remembered;
         message.matching = matching;
         message.badge = hasCriteria
             ? (
