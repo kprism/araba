@@ -44,9 +44,8 @@ class ConversationContext {
     ].join('\n');
   }
 
-  /// Resolve a clearly spoken *business-name* repair without GPT Core.
-  /// Only replaces a word inside an explicitly stated / remembered name.
-  /// Ambiguous category, location and general text go to normal intent AI.
+  /// Recognize an unambiguous speech correction of a named business.
+  /// Other corrections remain with GPT Core, without guessing businesses.
   Map<String, dynamic>? explicitNameCorrectionMission(String utterance) {
     final text = utterance.trim();
     final matches = RegExp(
@@ -54,445 +53,43 @@ class ConversationContext {
       r'\s*[,，]?\s*([0-9A-Za-z가-힣]{2,20})',
     ).allMatches(text).toList();
     if (matches.isEmpty) return null;
-    final match = matches.last;
-    final previous = match.group(1)!;
-    final corrected = match.group(2)!;
-    if (const {
-      '치과','병원','피부과','식당','카페','약국',
-      '오늘','내일','여기','거기','저녁',
-    }.contains(corrected)) {
-      return null;
-    }
-    final prefix = text.substring(0, match.start).trim();
-    final explicitName = RegExp(
+    final m = matches.last;
+    final before = m.group(1)!;
+    final after = m.group(2)!;
+    if (const {'치과','병원','피부과','식당','카페','약국'}
+        .contains(after)) return null;
+
+    final initial = text.substring(0, m.start).trim();
+    final explicit = RegExp(
       r'([0-9A-Za-z가-힣]{2,45}(?:치과의원|치과|의원|병원|약국|'
-      r'식당|카페|타이어점))    Map<String, dynamic> mission,
-  ) {
-    final previousCategory =
-        _known['category']?.toString().trim() ?? '';
-    final nextCategory =
-        mission['category']?.toString().trim() ?? '';
-    final previousLocation =
-        _known['location']?.toString().trim() ?? '';
-    final nextLocation =
-        mission['location']?.toString().trim() ?? '';
-    final nextMode =
-        mission['search_mode']?.toString().trim() ?? '';
-    final nextAttributes = mission['attributes'];
-    final reuseRecent = nextAttributes is Map &&
-        nextAttributes['reuse_recent_results'] == true;
-    final newSearch = !reuseRecent &&
-        (nextMode == 'category_discovery' ||
-         nextMode == 'area_discovery' ||
-         nextMode == 'exact_place');
-    final locationChanged = previousLocation.isNotEmpty &&
-        nextLocation.isNotEmpty &&
-        previousLocation != nextLocation &&
-        mission['location_explicit'] == true;
-    // Each new search has its own criteria and results. Retain only the
-    // bounded search history for references such as "아까 빵집".
-    if (newSearch) {
-      for (final key in [
-        'criteria',
-        'constraints',
-        'attributes',
-        'task_state',
-        'recent_place_results',
-      ]) {
-        _known.remove(key);
-      }
-    }
-
-    if (locationChanged) {
-      _known.remove('target_business');
-      _known.remove('subject');
-    }
-
-    if (previousCategory.isNotEmpty &&
-        nextCategory.isNotEmpty &&
-        previousCategory != nextCategory) {
-      for (final key in [
-        'subcategories',
-        'subject',
-        'target_business',
-        'attributes',
-        'constraints',
-        'criteria',
-        'task_state',
-        'comparison',
-        'user_goal',
-        'decision_needed',
-        'expected_answer',
-        'search_mode',
-        'intent',
-      ]) {
-        _known.remove(key);
-      }
-    }
-    final searchMode =
-        mission['search_mode']?.toString().trim() ?? '';
-
-    if (searchMode == 'category_discovery' ||
-        searchMode == 'area_discovery' ||
-        searchMode == 'comparison') {
-      _known.remove('target_business');
-
-      final currentAttributes = _known['attributes'];
-      if (currentAttributes is Map) {
-        final cleaned =
-            Map<String, dynamic>.from(currentAttributes);
-        cleaned.remove('selected_business_name');
-        cleaned.remove('selected_business_address');
-        cleaned.remove('selected_business_phone');
-        cleaned.remove('selected_business_opening_hours');
-
-        if (cleaned.isEmpty) {
-          _known.remove('attributes');
-        } else {
-          _known['attributes'] = cleaned;
-        }
-      }
-    }
-
-    if (searchMode == 'exact_place') {
-      final newTarget =
-          mission['target_business']?.toString().trim() ?? '';
-      final oldTarget =
-          _known['target_business']?.toString().trim() ?? '';
-
-      if (newTarget.isNotEmpty &&
-          oldTarget.isNotEmpty &&
-          newTarget != oldTarget) {
-        final currentAttributes = _known['attributes'];
-        if (currentAttributes is Map) {
-          final cleaned =
-              Map<String, dynamic>.from(currentAttributes);
-          cleaned.remove('selected_business_name');
-          cleaned.remove('selected_business_address');
-          cleaned.remove('selected_business_phone');
-          cleaned.remove('selected_business_opening_hours');
-
-          if (cleaned.isEmpty) {
-            _known.remove('attributes');
-          } else {
-            _known['attributes'] = cleaned;
-          }
-        }
-      }
-    }
-
-    for (final key in [
-      'category',
-      'subcategories',
-      'intent',
-      'search_mode',
-      'location',
-      'subject',
-      'target_business',
-      'comparison',
-      'criteria',
-      'task_state',
-      'user_goal',
-      'decision_needed',
-      'expected_answer',
-      'location_context',
-    ]) {
-      final value = mission[key];
-
-      if (!_isUseful(value)) {
-        continue;
-      }
-
-      if (key == 'location_context' && value is Map) {
-        final context =
-            Map<String, dynamic>.from(value);
-        if (context['type'] == 'device_location') {
-          _known[key] = {
-            'value': '현재 위치',
-            'type': 'device_location',
-            'source': 'device',
-          };
-          continue;
-        }
-      }
-
-      _known[key] = value;
-    }
-
-    final attributes = mission['attributes'];
-
-    if (attributes is Map) {
-      final current = _known['attributes'];
-      final merged = current is Map
-          ? Map<String, dynamic>.from(current)
-          : <String, dynamic>{};
-
-      for (final entry in attributes.entries) {
-        if (_isUseful(entry.value)) {
-          merged[
-            entry.key.toString()
-          ] = entry.value;
-        }
-      }
-
-      if (merged.isNotEmpty) {
-        _known['attributes'] = merged;
-      }
-    }
-
-    final constraints = mission['constraints'];
-
-    if (constraints is List) {
-      final existing =
-          (_known['constraints'] is List)
-          ? List<String>.from(
-              (_known['constraints'] as List)
-                  .map((item) => item.toString()),
-            )
-          : <String>[];
-
-      for (final item in constraints) {
-        final text = item.toString().trim();
-
-        if (text.isNotEmpty &&
-            !existing.contains(text)) {
-          existing.add(text);
-        }
-      }
-
-      if (existing.isNotEmpty) {
-        _known['constraints'] = existing;
-      }
-    }
-  }
-
-  void rememberBusinessResults(
-    Map<String, dynamic> mission,
-    List<Map<String, dynamic>> businesses,
-  ) {
-    if (businesses.isEmpty) return;
-
-    final category =
-        mission['category']?.toString().trim() ?? '';
-    final location =
-        mission['location']?.toString().trim() ?? '';
-
-    final summarized = <Map<String, dynamic>>[];
-
-    for (var index = 0;
-        index < businesses.length && index < 10;
-        index++) {
-      final business = businesses[index];
-      final naverValue = business['naver'];
-      final naver = naverValue is Map
-          ? Map<String, dynamic>.from(naverValue)
-          : <String, dynamic>{};
-      final rawHours = naver['opening_hours'];
-      final hours = rawHours is List
-          ? rawHours
-              .map((item) => item.toString().trim())
-              .where((item) => item.isNotEmpty)
-              .take(4)
-              .toList()
-          : <String>[];
-      final rawPrices = naver['prices'];
-      final prices = rawPrices is List
-          ? rawPrices
-              .whereType<Map>()
-              .take(3)
-              .map(
-                (item) => {
-                  'name': item['name']?.toString().trim() ?? '',
-                  'price': item['price']?.toString().trim() ?? '',
-                  'currency': item['currency']?.toString().trim() ?? '',
-                },
-              )
-              .toList()
-          : <Map<String, dynamic>>[];
-
-      summarized.add({
-        'rank': index + 1,
-        'name':
-            business['name']?.toString().trim() ?? '',
-        'address':
-            business['address']?.toString().trim() ?? '',
-        'phone':
-            business['phone']?.toString().trim() ?? '',
-        if (hours.isNotEmpty)
-          'opening_hours': hours,
-        if (naver.containsKey('parking_available'))
-          'parking_available':
-              naver['parking_available'],
-        if (prices.isNotEmpty)
-          'prices': prices,
-      });
-    }
-
-    final resultSet = <String, dynamic>{
-      'category': category,
-      'location': location,
-      'results': summarized,
-    };
-
-    _known['recent_place_results'] = summarized;
-
-    final existingValue = _known['recent_place_searches'];
-    final history = existingValue is List
-        ? existingValue
-            .whereType<Map>()
-            .map(
-              (item) =>
-                  Map<String, dynamic>.from(item),
-            )
-            .toList()
-        : <Map<String, dynamic>>[];
-
-    history.removeWhere((item) {
-      return item['category'] == category &&
-          item['location'] == location;
-    });
-    history.insert(0, resultSet);
-
-    if (history.length > 3) {
-      history.removeRange(3, history.length);
-    }
-
-    _known['recent_place_searches'] = history;
-  }
-
-  void rememberBusiness(
-    Map<String, dynamic> business,
-  ) {
-    final name =
-        business['name']?.toString().trim() ?? '';
-    if (name.isNotEmpty) {
-      _known['target_business'] = name;
-      _known['subject'] = name;
-    }
-
-    final address =
-        business['address']?.toString().trim() ?? '';
-    final phone =
-        business['phone']?.toString().trim() ?? '';
-
-    final current = _known['attributes'];
-    final merged = current is Map
-        ? Map<String, dynamic>.from(current)
-        : <String, dynamic>{};
-
-    if (name.isNotEmpty) {
-      merged['selected_business_name'] = name;
-    }
-    if (address.isNotEmpty) {
-      merged['selected_business_address'] = address;
-    }
-    if (phone.isNotEmpty) {
-      merged['selected_business_phone'] = phone;
-    }
-
-    final naver = business['naver'];
-    if (naver is Map) {
-      final hours = naver['opening_hours'];
-      if (hours is List && hours.isNotEmpty) {
-        merged['selected_business_opening_hours'] =
-            List<String>.from(
-          hours.map((item) => item.toString()),
-        );
-      }
-
-      if (naver.containsKey('parking_available')) {
-        merged['selected_business_parking_available'] =
-            naver['parking_available'];
-      }
-    }
-
-    if (merged.isNotEmpty) {
-      _known['attributes'] = merged;
-    }
-  }
-
-  void rememberAttributes(
-    Map<String, dynamic> attributes,
-  ) {
-    final current = _known['attributes'];
-    final merged = current is Map
-        ? Map<String, dynamic>.from(current)
-        : <String, dynamic>{};
-
-    for (final entry in attributes.entries) {
-      if (_isUseful(entry.value)) {
-        merged[
-          entry.key.toString()
-        ] = entry.value;
-      }
-    }
-
-    if (merged.isNotEmpty) {
-      _known['attributes'] = merged;
-    }
-  }
-
-  bool _isUseful(dynamic value) {
-    if (value == null) {
-      return false;
-    }
-
-    if (value is String) {
-      final normalized = value.trim().toLowerCase();
-
-      return normalized.isNotEmpty &&
-          normalized != 'null' &&
-          normalized != '미정' &&
-          normalized != '없음';
-    }
-
-    if (value is List) {
-      return value.isNotEmpty;
-    }
-
-    if (value is Map) {
-      return value.isNotEmpty;
-    }
-
-    return true;
-  }
-
-  void clear() {
-    _known.clear();
-  }
-}
-,
-    ).firstMatch(prefix);
-    var oldName = '';
-    if (explicitName != null &&
-        explicitName.group(1)!.contains(previous)) {
-      oldName = explicitName.group(1)!;
-    } else {
+      r'식당|카페|타이어점))$',
+    ).firstMatch(initial);
+    var old = explicit?.group(1) ?? '';
+    if (!old.contains(before)) old = '';
+    if (old.isEmpty) {
       final known = _known['target_business']?.toString() ?? '';
-      if (known.contains(previous) &&
+      if (known.contains(before) &&
           RegExp(r'치과|병원|의원|약국|식당|카페|타이어')
-              .hasMatch(known)) {
-        oldName = known;
-      }
+              .hasMatch(known)) old = known;
     }
-    if (oldName.isEmpty || oldName == previous) return null;
-    final target = oldName.replaceFirst(previous, corrected);
-    if (target == oldName) return null;
+    if (old.isEmpty || old == before) return null;
+    final target = old.replaceFirst(before, after);
+    if (target == old) return null;
 
     var category = _known['category']?.toString().trim() ?? '';
     if (target.contains('치과')) {
       category = '치과';
-    } else if (target.contains('병원') || target.contains('의원')) {
-      category = category.isEmpty ? '병원' : category;
     } else if (target.contains('약국')) {
       category = '약국';
     } else if (target.contains('식당')) {
       category = '식당';
     } else if (target.contains('카페')) {
       category = '카페';
+    } else if (category.isEmpty &&
+        RegExp(r'병원|의원').hasMatch(target)) {
+      category = '병원';
     }
     if (category.isEmpty) return null;
-    final location = _known['location']?.toString().trim() ?? '';
     return {
       'intent': 'place_search',
       'title': '$target 찾기',
@@ -502,7 +99,7 @@ class ConversationContext {
       'search_mode': 'exact_place',
       'response_mode': 'research',
       'ready_to_research': true,
-      'location': location,
+      'location': _known['location']?.toString().trim() ?? '',
       'subject': target,
       'target_business': target,
       'requested_count': 1,
