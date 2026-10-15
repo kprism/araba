@@ -144,4 +144,89 @@ void main() {
       '그중에서 오늘 밤 9시까지 하는 데 알려줘',
       [], {'category':'치과'}), isNull);
   });
+
+  test('generic scoped followups override Core invented nationwide search', () {
+    final original = [clinic('1','창원치과','경남 창원시')];
+    final parsed = {
+      'intent': 'place_search',
+      'search_mode': 'category_discovery',
+      'response_mode': 'answer',
+      'location': '서울특별시',
+      'category': '치과',
+      'requested_count': 9,
+      'criteria': [
+        {'id': 'p', 'field': 'parking_available',
+         'operator': 'eq', 'value': true, 'required': true},
+      ],
+    };
+    final scoped = VerifiedPlaceFollowup.scopeMission(
+      '그 중에서 주차 가능한 곳만 알려줘', original,
+      {'location': '창원시', 'category': '치과'}, parsed,
+    )!;
+    expect(scoped['search_mode'], 'comparison');
+    expect(scoped['response_mode'], 'research');
+    expect(scoped['location'], '창원시');
+    expect(scoped['requested_count'], 1);
+    expect((scoped['attributes'] as Map)['reuse_recent_results'], true);
+    expect(VerifiedPlaceFollowup.scopeMission(
+      '그중 말고 다른 곳도 더 찾아줘', original,
+      {'location': '창원시'}, parsed), isNull);
+  });
+
+  test('parking followup needs matched provider and structured evidence', () {
+    final original = [
+      clinic('1', '창원치과A', '경남 창원시'),
+      clinic('2', '창원치과B', '경남 창원시'),
+    ];
+    (original[0]['naver'] as Map<String,dynamic>)
+        ['parking_available'] = true;
+    (original[1]['naver'] as Map<String,dynamic>)
+        ['parking_available'] = true;
+    (original[1]['naver'] as Map<String,dynamic>)
+        ['page_checked'] = false;
+    final mission = {
+      'criteria': [
+        {'id': 'park', 'field': 'parking_available',
+         'operator': 'eq', 'value': true, 'required': true},
+      ],
+    };
+    final matching = {
+      'matrix': [
+        {'business_id': '1', 'business_name': '창원치과A',
+         'status': 'matched',
+         'criteria': [
+           {'id': 'park', 'field': 'parking_available',
+            'operator': 'eq', 'state': 'match',
+            'source': 'naver_or_openai_web'},
+         ]},
+        {'business_id': '2', 'business_name': '창원치과B',
+         'status': 'matched',
+         'criteria': [
+           {'id': 'park', 'field': 'parking_available',
+            'operator': 'eq', 'state': 'match',
+            'source': 'naver_or_openai_web'},
+         ]},
+      ],
+    };
+    final returned = [
+      ...original,
+      clinic('3', '서울치과', '서울 강남구'),
+    ];
+    expect(VerifiedPlaceFollowup.confirmed(
+      original, returned, mission), isEmpty);
+    final selected = VerifiedPlaceFollowup.confirmed(
+      original, returned, mission, matching: matching);
+    expect(selected.map((b) => b['name']).toList(), ['창원치과A']);
+  });
+
+  test('business opening only after 9pm is not open at 9pm', () {
+    final clinicAfter = clinic('7', '야간치과', '경남 창원시',
+      hours: ['목요일 21:30-23:00']);
+    expect(VerifiedPlaceFollowup.openThrough(
+      clinicAfter, 21 * 60, nowKst: thursday), false);
+    final clinicSplit = clinic('8', '분할영업치과', '경남 창원시',
+      hours: ['목요일 09:00-12:00', '목요일 18:00-22:00']);
+    expect(VerifiedPlaceFollowup.openThrough(
+      clinicSplit, 21 * 60, nowKst: thursday), true);
+  });
 }
