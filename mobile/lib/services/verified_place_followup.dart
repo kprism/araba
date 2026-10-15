@@ -32,15 +32,19 @@ class VerifiedPlaceFollowup {
     if (weekday >= 6 && t.contains('주말')) return true;
     const short = ['월','화','수','목','금','토','일'];
     final letter = short[weekday - 1];
-    if (RegExp('(?<![월화수목금토일])' + letter +
-      '(?![월화수목금토일])').hasMatch(t)) return true;
+    if (RegExp('(?<![월화수목금토일])$letter(?![월화수목금토일])')
+        .hasMatch(t)) {
+      return true;
+    }
     final ranges = RegExp(
         r'([월화수목금토일])(?:요일)?[~\-–]([월화수목금토일])').allMatches(t);
     for (final m in ranges) {
       final start = short.indexOf(m.group(1)!) + 1;
       final end = short.indexOf(m.group(2)!) + 1;
       if (start <= end && weekday >= start && weekday <= end) return true;
-      if (start > end && (weekday >= start || weekday <= end)) return true;
+      if (start > end && (weekday >= start || weekday <= end)) {
+        return true;
+      }
     }
     return false;
   }
@@ -56,7 +60,9 @@ class VerifiedPlaceFollowup {
     ).hasMatch(s))) return false;
     final closingTimes = <int>[];
     for (final line in lines) {
-      if (line.contains('24시간')) closingTimes.add(1440);
+      if (line.contains('24시간')) {
+        closingTimes.add(1440);
+      }
       final matches = RegExp(
         r'(\d{1,2}):(\d{2})\s*[~\-–]\s*(\d{1,2}):(\d{2})'
       ).allMatches(line);
@@ -95,7 +101,9 @@ class VerifiedPlaceFollowup {
     if ((timeOfDay == '오후' || timeOfDay == '저녁' ||
          timeOfDay == '밤' || timeOfDay.isEmpty) && hour <= 11) hour += 12;
     if (timeOfDay == '오전' && hour == 12) hour = 0;
-    if (hour > 35) return null;
+    if (hour > 35) {
+      return null;
+    }
     return {
       'intent':'place_search','search_mode':'comparison',
       'response_mode':'research','ready_to_research':true,
@@ -106,9 +114,9 @@ class VerifiedPlaceFollowup {
       'attributes':{'reuse_recent_results':true,'strict_original_cohort':true},
       'criteria':[{
         'id':'local_today_closing','field':'closing_time',
-        'operator':'gte','value':hour.toString().padLeft(2,'0') + ':00',
+        'operator':'gte','value':'${hour.toString().padLeft(2,'0')}:00',
         'day':days[koreanNow().weekday-1], 'required':true,
-        'label':'오늘 ' + hour.toString() + '시까지 영업'
+        'label':'오늘 ${hour}시까지 영업'
       }],
       'required_facts':['오늘 영업시간'], 'comparison':'criteria_filter'
     };
@@ -117,12 +125,10 @@ class VerifiedPlaceFollowup {
   static List<Map<String,dynamic>> confirmed(
     List<Map<String,dynamic>> original,
     List<Map<String,dynamic>> returned,
-    Map<String,dynamic> mission, {DateTime? nowKst},
+    Map<String,dynamic> mission, {DateTime? nowKst}
   ) {
     String identity(Map<String,dynamic> b) =>
-      (b['id']?.toString() ?? '') + '|' +
-      (b['name']?.toString().trim().toLowerCase() ?? '') + '|' +
-      (b['address']?.toString().trim().toLowerCase() ?? '');
+      '${b['id']?.toString() ?? ''}|${b['name']?.toString().trim().toLowerCase() ?? ''}|${b['address']?.toString().trim().toLowerCase() ?? ''}';
     final allowed = original.map(identity).toSet();
     final seen = <String>{};
     final raw = mission['criteria'];
