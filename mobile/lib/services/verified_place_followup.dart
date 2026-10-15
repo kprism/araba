@@ -8,6 +8,20 @@ class VerifiedPlaceFollowup {
       DateTime.now().toUtc().add(const Duration(hours: 9));
 
   static String compact(String s) => s.replaceAll(RegExp(r'\s+'), '');
+  static const spokenHours = <String,int>{
+    '스물세':23,'스물두':22,'스물한':21,'스무':20,
+    '열아홉':19,'열여덟':18,'열일곱':17,'열여섯':16,
+    '열다섯':15,'열네':14,'열세':13,'열두':12,'열한':11,
+    '열':10,'아홉':9,'여덟':8,'일곱':7,'여섯':6,
+    '다섯':5,'네':4,'세':3,'두':2,'한':1,
+  };
+  static String normalizeSpokenHours(String text) {
+    final clockWords = spokenHours.keys.join('|');
+    return text.replaceAllMapped(
+      RegExp('($clockWords)시'),
+      (match) => '${spokenHours[match.group(1)]}시',
+    );
+  }
   static final _clockToken = RegExp(
     r'(?<![0-9A-Za-z])(?:(오전|오후|am|pm)\s*)?'
     r'(\d{1,2})(?::(\d{2})|시(?:\s*(\d{1,2})분)?)'
@@ -305,12 +319,12 @@ class VerifiedPlaceFollowup {
     Map<String,dynamic> context,
   ) {
     if (visible.isEmpty) return null;
-    final compactText = compact(utterance);
+    final compactText = normalizeSpokenHours(compact(utterance));
     if (!referencesCohort(utterance)) return null;
     final criteria = <Map<String,dynamic>>[];
     final neededFacts = <String>[];
     final clock = RegExp(
-      r'(새벽|오전|낮|오후|저녁|밤)?(\d{1,2})시(까지|이후|넘어서|넘게|에도)'
+      r'(새벽|오전|낮|오후|저녁|밤)?(\d{1,2})시(?:(\d{1,2})분|반)?(까지|이후|넘어서|넘게|에도)'
     ).firstMatch(compactText);
     if (clock != null) {
       var hour = int.parse(clock.group(2)!);
@@ -323,13 +337,17 @@ class VerifiedPlaceFollowup {
       }
       if (timeOfDay == '오전' && hour == 12) hour = 0;
       if (hour > 35) return null;
+      final minute = clock.group(3) != null
+          ? int.tryParse(clock.group(3)!) ?? 0
+          : compactText.contains('${clock.group(2)}시반') ? 30 : 0;
+      if (minute < 0 || minute >= 60) return null;
       final explicitDay = RegExp(r'[월화수목금토일]요일').firstMatch(
         compactText,
       )?.group(0);
       final targetDay = explicitDay ?? days[koreanNow().weekday-1];
       criteria.add({
         'id':'local_today_closing','field':'closing_time',
-        'operator':'gte','value':'${hour.toString().padLeft(2, '0')}:00',
+        'operator':'gte','value':'${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}',
         'day':targetDay, 'required':true,
         'label':'$targetDay $hour시까지 영업',
       });
