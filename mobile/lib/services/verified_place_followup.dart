@@ -57,7 +57,9 @@ class VerifiedPlaceFollowup {
     if (lines.isEmpty) return null;
     if (lines.any((s) => RegExp(
       r'휴무|휴점|정기휴무|closed|영업안함|운영안함', caseSensitive: false
-    ).hasMatch(s))) return false;
+    ).hasMatch(s))) {
+      return false;
+    }
     final closingTimes = <int>[];
     for (final line in lines) {
       if (line.contains('24시간')) {
@@ -86,7 +88,9 @@ class VerifiedPlaceFollowup {
     if (visible.isEmpty) return null;
     final compactText = compact(utterance);
     if (!RegExp(r'그중|이중|그안에서|그가운데|그곳중|이곳중|그3곳중')
-        .hasMatch(compactText)) return null;
+        .hasMatch(compactText)) {
+      return null;
+    }
     if (RegExp(r'말고|대신|다른곳|더찾|추가로|범위넓').hasMatch(compactText)) {
       return null;
     }
@@ -99,7 +103,9 @@ class VerifiedPlaceFollowup {
     if (hour < 1 || hour > 24) return null;
     if (timeOfDay == '새벽' && hour <= 11) hour += 24;
     if ((timeOfDay == '오후' || timeOfDay == '저녁' ||
-         timeOfDay == '밤' || timeOfDay.isEmpty) && hour <= 11) hour += 12;
+         timeOfDay == '밤' || timeOfDay.isEmpty) && hour <= 11) {
+      hour += 12;
+    }
     if (timeOfDay == '오전' && hour == 12) hour = 0;
     if (hour > 35) {
       return null;
@@ -116,7 +122,7 @@ class VerifiedPlaceFollowup {
         'id':'local_today_closing','field':'closing_time',
         'operator':'gte','value':'${hour.toString().padLeft(2,'0')}:00',
         'day':days[koreanNow().weekday-1], 'required':true,
-        'label':'오늘 ${hour}시까지 영업'
+        'label':'오늘 $hour시까지 영업'
       }],
       'required_facts':['오늘 영업시간'], 'comparison':'criteria_filter'
     };
