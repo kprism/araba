@@ -170,10 +170,10 @@ class VerifiedPlaceFollowup {
   }
 
   static bool? openThrough(
-    Map<String, dynamic> b, int atMinute, {DateTime? nowKst}
+    Map<String, dynamic> b, int atMinute, {DateTime? nowKst, String? weekday}
   ) {
     final date = nowKst ?? koreanNow();
-    final today = days[date.weekday - 1];
+    final today = weekday ?? days[date.weekday - 1];
     final rows = normalizedHours(b)
         .where((row) => row['weekday'] == today).toList();
     if (rows.isEmpty) return null;
@@ -258,11 +258,15 @@ class VerifiedPlaceFollowup {
       }
       if (timeOfDay == '오전' && hour == 12) hour = 0;
       if (hour > 35) return null;
+      final explicitDay = RegExp(r'[월화수목금토일]요일').firstMatch(
+        compactText,
+      )?.group(0);
+      final targetDay = explicitDay ?? days[koreanNow().weekday-1];
       criteria.add({
         'id':'local_today_closing','field':'closing_time',
-        'operator':'gte','value':'${hour.toString().padLeft(2,'0')}:00',
-        'day':days[koreanNow().weekday-1], 'required':true,
-        'label':'오늘 $hour시까지 영업'
+        'operator':'gte','value':'${hour.toString().padLeft(2, '0')}:00',
+        'day':targetDay, 'required':true,
+        'label':'$targetDay $hour시까지 영업',
       });
       neededFacts.add('오늘 영업시간');
     }
@@ -304,6 +308,31 @@ class VerifiedPlaceFollowup {
     };
   }
 
+  /// The /research/enrich response nests unverified and excluded businesses
+  /// inside matching, rather than as top-level fields. The UI must inspect
+  /// these enriched candidates before saying no business qualifies.
+  static List<Map<String,dynamic>> enrichedCandidates(
+    Map<String,dynamic> result,
+  ) {
+    final matching = result['matching'];
+    final matrix = matching is Map ? matching : <String,dynamic>{};
+    final output = <Map<String,dynamic>>[];
+    for (final raw in [
+      result['businesses'],
+      matrix['matched_businesses'],
+      matrix['unverified_businesses'],
+      matrix['excluded_businesses'],
+      result['unverified_businesses'],
+      result['excluded_businesses'],
+    ]) {
+      if (raw is! List) continue;
+      output.addAll(raw.whereType<Map>().map(
+        (item) => Map<String,dynamic>.from(item),
+      ));
+    }
+    return output;
+  }
+
   static List<Map<String,dynamic>> confirmed(
     List<Map<String,dynamic>> original,
     List<Map<String,dynamic>> returned,
@@ -341,7 +370,8 @@ class VerifiedPlaceFollowup {
       for (final criterion in closing) {
         final atMinute = threshold(criterion);
         if (atMinute == null ||
-            openThrough(b, atMinute, nowKst: nowKst) != true) {
+            openThrough(b, atMinute, nowKst: nowKst,
+              weekday: criterion['day']?.toString()) != true) {
           return false;
         }
       }
