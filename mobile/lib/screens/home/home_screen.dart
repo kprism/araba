@@ -1102,9 +1102,7 @@ class _HomeScreenState extends State<HomeScreen>
       // Enrichment can return a subset (or none) when facts are absent.
       // Never shrink the originally displayed cohort on that account.
       String identity(Map<String, dynamic> item) =>
-          (item['id']?.toString() ?? '') + '|' +
-          (item['name']?.toString() ?? '') + '|' +
-          (item['address']?.toString() ?? '');
+          '${item['id']?.toString() ?? ''}|${item['name']?.toString() ?? ''}|${item['address']?.toString() ?? ''}';
       final refreshed = {
         for (final item in updated) identity(item): item,
       };
@@ -1247,7 +1245,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<bool> _tryHandleVerifiedFollowup(
-    String text, {required bool fromVoice},
+    String text, {required bool fromVoice}
   ) async {
     final mission = VerifiedPlaceFollowup.missionFor(
       text, _lastBusinesses, _conversationContext.snapshot,
