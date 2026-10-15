@@ -891,6 +891,9 @@ def _apply_one_result(
         "identity_confirmed": True,
         "sources": sources,
         "opening_hours_found": bool(opening_hours),
+        # Keep provenance-specific hours separate from mixed Naver fields.
+        # Matchers must never treat a search snippet as verified Naver detail.
+        "opening_hours": opening_hours,
         "parking_found": isinstance(parking_available, bool),
         "prices_found": bool(prices),
         "phone_found": bool(phone),
