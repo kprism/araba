@@ -258,11 +258,15 @@ class VerifiedPlaceFollowup {
       }
       if (timeOfDay == '오전' && hour == 12) hour = 0;
       if (hour > 35) return null;
+      final explicitDay = RegExp(r'[월화수목금토일]요일').firstMatch(
+        compactText,
+      )?.group(0);
+      final targetDay = explicitDay ?? days[koreanNow().weekday-1];
       criteria.add({
         'id':'local_today_closing','field':'closing_time',
-        'operator':'gte','value':'${hour.toString().padLeft(2,'0')}:00',
-        'day':days[koreanNow().weekday-1], 'required':true,
-        'label':'오늘 $hour시까지 영업'
+        'operator':'gte','value':'${hour.toString().padLeft(2, '0')}:00',
+        'day':targetDay, 'required':true,
+        'label':'$targetDay $hour시까지 영업',
       });
       neededFacts.add('오늘 영업시간');
     }
