@@ -304,6 +304,31 @@ class VerifiedPlaceFollowup {
     };
   }
 
+  /// The /research/enrich response nests unverified and excluded businesses
+  /// inside matching, rather than as top-level fields. The UI must inspect
+  /// these enriched candidates before saying no business qualifies.
+  static List<Map<String,dynamic>> enrichedCandidates(
+    Map<String,dynamic> result,
+  ) {
+    final matching = result['matching'];
+    final matrix = matching is Map ? matching : <String,dynamic>{};
+    final output = <Map<String,dynamic>>[];
+    for (final raw in [
+      result['businesses'],
+      matrix['matched_businesses'],
+      matrix['unverified_businesses'],
+      matrix['excluded_businesses'],
+      result['unverified_businesses'],
+      result['excluded_businesses'],
+    ]) {
+      if (raw is! List) continue;
+      output.addAll(raw.whereType<Map>().map(
+        (item) => Map<String,dynamic>.from(item),
+      ));
+    }
+    return output;
+  }
+
   static List<Map<String,dynamic>> confirmed(
     List<Map<String,dynamic>> original,
     List<Map<String,dynamic>> returned,
