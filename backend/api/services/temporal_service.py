@@ -317,6 +317,30 @@ def _structured_hours_from_lines(lines, source):
     return rows
 
 
+def weekly_hours_table(business):
+    """7-day evidence table. Unknown is not closed; split shifts are retained."""
+    rows = structured_business_hours(business)
+    table = []
+    for weekday in DAY_NAMES:
+        day_rows = [row for row in rows if row.get('weekday') == weekday]
+        closed = any(row.get('closed') is True for row in day_rows)
+        sessions = [
+            {
+                'start_time': row['start_time'],
+                'end_time': row['end_time'],
+                'source': row['source'],
+            }
+            for row in day_rows
+            if 'start_time' in row and 'end_time' in row
+        ]
+        table.append({
+            'weekday': weekday,
+            'status': 'closed' if closed else ('open' if sessions else 'unknown'),
+            'sessions': [] if closed else sessions,
+            'source': day_rows[0].get('source') if day_rows else None,
+        })
+    return table
+
 def _line_closed(text):
     lower = text.lower()
     return bool(
@@ -408,6 +432,7 @@ def annotate_business_now(business, now=None):
     item = dict(business)
     status = evaluate_business_now(item, now=now)
     item["structured_opening_hours"] = structured_business_hours(item)
+    item["weekly_opening_hours"] = weekly_hours_table(item)
     item["current_status"] = status
     item["is_open_now"] = status["is_open_now"]
     item["orderable_now"] = status["orderable_now"]
