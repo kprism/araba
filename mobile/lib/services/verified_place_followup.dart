@@ -213,30 +213,40 @@ class VerifiedPlaceFollowup {
         if (!const {
           'google_places_current', 'google_places_regular',
           'naver_verified_page', 'openai_web_verified',
-        }.contains(source)) continue;
+        }.contains(source)) {
+          continue;
+        }
         final weekday = rawDay['weekday']?.toString() ?? '';
-        if (!days.contains(weekday)) continue;
+        if (!days.contains(weekday)) {
+          continue;
+        }
         if (rawDay['status'] == 'closed') {
           include([{'weekday':weekday,'closed':true,'source':source}]);
           continue;
         }
-        if (rawDay['status'] != 'open') continue;
+        if (rawDay['status'] != 'open') {
+          continue;
+        }
         final sessions = rawDay['sessions'];
-        if (sessions is! List) continue;
+        if (sessions is! List) {
+          continue;
+        }
         final rows = <Map<String,dynamic>>[];
         for (final item in sessions.whereType<Map>()) {
           final start = item['start_time']?.toString() ?? '';
           final end = item['end_time']?.toString() ?? '';
-          final clock = RegExp(r'^(\d{1,2}):(\d{2})
-  }
-);
+          final clock = RegExp(r'^(\d{1,2}):(\d{2})$');
           final a = clock.firstMatch(start);
           final z = clock.firstMatch(end);
-          if (a == null || z == null) continue;
+          if (a == null || z == null) {
+            continue;
+          }
           final begin = int.parse(a.group(1)!) * 60 + int.parse(a.group(2)!);
           final finish = int.parse(z.group(1)!) * 60 + int.parse(z.group(2)!);
           if (begin < 0 || begin >= 1440 ||
-              finish <= begin || finish > 10080) continue;
+              finish <= begin || finish > 10080) {
+            continue;
+          }
           rows.add({
             'weekday':weekday,'start_minute':begin,'end_minute':finish,
             'start_time':start,'end_time':end,'source':source,
