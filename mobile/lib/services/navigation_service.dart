@@ -102,7 +102,7 @@ class NavigationRequest {
         )
         .replaceAll(RegExp(r'^(?:(?:어|음|아|저기|그러니까|아니|아니야|잠깐)[,\s]+)+'), '')
         .replaceFirst(
-          RegExp(r'^(?:지금\s+)?(?:여기서|이곳에서)\s*'),
+          RegExp(r'^(?:지금\s+)?(?:여기서|이곳에서)\s*[-,:：]?\s*'),
           '여기에서 ',
         )
         .replaceAll(RegExp(r'\s+'), ' ')
@@ -169,6 +169,15 @@ class NavigationRequest {
       origin = _cleanPlace(startToEnd.group(1) ?? '');
       path = startToEnd.group(2)?.trim() ?? '';
     } else {
+      // "여기서 창원 대산고등학교 가는 길" states the origin but omits
+      // "까지". Keep the explicit current origin out of the destination.
+      final hereToDestination = RegExp(
+        r'^(?:여기에서|여기서|현재\s*위치에서|내\s*위치에서)\s+'
+        r'(.+?)\s+가는\s*길',
+      ).firstMatch(text);
+      if (hereToDestination != null) {
+        path = hereToDestination.group(1)?.trim() ?? '';
+      }
       final labels = RegExp(
         r'출발지(?:는|가)?\s*[:：]?\s*(.+?)[,，]\s*'
         r'목적지(?:는|가)?\s*[:：]?\s*(.+?)(?:\s+(?:로|까지)\s*|$)',
@@ -176,7 +185,7 @@ class NavigationRequest {
       if (labels != null) {
         origin = _cleanPlace(labels.group(1) ?? '');
         path = labels.group(2)?.trim() ?? '';
-      } else {
+      } else if (path.isEmpty) {
         final onlyDestination = RegExp(
           r'^(?:지금\s+)?(.+?)\s*까지(?:\s|$)',
         ).firstMatch(text);
