@@ -194,6 +194,7 @@ def _identity_verified(query, place, region):
         or requested in address and len(requested) >= 5
         or (
             region
+            and not _venue_type(target)
             and target in label
             and len(target) >= 4
             and len(label) - len(target) <= 8
