@@ -17,6 +17,7 @@ import '../../services/kakao_credential_store.dart';
 import '../../services/live_voice_service.dart';
 import '../../services/merchant_account_api.dart';
 import '../../services/navigation_service.dart';
+import '../../services/place_result_scope.dart';
 import '../../services/navigation_dialog_service.dart';
 import '../../services/navigation_provider_service.dart';
 import '../../services/naver_credential_store.dart';
@@ -987,7 +988,9 @@ class _HomeScreenState extends State<HomeScreen>
       );
 
       if (!mounted || revision != _researchRevision) return;
-      final updated = _businessesFrom(result);
+      final updated = PlaceResultScope.followup(
+        initialBusinesses, _businessesFrom(result),
+      );
       if (messageIndex >= _messages.length) {
         return;
       }
@@ -1265,7 +1268,9 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    final selected = _businessesFrom(result);
+    final selected = PlaceResultScope.followup(
+      candidates, _businessesFrom(result),
+    );
     final rawMatching = result['matching'];
     final matching = rawMatching is Map
         ? Map<String, dynamic>.from(rawMatching)
@@ -1286,10 +1291,9 @@ class _HomeScreenState extends State<HomeScreen>
             ? (matching['excluded_count'] as num).round()
             : 0;
 
-    final remembered = selected.isNotEmpty
-        ? selected
-        : candidates;
-    _rememberBusinessGroup(mission, remembered);
+    // Filtering a prior result must not turn its subset into a new
+    // searchable cohort. Later "그중" still means the original group.
+    _lastBusinesses = candidates;
 
     if (selected.length == 1) {
       _conversationContext.rememberBusiness(
@@ -1315,10 +1319,14 @@ class _HomeScreenState extends State<HomeScreen>
         : '';
 
     _addAssistantMessage(
-      text: '$answer$summaryLine\n'
-          '조건충족 $matchedCount · 미확인 $unverifiedCount · '
-          '불일치 $excludedCount',
-      badge: answerReady
+      text: selected.isEmpty
+          ? '직전에 찾은 ${candidates.length}곳 안에서는 이번 조건을 '
+              '충족한다고 확인된 업체가 없습니다. '
+              '영업시간이 미확인된 곳은 확정 추천하지 않겠습니다.'
+          : '$answer$summaryLine\n'
+              '조건충족 $matchedCount · 미확인 $unverifiedCount · '
+              '불일치 $excludedCount',
+      badge: answerReady && selected.isNotEmpty
           ? '조건 비교 완료'
           : '조건 근거 추가 확인 필요',
       businesses: selected,
@@ -1395,7 +1403,9 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
-      final businesses = _businessesFrom(result);
+      final businesses = PlaceResultScope.firstResults(
+        mission, _businessesFrom(result),
+      );
       final rawResultMatching = result['matching'];
       final resultMatching = rawResultMatching is Map
           ? Map<String, dynamic>.from(rawResultMatching)
