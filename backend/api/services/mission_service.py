@@ -3,7 +3,7 @@ import os
 import re
 from time import monotonic
 
-from openai import OpenAI
+from openai import APITimeoutError, OpenAI
 
 from .intent_brain_service import enhance_mission
 from .execution_planner_service import build_execution_plan
@@ -1588,6 +1588,21 @@ def _fallback_place_intent_from_request(
         context.get("subject") or ""
     ).strip()
 
+    # Timeout recovery for explicit location + common business category.
+    # Do not infer a business type from unrelated/general utterances.
+    if not category and new_location:
+        for term, canonical in (
+            ("치과", "치과"), ("약국", "약국"),
+            ("타이어점", "타이어점"), ("미용실", "미용실"),
+            ("카페", "카페"), ("식당", "식당"),
+            ("주차장", "주차장"), ("병원", "병원"),
+            ("정비소", "정비소"), ("주유소", "주유소"),
+        ):
+            if term in current_text:
+                category = canonical
+                subject = canonical
+                break
+
     raw_terms = context.get("search_terms")
     search_terms = (
         [
@@ -1690,6 +1705,94 @@ def _fallback_place_intent_from_request(
         "clarification_question": None,
         "direct_answer": None,
     }
+
+
+
+def _fast_named_place_correction(request_text):
+    """Unambiguous STT name correction without a 12-second LLM round-trip.
+
+    Only replace a fragment inside an explicitly named business, or a
+    previous exact-business target. Never infer a new business from a
+    correction alone, and never treat a category/location change as a name.
+    """
+    context, current = _split_contextual_request(request_text)
+    correction = list(SELF_CORRECTION_RE.finditer(str(current or "")))
+    if not correction:
+        return None
+    match = correction[-1]
+    previous = _strip_search_term_suffix(match.group(1))
+    corrected = _strip_search_term_suffix(match.group(2))
+    if (
+        not previous or not corrected
+        or corrected in NON_SERVICE_CORRECTION_WORDS
+        or corrected in {"치과", "병원", "피부과", "식당", "카페", "약국"}
+    ):
+        return None
+
+    # Explicit name must be before the repair phrase. For example:
+    # "하이스트용치과 하이스트가 아니고 카이스트"
+    # -> "카이스트용치과", rather than inventing a nationwide clinic.
+    prefix = str(current or "")[:match.start()].strip(" ,.")
+    explicit = re.search(
+        r"([0-9A-Za-z가-힣]{2,45}(?:치과의원|치과|의원|병원|약국|"
+        r"식당|카페|타이어점))$",
+        prefix,
+    )
+    raw_name = (
+        explicit.group(1)
+        if explicit and previous in explicit.group(1)
+        else ""
+    )
+    if not raw_name:
+        old_target = str(context.get("target_business") or "").strip()
+        if previous in old_target and re.search(
+            r"치과|병원|의원|약국|식당|카페|타이어", old_target,
+        ):
+            raw_name = old_target
+
+    if not raw_name or raw_name == previous:
+        return None
+    target = raw_name.replace(previous, corrected, 1)
+    if target == raw_name:
+        return None
+
+    category = str(context.get("category") or "").strip()
+    if "치과" in target:
+        category = "치과"
+    elif any(suffix in target for suffix in ("병원", "의원")):
+        category = category or "병원"
+    elif "약국" in target:
+        category = "약국"
+    elif "식당" in target:
+        category = "식당"
+    elif "카페" in target:
+        category = "카페"
+    if not category:
+        return None
+
+    location = str(context.get("location") or "").strip()
+    raw_count = context.get("requested_count")
+    return _normalize_intent({
+        "intent": "place_search",
+        "goal": f"{target} 찾기",
+        "location": {
+            "value": location or None,
+            "type": "administrative_area" if location else "none",
+            "explicit": False,
+        },
+        "category": category,
+        "subject": target,
+        "target_business": target,
+        "search_terms": [target],
+        "count": raw_count if isinstance(raw_count, int) else 1,
+        "constraints": [],
+        "criteria": [],
+        "attributes": {"spoken_name_correction": True},
+        "requested_facts": ["업체명", "주소", "전화번호"],
+        "sort": "relevance",
+        "needs_fresh_data": True,
+        "needs_clarification": False,
+    })
 
 
 PLACE_CATEGORY_GROUPS = (
@@ -2311,6 +2414,22 @@ def create_mission(
             "OpenAI API Key가 설정되지 않았습니다."
         )
 
+    fast_correction = _fast_named_place_correction(request_text)
+    if fast_correction is not None:
+        diagnostics["architecture"] = "deterministic_named_place_correction"
+        diagnostics["stage"] = "fast_route_complete"
+        diagnostics["route"] = "named_place_correction"
+        diagnostics["openai_elapsed_ms"] = 0
+        intent = _apply_device_location_to_intent(
+            fast_correction, request_text, device_context,
+        )
+        intent = _apply_proactive_clarification(intent)
+        mission = _mission_from_intent(intent)
+        mission = _apply_device_context_to_mission(
+            mission, request_text, device_context,
+        )
+        return _attach_task_state(mission)
+
     fast_comparison = _fast_recent_place_comparison(
         request_text
     )
@@ -2331,11 +2450,26 @@ def create_mission(
     )
 
     call_started = monotonic()
+    response = None
+    timeout_fallback = None
     try:
         response = _create_intent_response(
             client,
             request_text=request_text,
         )
+    except (APITimeoutError, TimeoutError) as exc:
+        # Only recover provable place intentions. General conversation,
+        # booking/payment/actions, and uncertain requests still report
+        # their real upstream timeout instead of receiving a fake answer.
+        timeout_fallback = _fallback_place_intent_from_request(
+            request_text
+        )
+        if timeout_fallback is None:
+            raise
+        diagnostics["fallback_used"] = True
+        diagnostics["fallback_stage"] = "intent_core_request"
+        diagnostics["upstream_exception_type"] = type(exc).__name__
+        diagnostics["architecture"] = "intent_router_v2+timeout_place_fallback"
     finally:
         diagnostics["openai_elapsed_ms"] = round(
             (monotonic() - call_started) * 1000
@@ -2345,9 +2479,8 @@ def create_mission(
 
     try:
         intent = _normalize_intent(
-            _parse_intent_json(
-                response.output_text
-            )
+            timeout_fallback if timeout_fallback is not None
+            else _parse_intent_json(response.output_text)
         )
     except (
         json.JSONDecodeError,
