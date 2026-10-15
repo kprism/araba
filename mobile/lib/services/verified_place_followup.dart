@@ -10,16 +10,20 @@ class VerifiedPlaceFollowup {
   static String compact(String s) => s.replaceAll(RegExp(r'\s+'), '');
   static List<String> hours(Map<String, dynamic> b) {
     final found = <String>[];
-    for (final source in [b['google_places'], b['naver']]) {
-      if (source is! Map) continue;
-      for (final key in [
-        'current_opening_hours','regular_opening_hours','opening_hours'
-      ]) {
-        final value = source[key];
-        if (value is List) {
-          found.addAll(value.whereType<String>());
-        }
+    final google = b['google_places'];
+    if (google is Map && google['matched'] == true) {
+      for (final key in ['current_opening_hours', 'regular_opening_hours']) {
+        final value = google[key];
+        if (value is List) found.addAll(value.whereType<String>());
       }
+    }
+    final naver = b['naver'];
+    // Search-result snippets or unmatched pages are not hours evidence.
+    if (naver is Map &&
+        naver['matched'] == true &&
+        naver['page_checked'] == true) {
+      final value = naver['opening_hours'];
+      if (value is List) found.addAll(value.whereType<String>());
     }
     return found;
   }
@@ -87,11 +91,13 @@ class VerifiedPlaceFollowup {
   ) {
     if (visible.isEmpty) return null;
     final compactText = compact(utterance);
-    if (!RegExp(r'그중|이중|그안에서|그가운데|그곳중|이곳중|그3곳중')
-        .hasMatch(compactText)) {
+    if (!RegExp(
+      r'그중|이중|그안에서|그가운데|그곳중|이곳중|'
+      r'아까찾은|방금찾은|이전에찾은|위의[0-9]*곳|그[0-9]+곳중'
+    ).hasMatch(compactText)) {
       return null;
     }
-    if (RegExp(r'말고|대신|다른곳|더찾|추가로|범위넓').hasMatch(compactText)) {
+    if (RegExp(r'말고|대신|다른곳|더찾|추가로|범위넓|새로찾').hasMatch(compactText)) {
       return null;
     }
     final clock = RegExp(
@@ -152,7 +158,9 @@ class VerifiedPlaceFollowup {
     return returned.where((b) {
       final key = identity(b);
       if (!allowed.contains(key) || !seen.add(key)) return false;
-      if (minute != null && openThrough(b, minute, nowKst: nowKst) != true) {
+      // A missing/malformed closing-time condition cannot authorize a
+      // "verified" business recommendation.
+      if (minute == null || openThrough(b, minute, nowKst: nowKst) != true) {
         return false;
       }
       return true;

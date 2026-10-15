@@ -38,7 +38,7 @@ class TemporalAvailabilityTests(TestCase):
     def test_open_now_inside_confirmed_kst_hours(self):
         business = {
             "name": "피자가게",
-            "naver": {
+            "naver": {"matched": True, "page_checked": True,
                 "opening_hours": [
                     "매일 09:00-22:00",
                 ]
@@ -68,7 +68,7 @@ class TemporalAvailabilityTests(TestCase):
     def test_closed_now_outside_confirmed_hours(self):
         business = {
             "name": "피자가게",
-            "naver": {
+            "naver": {"matched": True, "page_checked": True,
                 "opening_hours": [
                     "매일 09:00-22:00",
                 ]
@@ -94,7 +94,7 @@ class TemporalAvailabilityTests(TestCase):
     def test_previous_day_overnight_range_is_open_after_midnight(self):
         business = {
             "name": "새벽피자",
-            "naver": {
+            "naver": {"matched": True, "page_checked": True,
                 "opening_hours": [
                     "금요일 18:00-02:00",
                 ]
@@ -619,7 +619,7 @@ class RegressionFamiliesTests(TestCase):
             },
             [{
                 "name": "토요일 미확인 치과",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "opening_hours": ["월요일 09:30~18:30", "화요일 09:30~19:00"],
                 },
             }],

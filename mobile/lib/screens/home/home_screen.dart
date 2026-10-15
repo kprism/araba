@@ -319,6 +319,16 @@ class _HomeScreenState extends State<HomeScreen>
             return;
           }
 
+          // Defense in depth: even if Live's utterance interceptor did
+          // not consume the follow-up, never render a Core-generated
+          // answer containing newly searched businesses.
+          if (!_trainerMode &&
+              await _tryHandleVerifiedFollowup(
+                currentText, fromVoice: true,
+              )) {
+            return;
+          }
+
           // Core에 하나의 발화로 확정된 시점부터 다음 사용자 발화는
           // 새 말풍선으로 시작한다. 확정 전의 짧은 쉼은 같은 말풍선에 남는다.
           _liveTranscriptSpeaker = null;
@@ -1374,7 +1384,28 @@ class _HomeScreenState extends State<HomeScreen>
           ? '조건 비교 완료'
           : '조건 근거 추가 확인 필요',
       businesses: selected,
-      matching: matching,
+      // A remote matrix may describe providers outside the visible
+      // cohort or claim unmatched hours. Render only local evidence.
+      matching: {
+        'criteria': mission['criteria'],
+        'answer_ready': selected.isNotEmpty,
+        'matrix': [
+          for (final item in selected)
+            {
+              'business_id': item['id'],
+              'business_name': item['name'],
+              'status': 'matched',
+              'criteria': [
+                {
+                  'field': 'closing_time',
+                  'state': 'match',
+                  'label': '오늘 영업시간 확인',
+                  'source': 'verified_same_business_page',
+                },
+              ],
+            },
+        ],
+      },
     );
     _speakProgress(selected.isEmpty
         ? '이전에 찾은 업체 중 해당 시간까지 영업한다고 확인된 곳은 없습니다.'
@@ -1396,6 +1427,20 @@ class _HomeScreenState extends State<HomeScreen>
         !hasRequiredCriteria && !_isDetailFollowUp(mission);
 
     try {
+      // Never let an incorrectly classified Core mission turn a scoped
+      // "그중 오늘 9시" follow-up into a brand-new nationwide search.
+      final guardedFollowup = VerifiedPlaceFollowup.missionFor(
+        (mission['user_goal'] ?? mission['summary'] ?? '').toString(),
+        _lastBusinesses,
+        _conversationContext.snapshot,
+      );
+      if (guardedFollowup != null) {
+        await _runRecentPlaceComparison(
+          guardedFollowup,
+          researchRevision,
+        );
+        return;
+      }
       if (_isRecentPlaceComparison(mission)) {
         await _runRecentPlaceComparison(
           mission,
@@ -2636,6 +2681,16 @@ class _HomeScreenState extends State<HomeScreen>
         throw const ArabaApiException(
           '서버가 실행할 요청을 반환하지 않았어요.',
         );
+      }
+
+      // API fallback: run the user's explicit prior-set filter instead of
+      // trusting any new places in an inconsistent Core intent response.
+      final scoped = VerifiedPlaceFollowup.missionFor(
+        displayText, _lastBusinesses, _conversationContext.snapshot,
+      );
+      if (scoped != null) {
+        await _runRealResearch(scoped, forceComplete: true);
+        return;
       }
 
       for (var index = 0; index < missions.length; index++) {

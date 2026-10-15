@@ -158,9 +158,9 @@ class StrictLocalCohortAndTimeTests(TestCase):
             }]
         }, [
             {"id": "c1", "name": "오늘21시치과",
-             "naver": {"opening_hours": [f"{today} 09:00-21:30"]}},
+             "naver": {"matched": True, "page_checked": True, "opening_hours": [f"{today} 09:00-21:30"]}},
             {"id": "c2", "name": "내일만21시치과",
-             "naver": {"opening_hours": [f"{other} 09:00-22:00",
+             "naver": {"matched": True, "page_checked": True, "opening_hours": [f"{other} 09:00-22:00",
                                          f"{today} 09:00-18:00"]}},
             {"id": "c3", "name": "시간정보없는치과",
              "naver": {}},
@@ -215,7 +215,7 @@ class OpeningDayMatchingTests(TestCase):
             {
                 "id": "1",
                 "name": "토요일타이어",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "opening_hours": [
                         "월~금 09:00-18:00",
                         "토요일 09:00-15:00",
@@ -225,7 +225,7 @@ class OpeningDayMatchingTests(TestCase):
             {
                 "id": "2",
                 "name": "토요일휴무",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "opening_hours": [
                         "월~금 09:00-18:00",
                         "토요일 휴무",
@@ -235,7 +235,7 @@ class OpeningDayMatchingTests(TestCase):
             {
                 "id": "3",
                 "name": "요일미확인",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "opening_hours": [
                         "09:00-18:00",
                     ]
@@ -277,7 +277,7 @@ class OpeningDayMatchingTests(TestCase):
                 {
                     "id": "1",
                     "name": "매일타이어",
-                    "naver": {
+                    "naver": {"matched": True, "page_checked": True,
                         "opening_hours": [
                             "매일 09:00-20:00",
                         ]

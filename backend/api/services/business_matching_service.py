@@ -37,8 +37,8 @@ def _time_to_minutes(value):
 
 
 def _opening_ranges(business):
-    raw = _naver(business).get("opening_hours")
-    if not isinstance(raw, list):
+    raw, _ = _hours_lines(business)
+    if not raw:
         return []
 
     ranges = []
@@ -130,23 +130,8 @@ def _opening_day_state(business, target):
     if target_day is None:
         return None
 
-    naver_hours = _naver(business).get("opening_hours")
-    google = business.get("google_places")
-    google = google if isinstance(google, dict) else {}
-    # Only use hours attached to the identity-matched business.
-    raw = [
-        *(naver_hours if isinstance(naver_hours, list) else []),
-        *(
-            google.get("current_opening_hours")
-            if isinstance(google.get("current_opening_hours"), list)
-            else []
-        ),
-        *(
-            google.get("regular_opening_hours")
-            if isinstance(google.get("regular_opening_hours"), list)
-            else []
-        ),
-    ]
+    # Every day-based comparison must share the same identity-check gate.
+    raw, _ = _hours_lines(business)
     if not raw:
         return None
 

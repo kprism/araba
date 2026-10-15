@@ -125,7 +125,7 @@ class OvernightBusinessMatchingTests(TestCase):
             {
                 "id": "late-shop",
                 "name": "새벽식당",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "opening_hours": [
                         "매일 18:00-02:00",
                     ]
@@ -134,7 +134,7 @@ class OvernightBusinessMatchingTests(TestCase):
             {
                 "id": "early-shop",
                 "name": "저녁식당",
-                "naver": {
+                "naver": {"matched": True, "page_checked": True,
                     "opening_hours": [
                         "매일 18:00-23:00",
                     ]
