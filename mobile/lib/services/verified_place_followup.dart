@@ -196,7 +196,11 @@ class VerifiedPlaceFollowup {
       if (lines is List) include(parseLines(lines, 'naver_verified_page'));
     }
     if (checkedWeb) {
-      final lines = web['opening_hours'];
+      final fromWeb = web['opening_hours'];
+      final legacy = naver is Map &&
+          naver['opening_hours_source'] == 'openai_web'
+          ? naver['opening_hours'] : null;
+      final lines = fromWeb is List ? fromWeb : legacy;
       if (lines is List) {
         include(parseLines(lines, 'openai_web_verified'));
       }
