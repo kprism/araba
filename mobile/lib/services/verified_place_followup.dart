@@ -8,6 +8,20 @@ class VerifiedPlaceFollowup {
       DateTime.now().toUtc().add(const Duration(hours: 9));
 
   static String compact(String s) => s.replaceAll(RegExp(r'\s+'), '');
+  static const spokenHours = <String,int>{
+    '스물세':23,'스물두':22,'스물한':21,'스무':20,
+    '열아홉':19,'열여덟':18,'열일곱':17,'열여섯':16,
+    '열다섯':15,'열네':14,'열세':13,'열두':12,'열한':11,
+    '열':10,'아홉':9,'여덟':8,'일곱':7,'여섯':6,
+    '다섯':5,'네':4,'세':3,'두':2,'한':1,
+  };
+  static String normalizeSpokenHours(String text) {
+    final clockWords = spokenHours.keys.join('|');
+    return text.replaceAllMapped(
+      RegExp('($clockWords)시'),
+      (match) => '${spokenHours[match.group(1)]}시',
+    );
+  }
   static final _clockToken = RegExp(
     r'(?<![0-9A-Za-z])(?:(오전|오후|am|pm)\s*)?'
     r'(\d{1,2})(?::(\d{2})|시(?:\s*(\d{1,2})분)?)'
@@ -111,14 +125,29 @@ class VerifiedPlaceFollowup {
     final naver = b['naver'];
     final checkedNaver = naver is Map &&
         naver['matched'] == true && naver['page_checked'] == true;
+    final web = b['openai_web'];
+    final checkedWeb = web is Map &&
+        web['matched'] == true && web['identity_confirmed'] == true &&
+        web['opening_hours_found'] == true &&
+        web['sources'] is List &&
+        (web['sources'] as List).any((url) =>
+          url is String && (url.startsWith('https://') ||
+              url.startsWith('http://')));
+    final output = <Map<String,dynamic>>[];
+    void include(List<Map<String,dynamic>> rows) {
+      final selectedDays = output.map((r) => r['weekday']).toSet();
+      output.addAll(rows.where((r) =>
+          !selectedDays.contains(r['weekday'])));
+    }
     final fromServer = b['structured_opening_hours'];
     if (fromServer is List) {
       final checked = fromServer.whereType<Map>().where((r) {
         final source = r['source']?.toString() ?? '';
         return (source.startsWith('google_places') && checkedGoogle) ||
-            (source == 'naver_verified_page' && checkedNaver);
+            (source == 'naver_verified_page' && checkedNaver) ||
+            (source == 'openai_web_verified' && checkedWeb);
       }).map((r) => Map<String,dynamic>.from(r)).toList();
-      if (checked.isNotEmpty) return checked;
+      include(checked);
     }
 
     List<Map<String,dynamic>> parseLines(List lines, String source) {
@@ -158,15 +187,79 @@ class VerifiedPlaceFollowup {
         final lines = google[key];
         if (lines is List) {
           final records = parseLines(lines, 'google_places');
-          if (records.isNotEmpty) return records;
+          include(records);
         }
       }
     }
     if (checkedNaver) {
       final lines = naver['opening_hours'];
-      if (lines is List) return parseLines(lines, 'naver_verified_page');
+      if (lines is List) include(parseLines(lines, 'naver_verified_page'));
     }
-    return [];
+    if (checkedWeb) {
+      final fromWeb = web['opening_hours'];
+      final legacy = naver is Map &&
+          naver['opening_hours_source'] == 'openai_web'
+          ? naver['opening_hours'] : null;
+      final lines = fromWeb is List ? fromWeb : legacy;
+      if (lines is List) {
+        include(parseLines(lines, 'openai_web_verified'));
+      }
+    }
+
+    // Fresh ARABA Graph weekly facts remain usable even when an upstream
+    // provider returns no hours on this particular enrichment attempt.
+    final weekly = b['weekly_opening_hours'];
+    final fresh = b['araba_fresh_facts'];
+    if (b['araba_cache_hit'] == true && fresh is List &&
+        fresh.contains('weekly_opening_hours') && weekly is List) {
+      for (final rawDay in weekly.whereType<Map>()) {
+        final source = rawDay['source']?.toString() ?? '';
+        if (!const {
+          'google_places_current', 'google_places_regular',
+          'naver_verified_page', 'openai_web_verified',
+        }.contains(source)) {
+          continue;
+        }
+        final weekday = rawDay['weekday']?.toString() ?? '';
+        if (!days.contains(weekday)) {
+          continue;
+        }
+        if (rawDay['status'] == 'closed') {
+          include([{'weekday':weekday,'closed':true,'source':source}]);
+          continue;
+        }
+        if (rawDay['status'] != 'open') {
+          continue;
+        }
+        final sessions = rawDay['sessions'];
+        if (sessions is! List) {
+          continue;
+        }
+        final rows = <Map<String,dynamic>>[];
+        for (final item in sessions.whereType<Map>()) {
+          final start = item['start_time']?.toString() ?? '';
+          final end = item['end_time']?.toString() ?? '';
+          final clock = RegExp(r'^(\d{1,2}):(\d{2})$');
+          final a = clock.firstMatch(start);
+          final z = clock.firstMatch(end);
+          if (a == null || z == null) {
+            continue;
+          }
+          final begin = int.parse(a.group(1)!) * 60 + int.parse(a.group(2)!);
+          final finish = int.parse(z.group(1)!) * 60 + int.parse(z.group(2)!);
+          if (begin < 0 || begin >= 1440 ||
+              finish <= begin || finish > 10080) {
+            continue;
+          }
+          rows.add({
+            'weekday':weekday,'start_minute':begin,'end_minute':finish,
+            'start_time':start,'end_time':end,'source':source,
+          });
+        }
+        include(rows);
+      }
+    }
+    return output;
   }
 
   static bool? openThrough(
@@ -240,12 +333,12 @@ class VerifiedPlaceFollowup {
     Map<String,dynamic> context,
   ) {
     if (visible.isEmpty) return null;
-    final compactText = compact(utterance);
+    final compactText = normalizeSpokenHours(compact(utterance));
     if (!referencesCohort(utterance)) return null;
     final criteria = <Map<String,dynamic>>[];
     final neededFacts = <String>[];
     final clock = RegExp(
-      r'(새벽|오전|낮|오후|저녁|밤)?(\d{1,2})시(까지|이후|넘어서|넘게|에도)'
+      r'(새벽|오전|낮|오후|저녁|밤)?(\d{1,2})시(?:(\d{1,2})분|반)?(까지|이후|넘어서|넘게|에도)'
     ).firstMatch(compactText);
     if (clock != null) {
       var hour = int.parse(clock.group(2)!);
@@ -258,13 +351,17 @@ class VerifiedPlaceFollowup {
       }
       if (timeOfDay == '오전' && hour == 12) hour = 0;
       if (hour > 35) return null;
+      final minute = clock.group(3) != null
+          ? int.tryParse(clock.group(3)!) ?? 0
+          : compactText.contains('${clock.group(2)}시반') ? 30 : 0;
+      if (minute < 0 || minute >= 60) return null;
       final explicitDay = RegExp(r'[월화수목금토일]요일').firstMatch(
         compactText,
       )?.group(0);
       final targetDay = explicitDay ?? days[koreanNow().weekday-1];
       criteria.add({
         'id':'local_today_closing','field':'closing_time',
-        'operator':'gte','value':'${hour.toString().padLeft(2, '0')}:00',
+        'operator':'gte','value':'${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}',
         'day':targetDay, 'required':true,
         'label':'$targetDay $hour시까지 영업',
       });

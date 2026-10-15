@@ -224,6 +224,16 @@ def structured_business_hours(business):
     descriptions. Verified Naver page hours are the fallback, not a rival
     set of contradictory hours.
     """
+    selected = []
+    def include(rows):
+        # Prefer higher-trust source for each weekday, while allowing lower
+        # priority verified sources to supply weekdays that remain unknown.
+        selected_days = {row["weekday"] for row in selected}
+        selected.extend(
+            row for row in rows
+            if row.get("weekday") not in selected_days
+        )
+
     google = _google(business)
     if google.get("matched") is True:
         for key, source in (
@@ -271,7 +281,8 @@ def structured_business_hours(business):
                     "source": source,
                 })
             if rows:
-                return rows
+                include(rows)
+                break
 
         for key, source in (
             ("current_opening_hours", "google_places_current"),
@@ -282,14 +293,78 @@ def structured_business_hours(business):
                 continue
             rows = _structured_hours_from_lines(raw, source)
             if rows:
-                return rows
+                include(rows)
+                break
 
     naver = _naver(business)
     if naver.get("matched") is True and naver.get("page_checked") is True:
         raw = naver.get("opening_hours")
         if isinstance(raw, list):
-            return _structured_hours_from_lines(raw, "naver_verified_page")
-    return []
+            include(_structured_hours_from_lines(raw, "naver_verified_page"))
+
+    # Web-researched hours have their own identity check and cited sources.
+    # Previously these were stored inside naver.opening_hours, but never used
+    # unless the unrelated Naver page happened to be verified as well.
+    web = business.get("openai_web")
+    if isinstance(web, dict) and (
+        web.get("matched") is True
+        and web.get("identity_confirmed") is True
+        and web.get("opening_hours_found") is True
+        and isinstance(web.get("sources"), list)
+        and any(
+            str(source).startswith(("https://", "http://"))
+            for source in web["sources"]
+        )
+    ):
+        raw = web.get("opening_hours")
+        if not isinstance(raw, list) and (
+            _naver(business).get("opening_hours_source") == "openai_web"
+        ):
+            # Legacy graph snapshots stored independently verified web hours
+            # in a Naver-shaped field. Recover only unmixed, sourced evidence.
+            raw = _naver(business).get("opening_hours")
+        if isinstance(raw, list):
+            include(_structured_hours_from_lines(raw, "openai_web_verified"))
+
+    # The ARABA Business Graph is authoritative only for a fresh, originally
+    # verified weekly fact; no arbitrary client-supplied weekly rows.
+    fresh = business.get("araba_fresh_facts")
+    weekly = business.get("weekly_opening_hours")
+    if (
+        business.get("araba_cache_hit") is True
+        and isinstance(fresh, list)
+        and "weekly_opening_hours" in fresh
+        and isinstance(weekly, list)
+    ):
+        for day in weekly:
+            if not isinstance(day, dict) or day.get("weekday") not in DAY_NAMES:
+                continue
+            source = str(day.get("source") or "")
+            if source not in {
+                "google_places_current", "google_places_regular",
+                "naver_verified_page", "openai_web_verified",
+            }:
+                continue
+            if day.get("status") == "closed":
+                include([{"weekday": day["weekday"], "closed": True,
+                          "source": source}])
+            elif day.get("status") == "open":
+                cached = []
+                for session in day.get("sessions") or []:
+                    if not isinstance(session, dict):
+                        continue
+                    start = str(session.get("start_time") or "")
+                    end = str(session.get("end_time") or "")
+                    times = _time_ranges(f"{start}-{end}")
+                    for opening, closing in times:
+                        cached.append({
+                            "weekday": day["weekday"],
+                            "start_time": start, "end_time": end,
+                            "start_minute": opening, "end_minute": closing,
+                            "source": source,
+                        })
+                include(cached)
+    return selected
 
 
 def _structured_hours_from_lines(lines, source):

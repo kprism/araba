@@ -1926,6 +1926,26 @@ def _explicit_scope_expansion(current):
     )
 
 
+SPOKEN_CLOCK_HOURS = {
+    "스물세": 23, "스물두": 22, "스물한": 21, "스무": 20,
+    "열아홉": 19, "열여덟": 18, "열일곱": 17, "열여섯": 16,
+    "열다섯": 15, "열네": 14, "열세": 13, "열두": 12,
+    "열한": 11, "열": 10, "아홉": 9, "여덟": 8,
+    "일곱": 7, "여섯": 6, "다섯": 5, "네": 4,
+    "세": 3, "두": 2, "한": 1,
+}
+SPOKEN_CLOCK_PATTERN = re.compile(
+    "(" + "|".join(SPOKEN_CLOCK_HOURS) + ")시"
+)
+
+
+def _normalize_spoken_clock(text):
+    return SPOKEN_CLOCK_PATTERN.sub(
+        lambda m: str(SPOKEN_CLOCK_HOURS[m.group(1)]) + "시",
+        str(text or ""),
+    )
+
+
 def _fast_recent_place_comparison(user_request):
     context, current = _split_contextual_request(
         user_request
@@ -1934,11 +1954,11 @@ def _fast_recent_place_comparison(user_request):
     if not isinstance(recent, list) or not recent:
         return None
 
-    compact = re.sub(
+    compact = _normalize_spoken_clock(re.sub(
         r"\s+",
         "",
         str(current or ""),
-    )
+    ))
     followup_scope = re.search(
         (
             r"그중|그중에서|아까|찾은.*중|이중|이중에서|이곳중|이곳들중|"
@@ -2105,7 +2125,7 @@ def _fast_recent_place_comparison(user_request):
 
     time_match = re.search(
         r"(새벽|오전|낮|오후|저녁|밤)?"
-        r"(\d{1,2})시(?:이후|넘어서|넘게|까지)",
+        r"(\d{1,2})시(?:(\d{1,2})분|반)?(?:이후|넘어서|넘게|까지)",
         compact,
     )
     if time_match:
@@ -2121,8 +2141,13 @@ def _fast_recent_place_comparison(user_request):
         elif not daypart and 1 <= hour <= 11:
             hour += 12
 
-        if 0 <= hour <= 35:
-            threshold = f"{hour:02d}:00"
+        minute = (
+            int(time_match.group(3))
+            if time_match.group(3) is not None
+            else 30 if "시반" in compact else 0
+        )
+        if 0 <= hour <= 35 and 0 <= minute < 60:
+            threshold = f"{hour:02d}:{minute:02d}"
             display_hour = (
                 f"새벽 {hour - 24}시"
                 if hour >= 24
@@ -2135,9 +2160,12 @@ def _fast_recent_place_comparison(user_request):
                 threshold,
                 f"{display_hour} 이후까지 영업",
             )
-            if "오늘" in compact or "금일" in compact:
+            if day_match or "오늘" in compact or "금일" in compact:
                 from .temporal_service import current_time_context
-                today = current_time_context()["weekday"]
+                today = (
+                    day_match.group(1)
+                    if day_match else current_time_context()["weekday"]
+                )
                 for item in criteria:
                     if (
                         item["field"] == "closing_time"

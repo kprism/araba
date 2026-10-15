@@ -376,3 +376,78 @@ class VerifiedWeeklyHoursNormalizationTests(TestCase):
                       "opening_hours": ["금요일 09:00-22:00"]},
         }
         self.assertEqual(match_businesses(self.mission, [wrong])["unverified_count"], 1)
+
+class VerifiedWebHoursFallbackTests(TestCase):
+    def setUp(self):
+        self.mission = {
+            "criteria": [{
+                "field": "closing_time", "operator": "gte",
+                "value": "21:00", "day": "목요일", "required": True,
+            }]
+        }
+
+    @staticmethod
+    def cafe(name, until, *, verified=True):
+        return {
+            "id": name, "name": name, "address": "창원시 성산구",
+            "naver": {"matched": False, "page_checked": False,
+                      "opening_hours": [f"목요일 09:00-{until}"],
+                      "opening_hours_source": "openai_web"},
+            "openai_web": {
+                "matched": verified,
+                "identity_confirmed": verified,
+                "opening_hours_found": True,
+                "opening_hours": [f"목요일 09:00-{until}"],
+                "sources": ["https://example.com/evidence"] if verified else [],
+            },
+        }
+
+    def test_two_of_three_web_sourced_cafes_stay_in_result(self):
+        candidates = [
+            self.cafe("카페1", "22:00"),
+            self.cafe("카페2", "21:30"),
+            {"id": "c3", "name": "카페3", "naver": {}},
+        ]
+        matched = match_businesses(self.mission, candidates)
+        self.assertEqual(matched["matched_count"], 2)
+        self.assertEqual(matched["unverified_count"], 1)
+        self.assertEqual(
+            [b["name"] for b in matched["display_businesses"]],
+            ["카페1", "카페2"],
+        )
+
+    def test_unverified_web_result_remains_unknown(self):
+        candidates = [self.cafe("없는근거", "23:00", verified=False)]
+        matched = match_businesses(self.mission, candidates)
+        self.assertEqual(matched["matched_count"], 0)
+        self.assertEqual(matched["unverified_count"], 1)
+
+    def test_monday_provider_does_not_mask_web_verified_thursday(self):
+        from api.services.temporal_service import structured_business_hours
+        cafe = self.cafe("목요일카페", "22:00")
+        cafe["naver"] = {
+            "matched": True, "page_checked": True,
+            "opening_hours": ["월요일 09:00-18:00"],
+        }
+        rows = structured_business_hours(cafe)
+        self.assertTrue(any(
+            r["weekday"] == "목요일" and r.get("end_minute") == 1320
+            for r in rows
+        ))
+        self.assertEqual(
+            match_businesses(self.mission, [cafe])["matched_count"], 1,
+        )
+
+    @patch("api.services.mission_service.OpenAI")
+    def test_korean_spoken_nine_fast_comparison_without_model(self, openai):
+        request = _contextual_request(
+            "그중 오늘 밤 아홉 시까지 하는 곳 알려줘"
+        )
+        mission = create_mission(request, api_key="sk-test")
+        condition = next(
+            c for c in mission["criteria"]
+            if c["field"] == "closing_time"
+        )
+        self.assertEqual(condition["value"], "21:00")
+        self.assertEqual(mission["requested_count"], 5)
+        openai.assert_not_called()
