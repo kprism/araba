@@ -174,6 +174,27 @@ class StrictLocalCohortAndTimeTests(TestCase):
         )
 
 
+    def test_numeric_count_overrides_mistaken_model_nine_places(self):
+        from api.services.mission_service import _enforce_requested_place_count
+        source = (
+            "[대화 문맥 - 참고용]\n"
+            + json.dumps({"location": "창원시"}, ensure_ascii=False)
+            + "\n[현재 요청]\n"
+            + "내 위치에서 치과 3곳 찾아줘"
+        )
+        corrected = _enforce_requested_place_count(
+            {"intent": "place_search", "requested_count": 9},
+            source,
+        )
+        self.assertEqual(corrected["requested_count"], 3)
+        self.assertEqual(
+            _enforce_requested_place_count(
+                {"intent": "place_search", "requested_count": 5},
+                "[현재 요청]\n치과 2군데 알려줘",
+            )["requested_count"], 2,
+        )
+
+
 class OpeningDayMatchingTests(TestCase):
     def setUp(self):
         self.mission = {
