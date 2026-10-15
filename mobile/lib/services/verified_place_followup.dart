@@ -170,10 +170,10 @@ class VerifiedPlaceFollowup {
   }
 
   static bool? openThrough(
-    Map<String, dynamic> b, int atMinute, {DateTime? nowKst}
+    Map<String, dynamic> b, int atMinute, {DateTime? nowKst, String? weekday}
   ) {
     final date = nowKst ?? koreanNow();
-    final today = days[date.weekday - 1];
+    final today = weekday ?? days[date.weekday - 1];
     final rows = normalizedHours(b)
         .where((row) => row['weekday'] == today).toList();
     if (rows.isEmpty) return null;
@@ -370,7 +370,8 @@ class VerifiedPlaceFollowup {
       for (final criterion in closing) {
         final atMinute = threshold(criterion);
         if (atMinute == null ||
-            openThrough(b, atMinute, nowKst: nowKst) != true) {
+            openThrough(b, atMinute, nowKst: nowKst,
+              weekday: criterion['day']?.toString()) != true) {
           return false;
         }
       }
