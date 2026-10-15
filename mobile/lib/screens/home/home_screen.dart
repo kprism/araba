@@ -328,6 +328,15 @@ class _HomeScreenState extends State<HomeScreen>
               )) {
             return;
           }
+          final scopedMission = _trainerMode ? null :
+              VerifiedPlaceFollowup.scopeMission(
+                currentText, _lastBusinesses,
+                _conversationContext.snapshot, mission,
+              );
+          if (scopedMission != null) {
+            await _runRealResearch(scopedMission, forceComplete: true);
+            return;
+          }
 
           // Core에 하나의 발화로 확정된 시점부터 다음 사용자 발화는
           // 새 말풍선으로 시작한다. 확정 전의 짧은 쉼은 같은 말풍선에 남는다.
@@ -1277,6 +1286,19 @@ class _HomeScreenState extends State<HomeScreen>
     final candidates = _comparisonCandidates(mission)
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
+    final criteria = mission['criteria'];
+    if (criteria is! List || criteria.isEmpty) {
+      final answer =
+          '직전에 찾은 ${candidates.length}곳만 유지했습니다. '
+          '새 업체는 추가하지 않았어요. '
+          '각 업체의 정보는 아래 카드에서 확인할 수 있습니다.';
+      _addAssistantMessage(
+        text: answer, badge: '직전 업체 범위 유지',
+        businesses: candidates,
+      );
+      _speakProgress(answer);
+      return;
+    }
 
     final openAiApiKey = await _keyStore.read();
     if (openAiApiKey == null) {
@@ -1306,32 +1328,18 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    // Never trust a remote summary or matching status as independent proof.
-    // The backend may still run a previous version of the matching engine.
-    final selected = VerifiedPlaceFollowup.confirmed(
-      candidates,
-      PlaceResultScope.followup(candidates, _businessesFrom(result)),
-      mission,
-    );
+    // The returned businesses and matrix must agree on identities and
+    // independently verified facts. Ignore remote prose and counts.
     final rawMatching = result['matching'];
     final matching = rawMatching is Map
         ? Map<String, dynamic>.from(rawMatching)
         : <String, dynamic>{};
-
-    final summary =
-        matching['summary']?.toString().trim() ?? '';
-    final answerReady = matching['answer_ready'] == true;
-    final matchedCount = matching['matched_count'] is num
-        ? (matching['matched_count'] as num).round()
-        : selected.length;
-    final unverifiedCount =
-        matching['unverified_count'] is num
-            ? (matching['unverified_count'] as num).round()
-            : 0;
-    final excludedCount =
-        matching['excluded_count'] is num
-            ? (matching['excluded_count'] as num).round()
-            : 0;
+    final selected = VerifiedPlaceFollowup.confirmed(
+      candidates,
+      PlaceResultScope.followup(candidates, _businessesFrom(result)),
+      mission,
+      matching: matching,
+    );
 
     // Filtering a prior result must not turn its subset into a new
     // searchable cohort. Later "그중" still means the original group.
@@ -1344,48 +1352,17 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     final namedAnswer = _namedMatchAnswer(selected);
-    final strictTimeFilter = (mission['criteria'] is List) &&
-        (mission['criteria'] as List).whereType<Map>().any(
-          (criterion) => criterion['field'] == 'closing_time' &&
-              criterion['operator'] == 'gte',
-        );
-    final answer = namedAnswer.isNotEmpty
-        ? namedAnswer
-        : (
-            summary.isNotEmpty
-                ? summary
-                : (
-                    answerReady
-                        ? '조건을 모두 만족하는 업체 $matchedCount곳을 확인했어요.'
-                        : '조건을 판정했지만 아직 최종 확정할 근거가 부족해요.'
-                  )
-          );
-    // A model-generated summary may name businesses outside the cohort
-    // or confidently recommend unknown hours. Never print it for this filter.
-    final summaryLine = !strictTimeFilter &&
-            summary.isNotEmpty && summary != answer
-        ? '\n$summary'
-        : '';
-
+    final answer = selected.isEmpty
+        ? '직전에 찾은 ${candidates.length}곳 중 조건을 '
+            '충족한다고 확인된 업체는 없습니다. '
+            '근거가 없거나 조건에 맞지 않는 업체는 추천하지 않았습니다.'
+        : '$namedAnswer\n'
+            '직전 ${candidates.length}곳 중 검증된 조건 충족 '
+            '${selected.length}곳입니다.';
     _addAssistantMessage(
-      text: selected.isEmpty
-          ? '직전에 찾은 ${candidates.length}곳 안에서는 이번 조건을 '
-              '충족한다고 확인된 업체가 없습니다. '
-              '영업시간이 미확인된 곳은 확정 추천하지 않겠습니다.'
-          : strictTimeFilter
-              ? '$namedAnswer\n'
-                  '직전 ${candidates.length}곳 중 영업시간 근거 확인 '
-                  '${selected.length}곳 · 나머지는 미확인 또는 조건 불일치'
-              : '$answer$summaryLine\n'
-                  '조건충족 $matchedCount · 미확인 $unverifiedCount · '
-                  '불일치 $excludedCount',
-      badge: selected.isNotEmpty &&
-              (strictTimeFilter || answerReady)
-          ? '조건 비교 완료'
-          : '조건 근거 추가 확인 필요',
+      text: answer,
+      badge: selected.isNotEmpty ? '조건 비교 완료' : '조건 근거 추가 확인 필요',
       businesses: selected,
-      // A remote matrix may describe providers outside the visible
-      // cohort or claim unmatched hours. Render only local evidence.
       matching: {
         'criteria': mission['criteria'],
         'answer_ready': selected.isNotEmpty,
@@ -1396,20 +1373,22 @@ class _HomeScreenState extends State<HomeScreen>
               'business_name': item['name'],
               'status': 'matched',
               'criteria': [
-                {
-                  'field': 'closing_time',
-                  'state': 'match',
-                  'label': '오늘 영업시간 확인',
-                  'source': 'verified_same_business_page',
-                },
+                for (final criterion in criteria.whereType<Map>())
+                  {
+                    'field': criterion['field'],
+                    'state': 'match',
+                    'label': criterion['label'] ?? criterion['field'],
+                    'source': criterion['field'] == 'closing_time'
+                        ? 'checked_same_business_hours'
+                        : 'checked_business_evidence_matrix',
+                  },
               ],
             },
         ],
       },
     );
-    _speakProgress(selected.isEmpty
-        ? '이전에 찾은 업체 중 해당 시간까지 영업한다고 확인된 곳은 없습니다.'
-        : strictTimeFilter ? namedAnswer : answer);
+    // Spoken recommendations and on-screen recommendations must agree.
+    _speakProgress(answer);
   }
 
   Future<void> _runRealResearch(
@@ -1438,6 +1417,16 @@ class _HomeScreenState extends State<HomeScreen>
         await _runRecentPlaceComparison(
           guardedFollowup,
           researchRevision,
+        );
+        return;
+      }
+      final scopedMission = VerifiedPlaceFollowup.scopeMission(
+        (mission['user_goal'] ?? mission['summary'] ?? '').toString(),
+        _lastBusinesses, _conversationContext.snapshot, mission,
+      );
+      if (scopedMission != null) {
+        await _runRecentPlaceComparison(
+          scopedMission, researchRevision,
         );
         return;
       }
@@ -2690,6 +2679,18 @@ class _HomeScreenState extends State<HomeScreen>
       );
       if (scoped != null) {
         await _runRealResearch(scoped, forceComplete: true);
+        return;
+      }
+      // Even if Core labels a "그중" comparison as a new search or an
+      // answer, do not permit any new provider into the visible cohort.
+      final scopedFromCore = missions.length == 1
+          ? VerifiedPlaceFollowup.scopeMission(
+              displayText, _lastBusinesses,
+              _conversationContext.snapshot, missions.first,
+            )
+          : null;
+      if (scopedFromCore != null) {
+        await _runRealResearch(scopedFromCore, forceComplete: true);
         return;
       }
 
