@@ -1,6 +1,8 @@
 import re
 
-from .temporal_service import evaluate_business_now
+from .temporal_service import (
+    evaluate_business_now, _hours_lines, _day_applies, _time_ranges, _line_closed,
+)
 
 
 TIME_FIELDS = {"closing_time", "opening_time"}
@@ -272,6 +274,25 @@ def _distance_value(business):
     return None
 
 
+def _closing_time_on_day(business, day):
+    """Only evidence for the requested weekday may confirm 21:00 closing."""
+    from .temporal_service import DAY_NAMES
+    if day not in DAY_NAMES:
+        return None
+    lines, _ = _hours_lines(business)
+    applicable = [line for line in lines if _day_applies(line, day)]
+    if not applicable:
+        return None
+    if any(_line_closed(line) for line in applicable):
+        return 0
+    ends = [
+        end
+        for line in applicable
+        for _, end in _time_ranges(line)
+    ]
+    return max(ends) if ends else None
+
+
 def _criterion_value(business, criterion):
     field = _text(criterion.get("field"))
 
@@ -283,6 +304,9 @@ def _criterion_value(business, criterion):
         )
 
     if field in TIME_FIELDS:
+        day = _text(criterion.get("day"))
+        if day and field == "closing_time":
+            return _closing_time_on_day(business, day), "weekday_opening_hours"
         ranges = _opening_ranges(business)
         if not ranges:
             return None, "opening_hours"
