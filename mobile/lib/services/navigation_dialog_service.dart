@@ -164,7 +164,7 @@ class NavigationDialogState {
     // Operational follow-ups are not new search missions. A question about
     // WHY an earlier navigation attempt failed must not pay for a fresh GPT
     // Core intent request, or accidentally become a restaurant/place search.
-    final compact = text.replaceAll(RegExp(r'\\s+'), '');
+    final compact = text.replaceAll(RegExp(r'\s+'), '');
     final navigationTroubleshooting =
         RegExp(r'내비|네비|길안내|길찾기|경로').hasMatch(compact) &&
         RegExp(r'왜|이유|오류|실패|안돼|안되|않아|됐는데|못해|문제')
