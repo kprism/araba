@@ -8,88 +8,185 @@ class VerifiedPlaceFollowup {
       DateTime.now().toUtc().add(const Duration(hours: 9));
 
   static String compact(String s) => s.replaceAll(RegExp(r'\s+'), '');
-  static List<String> hours(Map<String, dynamic> b) {
-    final found = <String>[];
-    final google = b['google_places'];
-    if (google is Map && google['matched'] == true) {
-      for (final key in ['current_opening_hours', 'regular_opening_hours']) {
-        final value = google[key];
-        if (value is List) found.addAll(value.whereType<String>());
-      }
-    }
-    final naver = b['naver'];
-    // Search-result snippets or unmatched pages are not hours evidence.
-    if (naver is Map &&
-        naver['matched'] == true &&
-        naver['page_checked'] == true) {
-      final value = naver['opening_hours'];
-      if (value is List) found.addAll(value.whereType<String>());
-    }
-    return found;
-  }
+  static final _clockToken = RegExp(
+    r'(?<![0-9A-Za-z])(?:(오전|오후|am|pm)\s*)?'
+    r'(\d{1,2})(?::(\d{2})|시(?:\s*(\d{1,2})분)?)'
+    r'\s*(오전|오후|am|pm)?(?!\d)',
+    caseSensitive: false,
+  );
+  static const _englishDays = [
+    ['monday', 'mon', 'mo'], ['tuesday', 'tue', 'tu'],
+    ['wednesday', 'wed', 'we'], ['thursday', 'thu', 'th'],
+    ['friday', 'fri', 'fr'], ['saturday', 'sat', 'sa'],
+    ['sunday', 'sun', 'su'],
+  ];
+  static const _shortDays = ['월', '화', '수', '목', '금', '토', '일'];
 
   static bool applies(String line, int weekday) {
     final t = compact(line);
-    if (t.contains('매일') || t.toLowerCase().contains('daily')) return true;
+    final lower = line.toLowerCase();
+    if (t.contains('매일') || lower.contains('daily')) return true;
     if (t.contains(days[weekday - 1])) return true;
     if (weekday <= 5 && t.contains('평일')) return true;
     if (weekday >= 6 && t.contains('주말')) return true;
-    const short = ['월','화','수','목','금','토','일'];
-    final letter = short[weekday - 1];
+    final letter = _shortDays[weekday - 1];
     if (RegExp('(?<![월화수목금토일])$letter(?![월화수목금토일])')
         .hasMatch(t)) {
       return true;
     }
-    final ranges = RegExp(
-        r'([월화수목금토일])(?:요일)?[~\-–]([월화수목금토일])').allMatches(t);
-    for (final m in ranges) {
-      final start = short.indexOf(m.group(1)!) + 1;
-      final end = short.indexOf(m.group(2)!) + 1;
-      if (start <= end && weekday >= start && weekday <= end) return true;
-      if (start > end && (weekday >= start || weekday <= end)) {
+    for (final alias in _englishDays[weekday - 1]) {
+      if (RegExp('\\b$alias\\b', caseSensitive: false).hasMatch(line)) {
         return true;
       }
     }
+    final ranges = RegExp(
+      r'([월화수목금토일])(?:요일)?[~\-–]([월화수목금토일])'
+    ).allMatches(t);
+    for (final m in ranges) {
+      final start = _shortDays.indexOf(m.group(1)!) + 1;
+      final end = _shortDays.indexOf(m.group(2)!) + 1;
+      if (start <= end && weekday >= start && weekday <= end) return true;
+      if (start > end && (weekday >= start || weekday <= end)) return true;
+    }
+    final englishRange = RegExp(
+      r'\b(mo|tu|we|th|fr|sa|su|mon|tue|wed|thu|fri|sat|sun)'
+      r'\s*[~\-–]\s*'
+      r'(mo|tu|we|th|fr|sa|su|mon|tue|wed|thu|fri|sat|sun)\b',
+      caseSensitive: false,
+    ).firstMatch(lower);
+    if (englishRange != null) {
+      int dayFor(String value) => _englishDays.indexWhere(
+        (aliases) => aliases.contains(value.toLowerCase()),
+      ) + 1;
+      final first = dayFor(englishRange.group(1)!);
+      final last = dayFor(englishRange.group(2)!);
+      if (first <= last && weekday >= first && weekday <= last) return true;
+      if (first > last && (weekday >= first || weekday <= last)) return true;
+    }
     return false;
+  }
+
+  static List<(int,int)> _ranges(String line) {
+    final lower = compact(line).toLowerCase();
+    if (line.contains('24시간') || lower.contains('24hours') ||
+        lower.contains('open24hours')) {
+      return [(0, 1440)];
+    }
+    final tokens = <(int,String)>[];
+    for (final match in _clockToken.allMatches(line)) {
+      var hour = int.parse(match.group(2)!);
+      final minute = int.parse(match.group(3) ?? match.group(4) ?? '0');
+      final period = (match.group(1) ?? match.group(5) ?? '').toLowerCase();
+      if (hour > 24 || minute >= 60 ||
+          (period.isNotEmpty && (hour < 1 || hour > 12))) {
+        continue;
+      }
+      if ((period == 'pm' || period == '오후') && hour < 12) {
+        hour += 12;
+      } else if ((period == 'am' || period == '오전') && hour == 12) {
+        hour = 0;
+      }
+      if (hour == 24 && minute != 0) continue;
+      tokens.add((hour * 60 + minute, period));
+    }
+    final ranges = <(int,int)>[];
+    for (var index = 0; index + 1 < tokens.length; index += 2) {
+      final (opening, openPeriod) = tokens[index];
+      var (closing, closePeriod) = tokens[index + 1];
+      if ((openPeriod == 'pm' || openPeriod == '오후') &&
+          closePeriod.isEmpty && closing < 720) {
+        closing += 720;
+      }
+      if (closing <= opening) closing += 1440;
+      ranges.add((opening, closing));
+    }
+    return ranges;
+  }
+
+  /// Normalized identity-checked weekday/start/end windows. Kept separate
+  /// so "21시" is compared numerically with 21:00 rather than by text.
+  static List<Map<String,dynamic>> normalizedHours(Map<String,dynamic> b) {
+    final google = b['google_places'];
+    final checkedGoogle = google is Map && google['matched'] == true;
+    final naver = b['naver'];
+    final checkedNaver = naver is Map &&
+        naver['matched'] == true && naver['page_checked'] == true;
+    final fromServer = b['structured_opening_hours'];
+    if (fromServer is List) {
+      final checked = fromServer.whereType<Map>().where((r) {
+        final source = r['source']?.toString() ?? '';
+        return (source.startsWith('google_places') && checkedGoogle) ||
+            (source == 'naver_verified_page' && checkedNaver);
+      }).map((r) => Map<String,dynamic>.from(r)).toList();
+      if (checked.isNotEmpty) return checked;
+    }
+
+    List<Map<String,dynamic>> parseLines(List lines, String source) {
+      final output = <Map<String,dynamic>>[];
+      for (final value in lines.whereType<String>()) {
+        final closed = RegExp(
+          r'휴무|휴점|정기휴무|closed|영업안함|운영안함',
+          caseSensitive: false,
+        ).hasMatch(value);
+        for (var weekday = 1; weekday <= 7; weekday++) {
+          if (!applies(value, weekday)) continue;
+          if (closed) {
+            output.add({
+              'weekday': days[weekday - 1],
+              'closed': true, 'source': source,
+            });
+          } else {
+            for (final (start, end) in _ranges(value)) {
+              output.add({
+                'weekday': days[weekday - 1],
+                'start_minute': start, 'end_minute': end,
+                'start_time':
+                    '${(start ~/ 60).toString().padLeft(2, '0')}:${(start % 60).toString().padLeft(2, '0')}',
+                'end_time':
+                    '${(end ~/ 60).toString().padLeft(2, '0')}:${(end % 60).toString().padLeft(2, '0')}',
+                'source': source,
+              });
+            }
+          }
+        }
+      }
+      return output;
+    }
+
+    if (checkedGoogle) {
+      for (final key in ['current_opening_hours','regular_opening_hours']) {
+        final lines = google[key];
+        if (lines is List) {
+          final records = parseLines(lines, 'google_places');
+          if (records.isNotEmpty) return records;
+        }
+      }
+    }
+    if (checkedNaver) {
+      final lines = naver['opening_hours'];
+      if (lines is List) return parseLines(lines, 'naver_verified_page');
+    }
+    return [];
   }
 
   static bool? openThrough(
     Map<String, dynamic> b, int atMinute, {DateTime? nowKst}
   ) {
-    final weekday = (nowKst ?? koreanNow()).weekday;
-    final lines = hours(b).where((s) => applies(s, weekday)).toList();
-    if (lines.isEmpty) return null;
-    if (lines.any((s) => RegExp(
-      r'휴무|휴점|정기휴무|closed|영업안함|운영안함', caseSensitive: false
-    ).hasMatch(s))) {
-      return false;
-    }
-    var coversRequestedTime = false;
-    var foundWindow = false;
-    for (final line in lines) {
-      if (line.contains('24시간')) {
-        foundWindow = true;
-        coversRequestedTime = true;
-      }
-      final matches = RegExp(
-        r'(\d{1,2}):(\d{2})\s*[~\-–]\s*(\d{1,2}):(\d{2})'
-      ).allMatches(line);
-      for (final m in matches) {
-        final start = int.parse(m.group(1)!) * 60 + int.parse(m.group(2)!);
-        var end = int.parse(m.group(3)!) * 60 + int.parse(m.group(4)!);
-        if (start > 1440 || end > 1440) continue;
-        if (end <= start) end += 1440;
-        if (start > end || start > atMinute) {
-          // A business that opens after the requested time is not open then.
-          foundWindow = true;
-          continue;
-        }
-        foundWindow = true;
-        if (end >= atMinute) coversRequestedTime = true;
+    final date = nowKst ?? koreanNow();
+    final today = days[date.weekday - 1];
+    final rows = normalizedHours(b)
+        .where((row) => row['weekday'] == today).toList();
+    if (rows.isEmpty) return null;
+    if (rows.any((row) => row['closed'] == true)) return false;
+    for (final row in rows) {
+      final start = row['start_minute'];
+      final end = row['end_minute'];
+      if (start is num && end is num &&
+          start <= atMinute && atMinute <= end) {
+        return true;
       }
     }
-    if (!foundWindow) return null;
-    return coversRequestedTime;
+    return false;
   }
 
   /// Whether a new utterance explicitly refers to the existing results.
